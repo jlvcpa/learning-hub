@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, X, ChevronDown, ChevronRight, Table, AlertCircle, Plus, Trash2, Printer, Lock } from 'https://esm.sh/lucide-react@0.263.1';
+import { Book, Check, X, ChevronDown, ChevronRight, Table, AlertCircle, Plus, Trash2, Printer, Lock, List } from 'https://esm.sh/lucide-react@0.263.1';
 import { ActivityHelper, sortAccounts, getAccountType, EQUITY_CAUSES } from './utils.js';
 
 const html = htm.bind(React.createElement);
@@ -11,6 +11,154 @@ const StatusIcon = ({ correct, show }) => {
         ? html`<${Check} size=${14} className="text-green-600 inline ml-1" />` 
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
+
+// --- SUB-COMPONENTS TO PREVENT SYNTAX ERRORS ---
+
+const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
+    const isDesc = row.isDescription;
+    const isYearRow = tIdx === 0 && idx === 0;
+    
+    // Validation Logic extracted here
+    const getValidationState = () => {
+        if (!showFeedback) return null;
+        if (tIdx === 0 && idx === 0) { 
+            const txnDate = new Date(t.date); 
+            const yyyy = txnDate.getFullYear().toString(); 
+            const val = row.date?.trim(); 
+            const isEmptyOthers = !row.acc && !row.pr && !row.dr && !row.cr; 
+            return val === yyyy && isEmptyOthers; 
+        }
+        if ((tIdx === 0 && idx === 1) || (tIdx > 0 && idx === 0)) { 
+            const txnDate = new Date(t.date); 
+            const mm = txnDate.toLocaleString('default', { month: 'short' }); 
+            const dd = txnDate.getDate().toString(); 
+            const dd0 = dd.padStart(2, '0'); 
+            const val = row.date?.trim(); 
+            let dateValid = false; 
+            if (tIdx === 0 && idx === 1) dateValid = val === `${mm} ${dd}` || val === `${mm} ${dd0}`; 
+            else dateValid = val === dd || val === dd0; 
+            if (!dateValid) return false; 
+        }
+        if (!row.isDescription && row.acc) { 
+            const acc = row.acc.trim(); 
+            const dr = Number(row.dr) || 0; 
+            const cr = Number(row.cr) || 0; 
+            const isDebit = dr > 0; 
+            const isCredit = cr > 0; 
+            if (!isDebit && !isCredit) return null; 
+            if (isDebit && row.acc[0] === ' ') return false; 
+            if (isCredit && !row.acc.startsWith('     ')) return false; 
+            const targetList = isDebit ? t.debits : t.credits; 
+            const match = targetList.some(item => item.account === acc && Math.abs(item.amount - (isDebit ? dr : cr)) <= 1); 
+            return match; 
+        }
+        return null;
+    };
+
+    const isValid = getValidationState();
+    let datePlaceholder = "";
+    if (tIdx === 0) { if (idx === 0) datePlaceholder = "YYYY"; else if (idx === 1) datePlaceholder = "Mmm dd"; } else { if (idx === 0) datePlaceholder = "dd"; }
+
+    return html`
+        <div className=${`flex h-8 items-center border-t border-gray-100 ${isDesc ? 'bg-white text-gray-600' : ''}`}>
+            <div className="w-16 h-full border-r relative">
+                ${!isDesc && html`
+                    <input type="text" className=${`w-full h-full px-1 text-xs outline-none bg-transparent text-right ${isValid === false && (idx===0 || (tIdx===0 && idx===1)) ? 'bg-red-50' : ''}`} value=${row.date || ''} onChange=${(e)=>updateRow(idx, 'date', e.target.value)} placeholder=${datePlaceholder} disabled=${isReadOnly}/>
+                    ${(idx === 0 || (tIdx===0 && idx===1)) && html`<div className="absolute left-0 top-1"><${StatusIcon} show=${showFeedback} correct=${isValid} /></div>`}
+                `}
+            </div>
+            <div className="flex-1 h-full border-r relative">
+                ${isDesc 
+                    ? html`<div className="px-2 w-full h-full flex items-center overflow-hidden whitespace-pre-wrap text-xs font-mono absolute top-0 left-0 z-10 bg-white border-r" style=${{width: 'calc(100% + 16rem)'}}>${row.acc}</div>`
+                    : (!isYearRow && html`
+                        <input type="text" className=${`w-full h-full px-2 outline-none font-mono text-xs ${isValid === false ? 'bg-red-50' : ''}`} value=${row.acc || ''} onChange=${(e)=>updateRow(idx, 'acc', e.target.value)} placeholder="Account Title" disabled=${isReadOnly}/>
+                        <div className="absolute right-1 top-1"><${StatusIcon} show=${showFeedback && (row.dr > 0 || row.cr > 0)} correct=${isValid} /></div>
+                    `)
+                }
+            </div>
+            <div className="w-16 h-full border-r">
+                ${!isDesc && !isYearRow && html`<input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr || ''} onChange=${(e)=>updateRow(idx, 'pr', e.target.value)} disabled=${isReadOnly} />`}
+            </div>
+            <div className="w-24 h-full border-r relative">
+                ${!isDesc && !isYearRow && html`<input type="number" className="w-full h-full px-2 text-right outline-none bg-transparent" value=${row.dr||''} onChange=${(e)=>updateRow(idx,'dr',e.target.value)} disabled=${isReadOnly} />`}
+            </div>
+            <div className="w-24 h-full border-r relative">
+                ${!isDesc && !isYearRow && html`<input type="number" className="w-full h-full px-2 text-right outline-none bg-transparent" value=${row.cr||''} onChange=${(e)=>updateRow(idx,'cr',e.target.value)} disabled=${isReadOnly} />`}
+            </div>
+            <div className="w-8 flex justify-center items-center">
+                ${!isDesc && !isYearRow && !isReadOnly && html`<button onClick=${() => deleteRow(idx)} className="text-red-400 hover:text-red-600"><${Trash2} size=${14}/></button>`}
+            </div>
+        </div>
+    `;
+};
+
+const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow, deleteLedger, isReadOnly, showFeedback }) => {
+    const correctDr = ledgerKey[l.account]?.debit || 0; 
+    const correctCr = ledgerKey[l.account]?.credit || 0; 
+    const correctBal = Math.abs(correctDr - correctCr); 
+    const leftRows = l.leftRows && l.leftRows.length > 0 ? l.leftRows : [{}, {}, {}, {}]; 
+    const rightRows = l.rightRows && l.rightRows.length > 0 ? l.rightRows : [{}, {}, {}, {}];
+    const maxRows = Math.max(leftRows.length, rightRows.length);
+    const displayRows = Array.from({length: maxRows}).map((_, i) => i);
+
+    const getTotalStyle = (total, correct) => {
+         if (!showFeedback && !isReadOnly) return "bg-white text-black";
+         return Math.abs(Number(total) - correct) <= 1 ? "text-green-600 font-bold" : "text-red-600 font-bold";
+    };
+
+    return html`
+        <div className="border-2 border-gray-800 bg-white shadow-md">
+            <div className="border-b-2 border-gray-800 p-2 flex justify-between bg-gray-100 relative">
+                <div className="absolute left-2 top-2"><${StatusIcon} show=${showFeedback} correct=${!!ledgerKey[l.account]} /></div>
+                <div className="w-full text-center mx-8"><input list="step3-accs" className="w-full border-b border-gray-400 text-center bg-transparent font-bold text-lg outline-none" placeholder="Account Title" value=${l.account} onChange=${(e)=>updateLedger(idx,'account',e.target.value)} disabled=${isReadOnly} /></div>
+                ${!isReadOnly && html`<button onClick=${() => deleteLedger(idx)} className="absolute right-2 top-2 text-red-500 hover:text-red-700"><${Trash2} size=${16}/></button>`}
+            </div>
+            <div className="flex">
+                <div className="flex-1 border-r-2 border-gray-800">
+                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50">DEBIT</div>
+                    <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center">Amount</div></div>
+                    ${displayRows.map(rowIdx => {
+                        const row = leftRows[rowIdx] || {};
+                        return html`
+                            <div key=${`l-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-8 relative">
+                                <div className="w-16 border-r relative"><input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'date',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-10 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-20 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/></div>
+                            </div>
+                        `;
+                    })}
+                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Debit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${getTotalStyle(l.drTotal, correctDr)}`} value=${l.drTotal||''} onChange=${(e)=>updateLedger(idx,'drTotal',e.target.value)} disabled=${isReadOnly} /></div>
+                </div>
+                <div className="flex-1">
+                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50">CREDIT</div>
+                    <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center border-r">Amount</div><div className="w-6"></div></div>
+                    ${displayRows.map(rowIdx => {
+                        const row = rightRows[rowIdx] || {};
+                        return html`
+                            <div key=${`r-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-8 relative">
+                                <div className="w-16 border-r relative"><input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'date',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-10 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-20 border-r relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/></div>
+                            </div>
+                        `;
+                    })}
+                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Credit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${getTotalStyle(l.crTotal, correctCr)}`} value=${l.crTotal||''} onChange=${(e)=>updateLedger(idx,'crTotal',e.target.value)} disabled=${isReadOnly} /></div>
+                </div>
+            </div>
+            <div className="border-t border-gray-300 p-2 bg-gray-100 flex justify-center items-center gap-2">
+                <span className="text-xs font-bold uppercase text-gray-600">Balance:</span>
+                <select className="border border-gray-300 rounded text-xs p-1 outline-none bg-white" value=${l.balanceType || ''} onChange=${(e)=>updateLedger(idx, 'balanceType', e.target.value)} disabled=${isReadOnly}><option value="" disabled>Debit or Credit?</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
+                <input type="number" className="w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none" placeholder="0" value=${l.balance||''} onChange=${(e)=>updateLedger(idx,'balance',e.target.value)} disabled=${isReadOnly} />
+                <div className="ml-2"><${StatusIcon} show=${showFeedback} correct=${!!(ledgerKey[l.account] && Math.abs(Number(l.balance)-correctBal)<=1 && l.balanceType === (correctDr >= correctCr ? 'Dr' : 'Cr'))} /></div>
+            </div>
+            ${!isReadOnly && html`<div className="p-2 text-center bg-gray-50 border-t border-gray-300"><button onClick=${()=>addRow(idx)} className="text-xs border border-dashed border-gray-400 rounded px-3 py-1 text-gray-600 hover:bg-white hover:text-blue-600 flex items-center gap-1 mx-auto"><${Plus} size=${12}/> Add Row</button></div>`}
+        </div>
+    `;
+};
+
+// --- MAIN COMPONENTS ---
 
 const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback, matchedJournalEntries, isReadOnly }) => {
     const [expanded, setExpanded] = useState(true);
@@ -194,33 +342,11 @@ export const Step2Journalizing = ({ transactions = [], data, onChange, showFeedb
                 const updateRow = (idx, field, val) => { const newRows = [...rows]; if(!newRows[idx]) newRows[idx] = {}; newRows[idx] = { ...newRows[idx], [field]: val }; onChange(t.id, newRows); };
                 const addRow = () => { const newRows = [...rows]; const descRow = newRows.pop(); newRows.push({ id: Date.now(), date: '', acc: '', dr: '', cr: '', pr: '' }); newRows.push(descRow); onChange(t.id, newRows); };
                 const deleteRow = (idx) => { const minRows = tIdx === 0 ? 4 : 3; if (rows.length <= minRows) return; const newRows = rows.filter((_, i) => i !== idx); onChange(t.id, newRows); };
-                const getValidationState = (row, rowIdx) => {
-                    if (!showFeedback) return null;
-                    if (tIdx === 0 && rowIdx === 0) { const txnDate = new Date(t.date); const yyyy = txnDate.getFullYear().toString(); const val = row.date?.trim(); const isEmptyOthers = !row.acc && !row.pr && !row.dr && !row.cr; return val === yyyy && isEmptyOthers; }
-                    if ((tIdx === 0 && rowIdx === 1) || (tIdx > 0 && rowIdx === 0)) { const txnDate = new Date(t.date); const mm = txnDate.toLocaleString('default', { month: 'short' }); const dd = txnDate.getDate().toString(); const dd0 = dd.padStart(2, '0'); const val = row.date?.trim(); let dateValid = false; if (tIdx === 0 && rowIdx === 1) dateValid = val === `${mm} ${dd}` || val === `${mm} ${dd0}`; else dateValid = val === dd || val === dd0; if (!dateValid) return false; }
-                    if (!row.isDescription && row.acc) { const acc = row.acc.trim(); const dr = Number(row.dr) || 0; const cr = Number(row.cr) || 0; const isDebit = dr > 0; const isCredit = cr > 0; if (!isDebit && !isCredit) return null; if (isDebit && row.acc[0] === ' ') return false; if (isCredit && !row.acc.startsWith('     ')) return false; const targetList = isDebit ? t.debits : t.credits; const match = targetList.some(item => item.account === acc && Math.abs(item.amount - (isDebit ? dr : cr)) <= 1); return match; }
-                    return null;
-                };
+                
                 return html`
                     <div key=${t.id} className="border-b border-gray-300 text-sm">
                         <div className="bg-gray-50 px-2 py-1 text-xs font-bold text-gray-700 border-b border-gray-200">${t.date}. ${t.description}</div>
-                        ${rows.map((row, idx) => {
-                            const isDesc = row.isDescription;
-                            const isYearRow = tIdx === 0 && idx === 0;
-                            const isValid = getValidationState(row, idx);
-                            let datePlaceholder = "";
-                            if (tIdx === 0) { if (idx === 0) datePlaceholder = "YYYY"; else if (idx === 1) datePlaceholder = "Mmm dd"; } else { if (idx === 0) datePlaceholder = "dd"; }
-                            return html`
-                                <div key=${idx} className=${`flex h-8 items-center border-t border-gray-100 ${isDesc ? 'bg-white text-gray-600' : ''}`}>
-                                    <div className="w-16 h-full border-r relative">${!isDesc && (html`<React.Fragment><input type="text" className=${`w-full h-full px-1 text-xs outline-none bg-transparent text-right ${isValid === false && (idx===0 || (tIdx===0 && idx===1)) ? 'bg-red-50' : ''}`} value=${row.date || ''} onChange=${(e)=>updateRow(idx, 'date', e.target.value)} placeholder=${datePlaceholder} disabled=${isReadOnly}/>${(idx === 0 || (tIdx===0 && idx===1)) && html`<div className="absolute left-0 top-1"><${StatusIcon} show=${showFeedback} correct=${isValid} /></div>`}</React.Fragment>)}</div>
-                                    <div className="flex-1 h-full border-r relative">${isDesc ? (html`<div className="px-2 w-full h-full flex items-center overflow-hidden whitespace-pre-wrap text-xs font-mono absolute top-0 left-0 z-10 bg-white border-r" style=${{width: 'calc(100% + 16rem)'}}>${row.acc}</div>`) : (!isYearRow && (html`<React.Fragment><input type="text" className=${`w-full h-full px-2 outline-none font-mono text-xs ${isValid === false ? 'bg-red-50' : ''}`} value=${row.acc || ''} onChange=${(e)=>updateRow(idx, 'acc', e.target.value)} placeholder="Account Title" disabled=${isReadOnly}/><div className="absolute right-1 top-1"><${StatusIcon} show=${showFeedback && (row.dr > 0 || row.cr > 0)} correct=${isValid} /></div></React.Fragment>`))}</div>
-                                    <div className="w-16 h-full border-r">${!isDesc && !isYearRow && html`<input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr || ''} onChange=${(e)=>updateRow(idx, 'pr', e.target.value)} disabled=${isReadOnly} />`}</div>
-                                    <div className="w-24 h-full border-r relative">${!isDesc && !isYearRow && html`<input type="number" className="w-full h-full px-2 text-right outline-none bg-transparent" value=${row.dr||''} onChange=${(e)=>updateRow(idx,'dr',e.target.value)} disabled=${isReadOnly} />`}</div>
-                                    <div className="w-24 h-full border-r relative">${!isDesc && !isYearRow && html`<input type="number" className="w-full h-full px-2 text-right outline-none bg-transparent" value=${row.cr||''} onChange=${(e)=>updateRow(idx,'cr',e.target.value)} disabled=${isReadOnly} />`}</div>
-                                    <div className="w-8 flex justify-center items-center">${!isDesc && !isYearRow && !isReadOnly && (html`<button onClick=${() => deleteRow(idx)} className="text-red-400 hover:text-red-600"><${Trash2} size=${14}/></button>`)}</div>
-                                </div>
-                            `;
-                        })}
+                        ${rows.map((row, idx) => html`<${JournalRow} key=${idx} row=${row} idx=${idx} tIdx=${tIdx} updateRow=${updateRow} deleteRow=${deleteRow} showFeedback=${showFeedback} isReadOnly=${isReadOnly} t=${t} />`)}
                         <div className="bg-gray-50 p-1 flex justify-center border-t">${!isReadOnly && html`<button onClick=${addRow} className="text-xs border border-dashed border-gray-400 rounded px-2 py-1 text-gray-600 hover:bg-white hover:text-blue-600 flex items-center gap-1 transition-colors"><${Plus} size=${12}/> Add Row</button>`}</div>
                     </div>
                 `;
@@ -243,10 +369,6 @@ export const Step3Posting = ({ data, onChange, showFeedback, validAccounts, ledg
     };
     const addRow = (idx) => { const n = [...ledgers]; const left = n[idx].leftRows || [{}]; const right = n[idx].rightRows || [{}]; left.push({}); right.push({}); n[idx].leftRows = left; n[idx].rightRows = right; onChange('ledgers', n); };
     const deleteLedger = (idx) => { if (!window.confirm("Delete this entire ledger?")) return; const n = ledgers.filter((_, i) => i !== idx); onChange('ledgers', n); };
-    const getTotalStyle = (total, correct) => {
-         if (!showFeedback && !isReadOnly) return "bg-white text-black";
-         return Math.abs(Number(total) - correct) <= 1 ? "text-green-600 font-bold" : "text-red-600 font-bold";
-    };
     
     return html`
         <div className="flex flex-col lg:flex-row gap-4 h-full">
@@ -255,65 +377,7 @@ export const Step3Posting = ({ data, onChange, showFeedback, validAccounts, ledg
                 <div className="bg-blue-100 p-2 font-bold text-blue-900">General Ledger</div>
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
                     <div className="flex flex-col gap-8 pb-4">
-                        ${ledgers.map((l, idx) => { 
-                            const correctDr = ledgerKey[l.account]?.debit || 0; 
-                            const correctCr = ledgerKey[l.account]?.credit || 0; 
-                            const correctBal = Math.abs(correctDr - correctCr); 
-                            const leftRows = l.leftRows && l.leftRows.length > 0 ? l.leftRows : [{}, {}, {}, {}]; 
-                            const rightRows = l.rightRows && l.rightRows.length > 0 ? l.rightRows : [{}, {}, {}, {}];
-                            const maxRows = Math.max(leftRows.length, rightRows.length);
-                            const displayRows = Array.from({length: maxRows}).map((_, i) => i);
-                            return html`
-                                <div key=${l.id} className="border-2 border-gray-800 bg-white shadow-md">
-                                    <div className="border-b-2 border-gray-800 p-2 flex justify-between bg-gray-100 relative">
-                                        <div className="absolute left-2 top-2"><${StatusIcon} show=${showFeedback} correct=${!!ledgerKey[l.account]} /></div>
-                                        <div className="w-full text-center mx-8"><input list="step3-accs" className="w-full border-b border-gray-400 text-center bg-transparent font-bold text-lg outline-none" placeholder="Account Title" value=${l.account} onChange=${(e)=>updateLedger(idx,'account',e.target.value)} disabled=${isReadOnly} /></div>
-                                        ${!isReadOnly && html`<button onClick=${() => deleteLedger(idx)} className="absolute right-2 top-2 text-red-500 hover:text-red-700"><${Trash2} size=${16}/></button>`}
-                                    </div>
-                                    <div className="flex">
-                                        <div className="flex-1 border-r-2 border-gray-800">
-                                            <div className="text-center font-bold border-b border-gray-400 bg-gray-50">DEBIT</div>
-                                            <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center">Amount</div></div>
-                                            ${displayRows.map(rowIdx => {
-                                                const row = leftRows[rowIdx] || {};
-                                                return html`
-                                                    <div key=${`l-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-8 relative">
-                                                        <div className="w-16 border-r relative"><input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'date',e.target.value)} disabled=${isReadOnly}/></div>
-                                                        <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/></div>
-                                                        <div className="w-10 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/></div>
-                                                        <div className="w-20 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/></div>
-                                                    </div>
-                                                `;
-                                            })}
-                                            <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Debit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${getTotalStyle(l.drTotal, correctDr)}`} value=${l.drTotal||''} onChange=${(e)=>updateLedger(idx,'drTotal',e.target.value)} disabled=${isReadOnly} /></div>
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="text-center font-bold border-b border-gray-400 bg-gray-50">CREDIT</div>
-                                            <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center border-r">Amount</div><div className="w-6"></div></div>
-                                            ${displayRows.map(rowIdx => {
-                                                const row = rightRows[rowIdx] || {};
-                                                return html`
-                                                    <div key=${`r-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-8 relative">
-                                                        <div className="w-16 border-r relative"><input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'date',e.target.value)} disabled=${isReadOnly}/></div>
-                                                        <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/></div>
-                                                        <div className="w-10 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/></div>
-                                                        <div className="w-20 border-r relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/></div>
-                                                    </div>
-                                                `;
-                                            })}
-                                            <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Credit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${getTotalStyle(l.crTotal, correctCr)}`} value=${l.crTotal||''} onChange=${(e)=>updateLedger(idx,'crTotal',e.target.value)} disabled=${isReadOnly} /></div>
-                                        </div>
-                                    </div>
-                                    <div className="border-t border-gray-300 p-2 bg-gray-100 flex justify-center items-center gap-2">
-                                        <span className="text-xs font-bold uppercase text-gray-600">Balance:</span>
-                                        <select className="border border-gray-300 rounded text-xs p-1 outline-none bg-white" value=${l.balanceType || ''} onChange=${(e)=>updateLedger(idx, 'balanceType', e.target.value)} disabled=${isReadOnly}><option value="" disabled>Debit or Credit?</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
-                                        <input type="number" className="w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none" placeholder="0" value=${l.balance||''} onChange=${(e)=>updateLedger(idx,'balance',e.target.value)} disabled=${isReadOnly} />
-                                        <${StatusIcon} show=${showFeedback} correct=${!!(ledgerKey[l.account] && Math.abs(Number(l.balance)-correctBal)<=1 && l.balanceType === (correctDr >= correctCr ? 'Dr' : 'Cr'))} />
-                                    </div>
-                                    ${!isReadOnly && html`<div className="p-2 text-center bg-gray-50 border-t border-gray-300"><button onClick=${()=>addRow(idx)} className="text-xs border border-dashed border-gray-400 rounded px-3 py-1 text-gray-600 hover:bg-white hover:text-blue-600 flex items-center gap-1 mx-auto"><${Plus} size=${12}/> Add Row</button></div>`}
-                                </div>
-                            `;
-                        })}
+                        ${ledgers.map((l, idx) => html`<${LedgerAccount} key=${l.id} l=${l} idx=${idx} ledgerKey=${ledgerKey} updateLedger=${updateLedger} updateSideRow=${updateSideRow} addRow=${addRow} deleteLedger=${deleteLedger} isReadOnly=${isReadOnly} showFeedback=${showFeedback} />`)}
                     </div>
                     ${!isReadOnly && html`<button onClick=${()=>onChange('ledgers', [...ledgers, { id: Date.now(), account: '', leftRows:[{},{},{},{}], rightRows:[{},{},{},{}] }])} className="mt-8 w-full py-3 border-2 border-dashed border-gray-400 text-gray-500 hover:border-blue-400 flex justify-center items-center gap-2 font-bold bg-gray-50"><${Plus} size=${20}/> Add New Account Ledger</button>`}
                 </div>
@@ -434,11 +498,37 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
         return sortAccounts(Array.from(s)); 
     }, [ledgerData, adjustments]);
 
+    // Use derived state for correct totals calculation only
+    const correctTotals = useMemo(() => {
+        const totals = { tbDr: 0, tbCr: 0, adjDr: 0, adjCr: 0, atbDr: 0, atbCr: 0, isDr: 0, isCr: 0, bsDr: 0, bsCr: 0, netInc: 0, finISDr: 0, finISCr: 0, finBSDr: 0, finBSCr: 0 };
+        mergedAccounts.forEach(acc => {
+            const ledgerBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
+            const tbDr = ledgerBal > 0 ? ledgerBal : 0; const tbCr = ledgerBal < 0 ? Math.abs(ledgerBal) : 0;
+            totals.tbDr += tbDr; totals.tbCr += tbCr;
+            let aDr = 0; let aCr = 0;
+            adjustments.forEach(a => { if (a.drAcc === acc) aDr += a.amount; if (a.crAcc === acc) aCr += a.amount; });
+            totals.adjDr += aDr; totals.adjCr += aCr;
+            let atbNet = (tbDr - tbCr) + (aDr - aCr);
+            const atbDr = atbNet > 0 ? atbNet : 0; const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
+            totals.atbDr += atbDr; totals.atbCr += atbCr;
+            const type = getAccountType(acc);
+            if (type === 'Revenue' || type === 'Expense') { totals.isDr += atbDr; totals.isCr += atbCr; } else { totals.bsDr += atbDr; totals.bsCr += atbCr; }
+        });
+        totals.netInc = totals.isCr - totals.isDr;
+        totals.finISDr = totals.isDr + (totals.netInc > 0 ? totals.netInc : 0);
+        totals.finISCr = totals.isCr + (totals.netInc < 0 ? Math.abs(totals.netInc) : 0);
+        totals.finBSDr = totals.bsDr + (totals.netInc < 0 ? Math.abs(totals.netInc) : 0);
+        totals.finBSCr = totals.bsCr + (totals.netInc > 0 ? totals.netInc : 0);
+        return totals;
+    }, [mergedAccounts, ledgerData, adjustments]);
+
     const getVal = (acc, col) => data[acc]?.[col] === '' || data[acc]?.[col] === undefined ? 0 : Number(data[acc][col]);
+    const isCellCorrect = (acc, col, expVal) => { const userVal = getVal(acc, col); if (expVal === 0 && userVal === 0) return true; return Math.abs(userVal - expVal) <= 1; };
+    const getFooterVal = (row, col) => data.footers?.[row]?.[col] !== undefined ? Number(data.footers[row][col]) : 0;
     const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 
-    // FIX: Define the onChange handler outside the template literal to avoid parsing errors
-    const handleChange = (acc, col, value) => onChange(acc, col, value);
+    const handleCellChange = (acc, col, val) => onChange(acc, col, val);
+    const handleFooterChange = (section, field, val) => onChange('footers', `${section}.${field}`, val);
 
     return html`
         <div className="w-full">
@@ -458,15 +548,26 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
                     <tbody>
                         ${mergedAccounts.map((acc, idx) => {
                             const bgClass = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                            const ledgerBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
+                            const expTbDr = ledgerBal > 0 ? ledgerBal : 0; const expTbCr = ledgerBal < 0 ? Math.abs(ledgerBal) : 0;
+                            let expAdjDr = 0; let expAdjCr = 0; adjustments.forEach(a => { if(a.drAcc === acc) expAdjDr += a.amount; if(a.crAcc === acc) expAdjCr += a.amount; });
+                            const atbNet = (expTbDr - expTbCr) + (expAdjDr - expAdjCr);
+                            const expAtbDr = atbNet > 0 ? atbNet : 0; const expAtbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
+                            const type = getAccountType(acc); const isIS = type === 'Revenue' || type === 'Expense';
+                            const expIsDr = isIS ? expAtbDr : 0; const expIsCr = isIS ? expAtbCr : 0; const expBsDr = !isIS ? expAtbDr : 0; const expBsCr = !isIS ? expAtbCr : 0;
+
                             return html`
                                 <tr key=${acc} className=${`border-b hover:bg-blue-50 ${bgClass}`}>
                                     <td className=${`p-1 border-r text-left truncate sticky left-0 z-0 ${bgClass} font-medium`}>${acc}</td>
-                                    ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map((col) => (
-                                        html`<td key=${col} className="border-r p-0 relative"><input type="number" className=${inputClass(false)} value=${data[acc]?.[col] || ''} onChange=${(e) => handleChange(acc, col, e.target.value)} disabled=${isReadOnly} /></td>`
+                                    ${[{c: 'tbDr', exp: expTbDr}, {c: 'tbCr', exp: expTbCr}, {c: 'adjDr', exp: expAdjDr}, {c: 'adjCr', exp: expAdjCr}, {c: 'atbDr', exp: expAtbDr}, {c: 'atbCr', exp: expAtbCr}, {c: 'isDr', exp: expIsDr}, {c: 'isCr', exp: expIsCr}, {c: 'bsDr', exp: expBsDr}, {c: 'bsCr', exp: expBsCr}].map((col, cIdx) => (
+                                        html`<td key=${cIdx} className="border-r p-0 relative"><input type="number" className=${inputClass(showFeedback && !isCellCorrect(acc, col.c, col.exp))} value=${data[acc]?.[col.c] || ''} onChange=${(e) => handleCellChange(acc, col.c, e.target.value)} disabled=${isReadOnly} /></td>`
                                     ))}
                                 </tr>
                             `;
                         })}
+                        <tr className="bg-gray-100 font-bold border-t-2 border-gray-400"><td className="p-1 border-r text-right sticky left-0 bg-gray-100">Column Totals</td>${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map((key) => html`<td key=${key} className="border-r p-0"><input type="number" className=${inputClass(showFeedback && Math.abs(getFooterVal('totals', key) - correctTotals[key]) > 1)} value=${data.footers?.totals?.[key] || ''} onChange=${(e) => handleFooterChange('totals', key, e.target.value)} disabled=${isReadOnly} /></td>`)}</tr>
+                        <tr className="bg-white"><td className="p-1 border-r text-right sticky left-0 bg-white">Net Income (Loss)</td><td colSpan="6" className="border-r bg-gray-100"></td><td className="border-r p-0"><input type="number" className=${inputClass(showFeedback && correctTotals.netInc > 0 && Math.abs(getFooterVal('net', 'isDr') - correctTotals.netInc) > 1)} value=${data.footers?.net?.isDr || ''} onChange=${(e) => handleFooterChange('net', 'isDr', e.target.value)} disabled=${correctTotals.netInc <= 0 || isReadOnly} /></td><td className="border-r p-0"><input type="number" disabled=${correctTotals.netInc >= 0 || isReadOnly} value=${data.footers?.net?.isCr || ''} onChange=${(e) => handleFooterChange('net', 'isCr', e.target.value)} className=${inputClass(false)}/></td><td className="border-r p-0"><input type="number" disabled=${correctTotals.netInc >= 0 || isReadOnly} value=${data.footers?.net?.bsDr || ''} onChange=${(e) => handleFooterChange('net', 'bsDr', e.target.value)} className=${inputClass(false)}/></td><td className="p-0"><input type="number" className=${inputClass(showFeedback && correctTotals.netInc > 0 && Math.abs(getFooterVal('net', 'bsCr') - correctTotals.netInc) > 1)} value=${data.footers?.net?.bsCr || ''} onChange=${(e) => handleFooterChange('net', 'bsCr', e.target.value)} disabled=${correctTotals.netInc <= 0 || isReadOnly} /></td></tr>
+                        <tr className="bg-gray-200 font-extrabold border-t border-b-2 border-black"><td className="p-1 border-r text-right sticky left-0 bg-gray-200">Final Total</td>${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'finISDr', 'finISCr', 'finBSDr', 'finBSCr'].map((k) => html`<td key=${k} className="border-r p-0"><input type="number" className=${inputClass(showFeedback && Math.abs(getFooterVal('final', k) - correctTotals[k]) > 1)} value=${data.footers?.final?.[k] || ''} onChange=${(e) => handleFooterChange('final', k, e.target.value)} disabled=${isReadOnly} /></td>`)}</tr>
                     </tbody>
                 </table>
             </div>
@@ -502,34 +603,38 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
     };
 
-    const renderStepContent = () => {
-        const { updateNestedAnswer, updateTrialBalanceAnswer, updateAnswer } = updateAnswerFns;
+    const handleStep1Change = (id, key, val) => updateAnswerFns.updateNestedAnswer(1, id.toString(), key, val);
+    const handleStep2Change = (id, newRows) => updateAnswerFns.updateNestedAnswer(2, id.toString(), 'rows', newRows);
+    const handleStep3Change = (key, val) => updateAnswerFns.updateAnswer(3, { ...(answers[3] || {}), [key]: val });
+    const handleStep3TogglePR = (key) => {
+        const cur = answers[3]?.journalPRs || {};
+        updateAnswerFns.updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}});
+    };
+    const handleStep4Change = (key, val) => updateAnswerFns.updateAnswer(4, { ...(answers[4] || {}), [key]: val });
+    const handleStep5Change = (rowKey, colKey, val) => {
         const stepAnswer = answers[stepId];
+        if (rowKey === 'footers') {
+            const [section, field] = colKey.split('.');
+            const curFooters = stepAnswer?.footers || {};
+            const curSection = curFooters[section] || {};
+            updateAnswerFns.updateAnswer(5, { ...stepAnswer, footers: { ...curFooters, [section]: { ...curSection, [field]: val } } });
+        } else {
+            const curRow = stepAnswer?.[rowKey] || {};
+            updateAnswerFns.updateAnswer(5, { ...stepAnswer, [rowKey]: { ...curRow, [colKey]: val } });
+        }
+    };
+    const handleGenericChange = (k, v) => updateAnswerFns.updateAnswer(stepId, { ...answers[stepId], [k]: v });
+
+    const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
         const showFeedback = status.attempts < 3;
 
-        if (stepId === 1) return html`<${Step1Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${(id, key, val) => updateNestedAnswer(1, id.toString(), key, val)} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 2) return html`<${Step2Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${(id, newRows) => updateNestedAnswer(2, id.toString(), 'rows', newRows)} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
-        if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${(key, val) => updateAnswer(3, { ...(answers[3] || {}), [key]: val })} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${(key) => { const cur = answers[3]?.journalPRs || {}; updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}}); }} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
-        if (stepId === 4) return html`<${Step4TrialBalance} ledgerData=${activityData.ledger} data=${answers[4] || {}} onChange=${(key, val) => updateAnswer(4, { ...(answers[4] || {}), [key]: val })} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        
-        if (stepId === 5) {
-            // Fix for SyntaxError: Extracted the complex onChange logic into a variable
-            const handleStep5Change = (rowKey, colKey, val) => {
-                if (rowKey === 'footers') {
-                    const [section, field] = colKey.split('.');
-                    const curFooters = stepAnswer?.footers || {};
-                    const curSection = curFooters[section] || {};
-                    updateAnswer(5, { ...stepAnswer, footers: { ...curFooters, [section]: { ...curSection, [field]: val } } });
-                } else {
-                    const curRow = stepAnswer?.[rowKey] || {};
-                    updateAnswer(5, { ...stepAnswer, [rowKey]: { ...curRow, [colKey]: val } });
-                }
-            };
-            return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${stepAnswer || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        }
-        
-        return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${(k, v) => updateAnswer(stepId, { ...stepAnswer, [k]: v })} data=${stepAnswer} />`;
+        if (stepId === 1) return html`<${Step1Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep1Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        if (stepId === 2) return html`<${Step2Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep2Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
+        if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
+        if (stepId === 4) return html`<${Step4TrialBalance} ledgerData=${activityData.ledger} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${handleGenericChange} data=${answers[stepId]} />`;
     };
 
     return html`
