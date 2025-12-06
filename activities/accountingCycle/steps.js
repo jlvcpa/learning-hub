@@ -164,33 +164,24 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
     const [expanded, setExpanded] = useState(true);
     
     return html`
-        <div className="mb-4 border rounded bg-white overflow-hidden shadow-sm h-[36rem]">
-            <div className="bg-blue-100 p-2 font-bold text-blue-900 cursor-pointer flex justify-between items-center" onClick=${()=>setExpanded(!expanded)}>
+        <div className="mb-4 border rounded bg-white overflow-hidden shadow-sm h-[36rem] flex flex-col">
+            <div className="bg-blue-100 p-2 font-bold text-blue-900 cursor-pointer flex justify-between items-center flex-shrink-0" onClick=${()=>setExpanded(!expanded)}>
                 <span><${Book} size=${16} className="inline mr-2"/>Source: General Journal</span>
                 <div className="flex items-center gap-4">
                     <span className="text-xs font-normal">Page 1</span>
                     ${expanded ? html`<${ChevronDown} size=${16}/>` : html`<${ChevronRight} size=${16}/>`}
                 </div>
             </div>
-            ${expanded && html`<div className="p-2 overflow-auto h-full">
-                <table className="w-full text-xs table-fixed">
-                    <colgroup>
-                        <col style=${{width: '64px'}} />
-                        <col />
-                        <col style=${{width: '40px'}} />
-                        <col style=${{width: '96px'}} />
-                        <col style=${{width: '96px'}} />
-                    </colgroup>
-                    <thead className="sticky top-0 bg-white shadow-sm z-10">
-                        <tr className="bg-gray-50 text-gray-700 font-semibold border-b">
-                            <th className="p-2 text-center border-r">Date</th>
-                            <th className="p-2 text-left border-r">Account Titles and Explanation</th>
-                            <th className="p-2 text-center border-r">P.R.</th>
-                            <th className="p-2 text-right border-r">Debit</th>
-                            <th className="p-2 text-right">Credit</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+            ${expanded && html`
+                <div className="flex flex-col h-full overflow-hidden">
+                    <div className="flex bg-gray-50 text-gray-700 border-b border-gray-300 font-bold text-xs text-center flex-shrink-0">
+                        <div className="w-16 border-r p-2">Date</div>
+                        <div className="flex-1 border-r p-2 text-left">Account Titles and Explanation</div>
+                        <div className="w-16 border-r p-2">P.R.</div>
+                        <div className="w-24 border-r p-2 text-right">Debit</div>
+                        <div className="w-24 p-2 text-right">Credit</div>
+                    </div>
+                    <div className="overflow-y-auto flex-1">
                         ${transactions.map((t, tIdx) => {
                             const txnDate = new Date(t.date);
                             const yyyy = txnDate.getFullYear();
@@ -200,77 +191,80 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                             const dateDisplay = isFirst ? `${mm} ${dd}` : dd;
 
                             return html`
-                            <React.Fragment key=${t.id}>
-                                ${isFirst && html`
-                                    <tr key="year-row" className="bg-white border-b border-gray-100">
-                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1 align-top w-16">${yyyy}</td>
-                                        <td className="border-r"></td><td></td><td className="border-r"></td><td></td>
-                                    </tr>
-                                `}
-                                
-                                ${t.debits.map((d, i) => {
-                                    const key = `dr-${t.id}-${i}`;
-                                    const isChecked = !!journalPRs[key];
-                                    const isPosted = matchedJournalEntries && matchedJournalEntries.has(key);
-                                    let checkColor = "";
-                                    if (showFeedback || isReadOnly) { 
-                                        if (isChecked && isPosted) checkColor = "bg-green-200"; 
-                                        else if (isChecked && !isPosted) checkColor = "bg-red-200"; 
-                                        else if (!isChecked && isPosted) checkColor = "bg-red-200"; 
-                                        else if (!isChecked && !isPosted) checkColor = "bg-red-50"; 
-                                        if (!isPosted) checkColor = "bg-red-100"; 
-                                    }
+                                <React.Fragment key=${t.id}>
+                                    ${isFirst && html`
+                                        <div className="flex border-b border-gray-100 text-xs h-8 items-center">
+                                            <div className="w-16 border-r text-right pr-1 font-bold text-gray-500">${yyyy}</div>
+                                            <div className="flex-1 border-r"></div>
+                                            <div className="w-16 border-r"></div>
+                                            <div className="w-24 border-r"></div>
+                                            <div className="w-24"></div>
+                                        </div>
+                                    `}
+                                    
+                                    ${t.debits.map((d, i) => {
+                                        const key = `dr-${t.id}-${i}`;
+                                        const isChecked = !!journalPRs[key];
+                                        const isPosted = matchedJournalEntries && matchedJournalEntries.has(key);
+                                        let checkColor = "";
+                                        if (showFeedback || isReadOnly) { 
+                                            if (isChecked && isPosted) checkColor = "bg-green-200"; 
+                                            else if (isChecked && !isPosted) checkColor = "bg-red-200"; 
+                                            else if (!isChecked && isPosted) checkColor = "bg-red-200"; 
+                                            else if (!isChecked && !isPosted) checkColor = "bg-red-50"; 
+                                            if (!isPosted) checkColor = "bg-red-100"; 
+                                        }
 
-                                    return html`
-                                        <tr key=${key} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="text-right pr-1 py-1 align-top border-r">${i === 0 ? dateDisplay : ''}</td>
-                                            <td className="pl-1 py-1 border-r font-medium text-gray-800 align-top">${d.account}</td>
-                                            <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
-                                                <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
-                                            </td>
-                                            <td className="text-right pr-1 py-1 border-r align-top">${d.amount.toLocaleString()}</td>
-                                            <td className="py-1"></td>
-                                        </tr>
-                                    `;
-                                })}
-                                ${t.credits.map((c, i) => {
-                                    const key = `cr-${t.id}-${i}`;
-                                    const isChecked = !!journalPRs[key];
-                                    const isPosted = matchedJournalEntries && matchedJournalEntries.has(key);
-                                    let checkColor = "";
-                                    if (showFeedback || isReadOnly) {
-                                        if (isChecked && isPosted) checkColor = "bg-green-200";
-                                        else if (isChecked && !isPosted) checkColor = "bg-red-200"; 
-                                        else if (!isChecked && isPosted) checkColor = "bg-red-200";
-                                        else if (!isPosted) checkColor = "bg-red-100";
-                                    }
+                                        return html`
+                                            <div key=${key} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
+                                                <div className="w-16 border-r text-right pr-1">${i === 0 ? dateDisplay : ''}</div>
+                                                <div className="flex-1 border-r pl-1 font-medium text-gray-800 truncate" title=${d.account}>${d.account}</div>
+                                                <div className=${`w-16 border-r text-center flex justify-center items-center ${checkColor}`}>
+                                                    <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
+                                                </div>
+                                                <div className="w-24 border-r text-right pr-1">${d.amount.toLocaleString()}</div>
+                                                <div className="w-24 text-right pr-1"></div>
+                                            </div>
+                                        `;
+                                    })}
+                                    ${t.credits.map((c, i) => {
+                                        const key = `cr-${t.id}-${i}`;
+                                        const isChecked = !!journalPRs[key];
+                                        const isPosted = matchedJournalEntries && matchedJournalEntries.has(key);
+                                        let checkColor = "";
+                                        if (showFeedback || isReadOnly) {
+                                            if (isChecked && isPosted) checkColor = "bg-green-200";
+                                            else if (isChecked && !isPosted) checkColor = "bg-red-200"; 
+                                            else if (!isChecked && isPosted) checkColor = "bg-red-200";
+                                            else if (!isPosted) checkColor = "bg-red-100";
+                                        }
 
-                                    return html`
-                                        <tr key=${key} className="hover:bg-gray-50 border-b border-gray-100">
-                                            <td className="border-r"></td>
-                                            <td className="pl-6 py-1 border-r text-gray-800 align-top">${c.account}</td>
-                                            <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
-                                                <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
-                                            </td>
-                                            <td className="border-r"></td>
-                                            <td className="text-right pr-1 py-1 align-top">${c.amount.toLocaleString()}</td>
-                                            <td className="py-1"></td>
-                                        </tr>
-                                    `;
-                                })}
-                                <tr key=${'desc' + t.id}>
-                                    <td className="border-r"></td>
-                                    <td className="pl-8 italic text-gray-500 text-xs py-1 border-r align-top">(${t.description})</td>
-                                    <td className="border-r"></td>
-                                    <td className="border-r"></td>
-                                    <td></td>
-                                </tr>
-                                <tr className="h-2"><td colSpan="5" className="border-b border-gray-200"></td></tr>
-                            </React.Fragment>
-                        `})}
-                    </tbody>
-                </table>
-            </div>`}
+                                        return html`
+                                            <div key=${key} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
+                                                <div className="w-16 border-r"></div>
+                                                <div className="flex-1 border-r pl-6 text-gray-800 truncate" title=${c.account}>${c.account}</div>
+                                                <div className=${`w-16 border-r text-center flex justify-center items-center ${checkColor}`}>
+                                                     <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
+                                                </div>
+                                                <div className="w-24 border-r"></div>
+                                                <div className="w-24 text-right pr-1">${c.amount.toLocaleString()}</div>
+                                            </div>
+                                        `;
+                                    })}
+                                    <div key=${'desc' + t.id} className="flex border-b border-gray-200 text-xs h-8 items-center text-gray-500 italic">
+                                        <div className="w-16 border-r"></div>
+                                        <div className="flex-1 border-r pl-8 truncate" title=${t.description}>(${t.description})</div>
+                                        <div className="w-16 border-r"></div>
+                                        <div className="w-24 border-r"></div>
+                                        <div className="w-24"></div>
+                                    </div>
+                                </React.Fragment>
+                            `;
+                        })}
+                        <div className="h-12"></div>
+                    </div>
+                </div>
+            `}
         </div>
     `;
 };
