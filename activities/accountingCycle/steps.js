@@ -358,7 +358,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
                         return html`
-                            <div key=${acc} className="border-2 border-gray-800 bg-white shadow-md">
+                            <div key=${acc} className="border-y-2 border-gray-800 bg-white shadow-sm">
                                 <div className="border-b-2 border-gray-800 p-2 bg-gray-100 font-bold text-center text-lg text-gray-800">
                                     ${acc}
                                 </div>
