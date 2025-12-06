@@ -6,13 +6,13 @@ import { getFirestore, setLogLevel, collection, query, where, getDocs } from "ht
 import { initSettings } from './settings/settingsEngine.js';
 import { initActivities } from './activities/activitiesEngine.js';
 import { initGenerator } from './generator/generatorEngine.js';
-import { initAttendance } from './attendance/attendanceEngine.js'; // NEW IMPORT
+import { initAttendance } from './attendance/attendanceEngine.js';
+import { initAccountingCycle } from './activities/accountingCycleEngine.js'; // NEW IMPORT
 
 
 // --- FIREBASE GLOBAL SETUP ---
 setLogLevel('Debug');
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-// Note: initialAuthToken is now unused as we bypassed Firebase Auth
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 // Configuration explicitly provided by the user.
@@ -26,7 +26,6 @@ const firebaseConfig = {
 };
 
 // Firestore path for the public teachers collection
-// FIX APPLIED: Changed path from Canvas-specific nested path to the root collection name 'teachers'.
 const TEACHERS_COLLECTION_PATH = () => 'teachers';
 const TEACHER_SESSION_KEY = 'learning_hub_teacher';
 
@@ -267,7 +266,8 @@ window.switchTab = function(tabName) {
         'classes': 'Class Management',
         'attendance': 'Attendance Monitoring',
         'materials': 'Learning Materials',
-        'activities': 'Activity Creator',
+        'activities': 'Activity Dashboard',
+        'accounting_cycle': 'Accounting Cycle Creator', // NEW TITLE
         'grades': 'Grades',
         'settings': 'School Settings',
         'generator': 'Link Generator'
@@ -284,10 +284,13 @@ window.switchTab = function(tabName) {
             case 'activities':
                 initActivities(db, userId, appId);
                 break;
+            case 'accounting_cycle': // NEW CASE
+                initAccountingCycle(db, userId, appId);
+                break;
             case 'generator':
                 initGenerator(db, userId, appId);
                 break;
-            case 'attendance': // NEW CASE
+            case 'attendance': 
                 initAttendance(db, userId, appId);
                 break;
             default:
