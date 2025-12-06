@@ -12,12 +12,13 @@ const StatusIcon = ({ correct, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
-// --- SUB-COMPONENTS ---
+// --- SUB-COMPONENTS TO PREVENT SYNTAX ERRORS ---
 
 const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
     const isDesc = row.isDescription;
     const isYearRow = tIdx === 0 && idx === 0;
     
+    // Validation Logic extracted here
     const getValidationState = () => {
         if (!showFeedback) return null;
         if (tIdx === 0 && idx === 0) { 
@@ -174,11 +175,11 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
             ${expanded && html`
                 <div className="flex flex-col h-full overflow-hidden">
                     <div className="flex bg-gray-50 text-gray-700 border-b border-gray-300 font-bold text-xs text-center flex-shrink-0">
-                        <div className="w-16 border-r p-2">Date</div>
+                        <div className="w-16 border-r p-2 flex-shrink-0">Date</div>
                         <div className="flex-1 border-r p-2 text-left">Account Titles and Explanation</div>
-                        <div className="w-16 border-r p-2">P.R.</div>
-                        <div className="w-24 border-r p-2 text-right">Debit</div>
-                        <div className="w-24 p-2 text-right">Credit</div>
+                        <div className="w-16 border-r p-2 flex-shrink-0">P.R.</div>
+                        <div className="w-24 border-r p-2 text-right flex-shrink-0">Debit</div>
+                        <div className="w-24 p-2 text-right flex-shrink-0">Credit</div>
                     </div>
                     <div className="overflow-y-auto flex-1">
                         ${transactions.map((t, tIdx) => {
@@ -193,11 +194,11 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                 <React.Fragment key=${t.id}>
                                     ${isFirst && html`
                                         <div className="flex border-b border-gray-100 text-xs h-8 items-center">
-                                            <div className="w-16 border-r text-right pr-1 font-bold text-gray-500">${yyyy}</div>
+                                            <div className="w-16 border-r text-right pr-1 font-bold text-gray-500 flex-shrink-0">${yyyy}</div>
                                             <div className="flex-1 border-r"></div>
-                                            <div className="w-16 border-r"></div>
-                                            <div className="w-24 border-r"></div>
-                                            <div className="w-24"></div>
+                                            <div className="w-16 border-r flex-shrink-0"></div>
+                                            <div className="w-24 border-r flex-shrink-0"></div>
+                                            <div className="w-24 flex-shrink-0"></div>
                                         </div>
                                     `}
                                     
@@ -216,13 +217,13 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
 
                                         return html`
                                             <div key=${key} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
-                                                <div className="w-16 border-r text-right pr-1">${i === 0 ? dateDisplay : ''}</div>
+                                                <div className="w-16 border-r text-right pr-1 flex-shrink-0">${i === 0 ? dateDisplay : ''}</div>
                                                 <div className="flex-1 border-r pl-1 font-medium text-gray-800 truncate" title=${d.account}>${d.account}</div>
-                                                <div className=${`w-16 border-r text-center flex justify-center items-center ${checkColor}`}>
+                                                <div className=${`w-16 border-r text-center flex justify-center items-center flex-shrink-0 ${checkColor}`}>
                                                     <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
                                                 </div>
-                                                <div className="w-24 border-r text-right pr-1">${d.amount.toLocaleString()}</div>
-                                                <div className="w-24 text-right pr-1"></div>
+                                                <div className="w-24 border-r text-right pr-1 flex-shrink-0">${d.amount.toLocaleString()}</div>
+                                                <div className="w-24 text-right pr-1 flex-shrink-0"></div>
                                             </div>
                                         `;
                                     })}
@@ -240,22 +241,22 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
 
                                         return html`
                                             <div key=${key} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
-                                                <div className="w-16 border-r"></div>
+                                                <div className="w-16 border-r flex-shrink-0"></div>
                                                 <div className="flex-1 border-r pl-6 text-gray-800 truncate" title=${c.account}>${c.account}</div>
-                                                <div className=${`w-16 border-r text-center flex justify-center items-center ${checkColor}`}>
+                                                <div className=${`w-16 border-r text-center flex justify-center items-center flex-shrink-0 ${checkColor}`}>
                                                      <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
                                                 </div>
-                                                <div className="w-24 border-r"></div>
-                                                <div className="w-24 text-right pr-1">${c.amount.toLocaleString()}</div>
+                                                <div className="w-24 border-r flex-shrink-0"></div>
+                                                <div className="w-24 text-right pr-1 flex-shrink-0">${c.amount.toLocaleString()}</div>
                                             </div>
                                         `;
                                     })}
                                     <div key=${'desc' + t.id} className="flex border-b border-gray-200 text-xs h-8 items-center text-gray-500 italic">
-                                        <div className="w-16 border-r"></div>
+                                        <div className="w-16 border-r flex-shrink-0"></div>
                                         <div className="flex-1 border-r pl-8 truncate" title=${t.description}>(${t.description})</div>
-                                        <div className="w-16 border-r"></div>
-                                        <div className="w-24 border-r"></div>
-                                        <div className="w-24"></div>
+                                        <div className="w-16 border-r flex-shrink-0"></div>
+                                        <div className="w-24 border-r flex-shrink-0"></div>
+                                        <div className="w-24 flex-shrink-0"></div>
                                     </div>
                                 </React.Fragment>
                             `;
@@ -365,19 +366,19 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                     <div className="flex-1 border-r-2 border-gray-800">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
                                         <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
-                                            <div className="w-16 border-r p-1 text-center">Date</div>
+                                            <div className="w-16 border-r p-1 text-center flex-shrink-0">Date</div>
                                             <div className="flex-1 border-r p-1 text-center">Particulars</div>
-                                            <div className="w-10 border-r p-1 text-center">PR</div>
-                                            <div className="w-20 p-1 text-center">Amount</div>
+                                            <div className="w-10 border-r p-1 text-center flex-shrink-0">PR</div>
+                                            <div className="w-20 p-1 text-center flex-shrink-0">Amount</div>
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsL[i] || {};
                                             return html`
                                                 <div className="flex text-xs border-b border-gray-200 h-6 items-center">
-                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap">${r.date || ''}</div>
+                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap flex-shrink-0">${r.date || ''}</div>
                                                     <div className="flex-1 border-r px-1 truncate text-gray-800">${r.part || ''}</div>
-                                                    <div className="w-10 border-r text-center text-gray-500">${r.pr || ''}</div>
-                                                    <div className="w-20 text-right px-1 text-gray-800">${r.amount ? r.amount.toLocaleString() : ''}</div>
+                                                    <div className="w-10 border-r text-center text-gray-500 flex-shrink-0">${r.pr || ''}</div>
+                                                    <div className="w-20 text-right px-1 text-gray-800 flex-shrink-0">${r.amount ? r.amount.toLocaleString() : ''}</div>
                                                 </div>
                                             `;
                                         })}
@@ -390,19 +391,19 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                     <div className="flex-1">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
                                         <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
-                                            <div className="w-16 border-r p-1 text-center">Date</div>
+                                            <div className="w-16 border-r p-1 text-center flex-shrink-0">Date</div>
                                             <div className="flex-1 border-r p-1 text-center">Particulars</div>
-                                            <div className="w-10 border-r p-1 text-center">PR</div>
-                                            <div className="w-20 p-1 text-center border-r">Amount</div>
+                                            <div className="w-10 border-r p-1 text-center flex-shrink-0">PR</div>
+                                            <div className="w-20 p-1 text-center flex-shrink-0">Amount</div>
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsR[i] || {};
                                             return html`
                                                 <div className="flex text-xs border-b border-gray-200 h-6 items-center">
-                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap">${r.date || ''}</div>
+                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap flex-shrink-0">${r.date || ''}</div>
                                                     <div className="flex-1 border-r px-1 truncate text-gray-800">${r.part || ''}</div>
-                                                    <div className="w-10 border-r text-center text-gray-500">${r.pr || ''}</div>
-                                                    <div className="w-20 text-right px-1 text-gray-800 border-r">${r.amount ? r.amount.toLocaleString() : ''}</div>
+                                                    <div className="w-10 border-r text-center text-gray-500 flex-shrink-0">${r.pr || ''}</div>
+                                                    <div className="w-20 text-right px-1 text-gray-800 flex-shrink-0">${r.amount ? r.amount.toLocaleString() : ''}</div>
                                                 </div>
                                             `;
                                         })}
@@ -623,10 +624,10 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, expectedLe
 
 export const Step4TrialBalance = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, data, onChange, showFeedback, isReadOnly, expectedLedger }) => html`
     <div className="flex flex-col lg:flex-row gap-4 h-[36rem]">
-        <div className="lg:w-5/12 h-full">
+        <div className="lg:w-1/2 h-full">
              <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
         </div>
-        <div className="lg:w-7/12 border rounded bg-white flex flex-col shadow-sm overflow-hidden">
+        <div className="lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden">
             <div className="bg-green-100 p-2 font-bold text-green-900"><${Table} size=${16} className="inline mr-2"/>Trial Balance</div>
             <div className="p-2 overflow-y-auto custom-scrollbar flex-1">
                  <${TrialBalanceForm} data=${data} onChange=${onChange} showFeedback=${showFeedback} isReadOnly=${isReadOnly} expectedLedger=${expectedLedger} />
