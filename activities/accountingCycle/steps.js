@@ -173,8 +173,8 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                 </div>
             </div>
             ${expanded && html`<div className="p-2 overflow-auto h-full">
-                <table className="w-full text-xs">
-                    <thead>
+                <table className="w-full text-xs table-fixed">
+                    <thead className="sticky top-0 bg-white shadow-sm z-10">
                         <tr className="bg-gray-50 text-gray-700 font-semibold border-b">
                             <th className="p-2 w-16 text-center border-r">Date</th>
                             <th className="p-2 text-left border-r">Account Titles and Explanation</th>
@@ -195,8 +195,8 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                             return html`
                             <React.Fragment key=${t.id}>
                                 ${isFirst && html`
-                                    <tr key="year-row" className="bg-white">
-                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1">${yyyy}</td>
+                                    <tr key="year-row" className="bg-white border-b border-gray-100">
+                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1 align-top">${yyyy}</td>
                                         <td className="border-r"></td><td className="border-r"></td><td className="border-r"></td><td></td>
                                     </tr>
                                 `}
@@ -215,13 +215,13 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                     }
 
                                     return html`
-                                        <tr key=${key} className="border-t border-gray-100 hover:bg-gray-50">
+                                        <tr key=${key} className="border-b border-gray-100 hover:bg-gray-50">
                                             <td className="text-right pr-1 py-1 align-top border-r">${i === 0 ? dateDisplay : ''}</td>
-                                            <td className="pl-1 py-1 border-r font-medium text-gray-800">${d.account}</td>
+                                            <td className="pl-1 py-1 border-r font-medium text-gray-800 align-top">${d.account}</td>
                                             <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
                                                 <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
                                             </td>
-                                            <td className="text-right pr-1 py-1 border-r">${d.amount.toLocaleString()}</td>
+                                            <td className="text-right pr-1 py-1 border-r align-top">${d.amount.toLocaleString()}</td>
                                             <td className="py-1"></td>
                                         </tr>
                                     `;
@@ -239,20 +239,20 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                     }
 
                                     return html`
-                                        <tr key=${key} className="hover:bg-gray-50">
+                                        <tr key=${key} className="hover:bg-gray-50 border-b border-gray-100">
                                             <td className="border-r"></td>
-                                            <td className="pl-6 py-1 border-r text-gray-800">${c.account}</td>
+                                            <td className="pl-6 py-1 border-r text-gray-800 align-top">${c.account}</td>
                                             <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
                                                 <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
                                             </td>
                                             <td className="border-r"></td>
-                                            <td className="text-right pr-1 py-1">${c.amount.toLocaleString()}</td>
+                                            <td className="text-right pr-1 py-1 align-top">${c.amount.toLocaleString()}</td>
                                         </tr>
                                     `;
                                 })}
                                 <tr key=${'desc' + t.id}>
                                     <td className="border-r"></td>
-                                    <td className="pl-8 italic text-gray-500 text-xs py-1 border-r">(${t.description})</td>
+                                    <td className="pl-8 italic text-gray-500 text-xs py-1 border-r align-top">(${t.description})</td>
                                     <td className="border-r"></td>
                                     <td className="border-r"></td>
                                     <td></td>
