@@ -97,7 +97,15 @@ const App = () => {
     
     const updateAnswer = useCallback((stepId, data) => setAnswers(p => ({ ...p, [stepId]: data })), []);
     const updateNestedAnswer = useCallback((stepId, key, subKey, value) => setAnswers(prev => { const stepData = prev[stepId] || {}; const keyData = stepData[key] || {}; return { ...prev, [stepId]: { ...stepData, [key]: { ...keyData, [subKey]: value } } }; }), []);
-    const updateTrialBalanceAnswer = useCallback((stepId, acc, side, val) => setAnswers(prev => { const stepData = prev[stepId] || {}; const accData = stepData[acc] || {}; return { ...prev, [stepId]: { ...stepData, [acc]: { ...accData, [side]: val } } } ;}), []);
+    
+    // Fix: Cleaned up definition to remove potential syntax ambiguity
+    const updateTrialBalanceAnswer = useCallback((stepId, acc, side, val) => {
+        setAnswers(prev => {
+            const stepData = prev[stepId] || {};
+            const accData = stepData[acc] || {};
+            return { ...prev, [stepId]: { ...stepData, [acc]: { ...accData, [side]: val } } };
+        });
+    }, []);
 
     const handleGenerate = (config) => {
         const transactions = generateTransactions(config.numTransactions, config.businessType, config.ownership, config.inventorySystem, config.options, config.isSubsequentYear, config.deferredExpenseMethod, config.deferredIncomeMethod);
