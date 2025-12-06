@@ -1,6 +1,6 @@
 // Constants and Logic Helpers for Accounting Cycle
 
-export const APP_VERSION = "Version: 2025-12-06 20:56 PST";
+export const APP_VERSION = "Version: 2025-12-06 21:33 PST";
 
 export const EQUITY_CAUSES = ['', 'Increase in Capital', 'Decrease in Capital', 'Increase in Drawings', 'Decrease in Drawings', 'Increase in Income', 'Decrease in Income', 'Increase in Expense', 'Decrease in Expense'];
 
