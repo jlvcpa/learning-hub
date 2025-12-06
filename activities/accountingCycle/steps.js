@@ -626,7 +626,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
                 ${(stepId === 3) && html`<div className="mt-2 pt-2 border-t text-sm"><div className="bg-yellow-50 p-2 rounded border border-yellow-200" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts, activityData.config.isSubsequentYear, activityData.beginningBalances) }} /></div>`}
             </div>
             <div className="no-print space-y-3 mb-6">
-                ${stepId !== 2 && stepId !== 3 && html`<div className="bg-gray-100 p-3 rounded-lg border text-sm" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts) }} />`}
+                ${stepId !== 2 && stepId !== 3 && html`<div className="bg-gray-100 p-3 rounded-lg border text-sm" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts) }} />}
                 <div dangerouslySetInnerHTML=${{ __html: ActivityHelper.getRubricHTML(stepId, step.title) }} />
             </div>
             <div className=${`printable-area task-content-${stepId}`}>${renderStepContent()}</div>
