@@ -175,12 +175,12 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
             ${expanded && html`<div className="p-2 overflow-auto h-full">
                 <table className="w-full text-xs">
                     <thead>
-                        <tr className="bg-gray-50 text-left">
-                            <th>Date</th>
-                            <th>Account</th>
-                            <th className="text-center w-10">P.R.</th>
-                            <th className="text-right">Dr</th>
-                            <th className="text-right">Cr</th>
+                        <tr className="bg-gray-50 text-gray-700 font-semibold border-b">
+                            <th className="p-2 w-16 text-center border-r">Date</th>
+                            <th className="p-2 text-left border-r">Account Titles and Explanation</th>
+                            <th className="p-2 w-10 text-center border-r">P.R.</th>
+                            <th className="p-2 w-24 text-right border-r">Debit</th>
+                            <th className="p-2 w-24 text-right">Credit</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -195,9 +195,9 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                             return html`
                             <React.Fragment key=${t.id}>
                                 ${isFirst && html`
-                                    <tr key="year-row">
-                                        <td className="text-right pr-1 font-bold">${yyyy}</td>
-                                        <td></td><td></td><td></td><td></td>
+                                    <tr key="year-row" className="bg-white">
+                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1">${yyyy}</td>
+                                        <td className="border-r"></td><td className="border-r"></td><td className="border-r"></td><td></td>
                                     </tr>
                                 `}
                                 
@@ -215,14 +215,14 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                     }
 
                                     return html`
-                                        <tr key=${key} className="border-t">
-                                            <td className="text-right pr-1">${i === 0 ? dateDisplay : ''}</td>
-                                            <td>${d.account}</td>
-                                            <td className=${`text-center ${checkColor}`}>
-                                                <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} /> 
+                                        <tr key=${key} className="border-t border-gray-100 hover:bg-gray-50">
+                                            <td className="text-right pr-1 py-1 align-top border-r">${i === 0 ? dateDisplay : ''}</td>
+                                            <td className="pl-1 py-1 border-r font-medium text-gray-800">${d.account}</td>
+                                            <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
+                                                <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
                                             </td>
-                                            <td className="text-right">${d.amount}</td>
-                                            <td></td>
+                                            <td className="text-right pr-1 py-1 border-r">${d.amount.toLocaleString()}</td>
+                                            <td className="py-1"></td>
                                         </tr>
                                     `;
                                 })}
@@ -239,24 +239,25 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                     }
 
                                     return html`
-                                        <tr key=${key}>
-                                            <td></td>
-                                            <td className="pl-4">${c.account}</td>
-                                            <td className=${`text-center ${checkColor}`}>
-                                                <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} />
+                                        <tr key=${key} className="hover:bg-gray-50">
+                                            <td className="border-r"></td>
+                                            <td className="pl-6 py-1 border-r text-gray-800">${c.account}</td>
+                                            <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
+                                                <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
                                             </td>
-                                            <td></td>
-                                            <td className="text-right">${c.amount}</td>
+                                            <td className="border-r"></td>
+                                            <td className="text-right pr-1 py-1">${c.amount.toLocaleString()}</td>
                                         </tr>
                                     `;
                                 })}
                                 <tr key=${'desc' + t.id}>
-                                    <td></td>
-                                    <td className="pl-8 italic text-gray-500 text-xs">(${t.description})</td>
-                                    <td></td>
-                                    <td></td>
+                                    <td className="border-r"></td>
+                                    <td className="pl-8 italic text-gray-500 text-xs py-1 border-r">(${t.description})</td>
+                                    <td className="border-r"></td>
+                                    <td className="border-r"></td>
                                     <td></td>
                                 </tr>
+                                <tr className="h-2"><td colSpan="5" className="border-b border-gray-200"></td></tr>
                             </React.Fragment>
                         `})}
                     </tbody>
@@ -498,37 +499,10 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
         return sortAccounts(Array.from(s)); 
     }, [ledgerData, adjustments]);
 
-    // Use derived state for correct totals calculation only
-    const correctTotals = useMemo(() => {
-        const totals = { tbDr: 0, tbCr: 0, adjDr: 0, adjCr: 0, atbDr: 0, atbCr: 0, isDr: 0, isCr: 0, bsDr: 0, bsCr: 0, netInc: 0, finISDr: 0, finISCr: 0, finBSDr: 0, finBSCr: 0 };
-        mergedAccounts.forEach(acc => {
-            const ledgerBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
-            const tbDr = ledgerBal > 0 ? ledgerBal : 0; const tbCr = ledgerBal < 0 ? Math.abs(ledgerBal) : 0;
-            totals.tbDr += tbDr; totals.tbCr += tbCr;
-            let aDr = 0; let aCr = 0;
-            adjustments.forEach(a => { if (a.drAcc === acc) aDr += a.amount; if (a.crAcc === acc) aCr += a.amount; });
-            totals.adjDr += aDr; totals.adjCr += aCr;
-            let atbNet = (tbDr - tbCr) + (aDr - aCr);
-            const atbDr = atbNet > 0 ? atbNet : 0; const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
-            totals.atbDr += atbDr; totals.atbCr += atbCr;
-            const type = getAccountType(acc);
-            if (type === 'Revenue' || type === 'Expense') { totals.isDr += atbDr; totals.isCr += atbCr; } else { totals.bsDr += atbDr; totals.bsCr += atbCr; }
-        });
-        totals.netInc = totals.isCr - totals.isDr;
-        totals.finISDr = totals.isDr + (totals.netInc > 0 ? totals.netInc : 0);
-        totals.finISCr = totals.isCr + (totals.netInc < 0 ? Math.abs(totals.netInc) : 0);
-        totals.finBSDr = totals.bsDr + (totals.netInc < 0 ? Math.abs(totals.netInc) : 0);
-        totals.finBSCr = totals.bsCr + (totals.netInc > 0 ? totals.netInc : 0);
-        return totals;
-    }, [mergedAccounts, ledgerData, adjustments]);
-
     const getVal = (acc, col) => data[acc]?.[col] === '' || data[acc]?.[col] === undefined ? 0 : Number(data[acc][col]);
-    const isCellCorrect = (acc, col, expVal) => { const userVal = getVal(acc, col); if (expVal === 0 && userVal === 0) return true; return Math.abs(userVal - expVal) <= 1; };
-    const getFooterVal = (row, col) => data.footers?.[row]?.[col] !== undefined ? Number(data.footers[row][col]) : 0;
     const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 
-    const handleCellChange = (acc, col, val) => onChange(acc, col, val);
-    const handleFooterChange = (section, field, val) => onChange('footers', `${section}.${field}`, val);
+    const handleChange = (acc, col, value) => onChange(acc, col, value);
 
     return html`
         <div className="w-full">
@@ -548,26 +522,15 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
                     <tbody>
                         ${mergedAccounts.map((acc, idx) => {
                             const bgClass = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
-                            const ledgerBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
-                            const expTbDr = ledgerBal > 0 ? ledgerBal : 0; const expTbCr = ledgerBal < 0 ? Math.abs(ledgerBal) : 0;
-                            let expAdjDr = 0; let expAdjCr = 0; adjustments.forEach(a => { if(a.drAcc === acc) expAdjDr += a.amount; if(a.crAcc === acc) expAdjCr += a.amount; });
-                            const atbNet = (expTbDr - expTbCr) + (expAdjDr - expAdjCr);
-                            const expAtbDr = atbNet > 0 ? atbNet : 0; const expAtbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
-                            const type = getAccountType(acc); const isIS = type === 'Revenue' || type === 'Expense';
-                            const expIsDr = isIS ? expAtbDr : 0; const expIsCr = isIS ? expAtbCr : 0; const expBsDr = !isIS ? expAtbDr : 0; const expBsCr = !isIS ? expAtbCr : 0;
-
                             return html`
                                 <tr key=${acc} className=${`border-b hover:bg-blue-50 ${bgClass}`}>
                                     <td className=${`p-1 border-r text-left truncate sticky left-0 z-0 ${bgClass} font-medium`}>${acc}</td>
-                                    ${[{c: 'tbDr', exp: expTbDr}, {c: 'tbCr', exp: expTbCr}, {c: 'adjDr', exp: expAdjDr}, {c: 'adjCr', exp: expAdjCr}, {c: 'atbDr', exp: expAtbDr}, {c: 'atbCr', exp: expAtbCr}, {c: 'isDr', exp: expIsDr}, {c: 'isCr', exp: expIsCr}, {c: 'bsDr', exp: expBsDr}, {c: 'bsCr', exp: expBsCr}].map((col, cIdx) => (
-                                        html`<td key=${cIdx} className="border-r p-0 relative"><input type="number" className=${inputClass(showFeedback && !isCellCorrect(acc, col.c, col.exp))} value=${data[acc]?.[col.c] || ''} onChange=${(e) => handleCellChange(acc, col.c, e.target.value)} disabled=${isReadOnly} /></td>`
+                                    ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map((col) => (
+                                        html`<td key=${col} className="border-r p-0 relative"><input type="number" className=${inputClass(false)} value=${data[acc]?.[col] || ''} onChange=${(e) => handleChange(acc, col, e.target.value)} disabled=${isReadOnly} /></td>`
                                     ))}
                                 </tr>
                             `;
                         })}
-                        <tr className="bg-gray-100 font-bold border-t-2 border-gray-400"><td className="p-1 border-r text-right sticky left-0 bg-gray-100">Column Totals</td>${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map((key) => html`<td key=${key} className="border-r p-0"><input type="number" className=${inputClass(showFeedback && Math.abs(getFooterVal('totals', key) - correctTotals[key]) > 1)} value=${data.footers?.totals?.[key] || ''} onChange=${(e) => handleFooterChange('totals', key, e.target.value)} disabled=${isReadOnly} /></td>`)}</tr>
-                        <tr className="bg-white"><td className="p-1 border-r text-right sticky left-0 bg-white">Net Income (Loss)</td><td colSpan="6" className="border-r bg-gray-100"></td><td className="border-r p-0"><input type="number" className=${inputClass(showFeedback && correctTotals.netInc > 0 && Math.abs(getFooterVal('net', 'isDr') - correctTotals.netInc) > 1)} value=${data.footers?.net?.isDr || ''} onChange=${(e) => handleFooterChange('net', 'isDr', e.target.value)} disabled=${correctTotals.netInc <= 0 || isReadOnly} /></td><td className="border-r p-0"><input type="number" disabled=${correctTotals.netInc >= 0 || isReadOnly} value=${data.footers?.net?.isCr || ''} onChange=${(e) => handleFooterChange('net', 'isCr', e.target.value)} className=${inputClass(false)}/></td><td className="border-r p-0"><input type="number" disabled=${correctTotals.netInc >= 0 || isReadOnly} value=${data.footers?.net?.bsDr || ''} onChange=${(e) => handleFooterChange('net', 'bsDr', e.target.value)} className=${inputClass(false)}/></td><td className="p-0"><input type="number" className=${inputClass(showFeedback && correctTotals.netInc > 0 && Math.abs(getFooterVal('net', 'bsCr') - correctTotals.netInc) > 1)} value=${data.footers?.net?.bsCr || ''} onChange=${(e) => handleFooterChange('net', 'bsCr', e.target.value)} disabled=${correctTotals.netInc <= 0 || isReadOnly} /></td></tr>
-                        <tr className="bg-gray-200 font-extrabold border-t border-b-2 border-black"><td className="p-1 border-r text-right sticky left-0 bg-gray-200">Final Total</td>${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'finISDr', 'finISCr', 'finBSDr', 'finBSCr'].map((k) => html`<td key=${k} className="border-r p-0"><input type="number" className=${inputClass(showFeedback && Math.abs(getFooterVal('final', k) - correctTotals[k]) > 1)} value=${data.footers?.final?.[k] || ''} onChange=${(e) => handleFooterChange('final', k, e.target.value)} disabled=${isReadOnly} /></td>`)}</tr>
                     </tbody>
                 </table>
             </div>
