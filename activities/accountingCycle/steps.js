@@ -174,13 +174,20 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
             </div>
             ${expanded && html`<div className="p-2 overflow-auto h-full">
                 <table className="w-full text-xs table-fixed">
+                    <colgroup>
+                        <col style=${{width: '64px'}} />
+                        <col />
+                        <col style=${{width: '40px'}} />
+                        <col style=${{width: '96px'}} />
+                        <col style=${{width: '96px'}} />
+                    </colgroup>
                     <thead className="sticky top-0 bg-white shadow-sm z-10">
                         <tr className="bg-gray-50 text-gray-700 font-semibold border-b">
-                            <th className="p-2 w-16 text-center border-r">Date</th>
+                            <th className="p-2 text-center border-r">Date</th>
                             <th className="p-2 text-left border-r">Account Titles and Explanation</th>
-                            <th className="p-2 w-10 text-center border-r">P.R.</th>
-                            <th className="p-2 w-24 text-right border-r">Debit</th>
-                            <th className="p-2 w-24 text-right">Credit</th>
+                            <th className="p-2 text-center border-r">P.R.</th>
+                            <th className="p-2 text-right border-r">Debit</th>
+                            <th className="p-2 text-right">Credit</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -196,8 +203,8 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                             <React.Fragment key=${t.id}>
                                 ${isFirst && html`
                                     <tr key="year-row" className="bg-white border-b border-gray-100">
-                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1 align-top w-16">${yyyy}</td>
-                                        <td className="border-r"></td><td className="border-r w-10"></td><td className="border-r w-24"></td><td className="w-24"></td>
+                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1 align-top">${yyyy}</td>
+                                        <td className="border-r"></td><td></td><td className="border-r"></td><td></td>
                                     </tr>
                                 `}
                                 
@@ -216,13 +223,13 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
 
                                     return html`
                                         <tr key=${key} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="text-right pr-1 py-1 align-top border-r w-16">${i === 0 ? dateDisplay : ''}</td>
+                                            <td className="text-right pr-1 py-1 align-top border-r">${i === 0 ? dateDisplay : ''}</td>
                                             <td className="pl-1 py-1 border-r font-medium text-gray-800 align-top">${d.account}</td>
-                                            <td className=${`text-center border-r p-0 align-middle w-10 ${checkColor}`}>
+                                            <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
                                                 <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
                                             </td>
-                                            <td className="text-right pr-1 py-1 border-r align-top w-24">${d.amount.toLocaleString()}</td>
-                                            <td className="py-1 w-24"></td>
+                                            <td className="text-right pr-1 py-1 border-r align-top">${d.amount.toLocaleString()}</td>
+                                            <td className="py-1"></td>
                                         </tr>
                                     `;
                                 })}
@@ -240,22 +247,22 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
 
                                     return html`
                                         <tr key=${key} className="hover:bg-gray-50 border-b border-gray-100">
-                                            <td className="border-r w-16"></td>
+                                            <td className="border-r"></td>
                                             <td className="pl-6 py-1 border-r text-gray-800 align-top">${c.account}</td>
-                                            <td className=${`text-center border-r p-0 align-middle w-10 ${checkColor}`}>
+                                            <td className=${`text-center border-r p-0 align-middle ${checkColor}`}>
                                                 <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
                                             </td>
-                                            <td className="border-r w-24"></td>
-                                            <td className="text-right pr-1 py-1 align-top w-24">${c.amount.toLocaleString()}</td>
+                                            <td className="border-r"></td>
+                                            <td className="text-right pr-1 py-1 align-top">${c.amount.toLocaleString()}</td>
                                         </tr>
                                     `;
                                 })}
                                 <tr key=${'desc' + t.id}>
-                                    <td className="border-r w-16"></td>
+                                    <td className="border-r"></td>
                                     <td className="pl-8 italic text-gray-500 text-xs py-1 border-r align-top">(${t.description})</td>
-                                    <td className="border-r w-10"></td>
-                                    <td className="border-r w-24"></td>
-                                    <td className="w-24"></td>
+                                    <td className="border-r"></td>
+                                    <td className="border-r"></td>
+                                    <td></td>
                                 </tr>
                                 <tr className="h-2"><td colSpan="5" className="border-b border-gray-200"></td></tr>
                             </React.Fragment>
