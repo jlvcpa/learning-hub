@@ -174,13 +174,20 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
             </div>
             ${expanded && html`<div className="p-2 overflow-auto h-full">
                 <table className="w-full text-xs table-fixed">
+                    <colgroup>
+                        <col className="w-16" />
+                        <col />
+                        <col className="w-10" />
+                        <col className="w-24" />
+                        <col className="w-24" />
+                    </colgroup>
                     <thead className="sticky top-0 bg-white shadow-sm z-10">
                         <tr className="bg-gray-50 text-gray-700 font-semibold border-b">
-                            <th className="p-2 w-16 text-center border-r">Date</th>
+                            <th className="p-2 text-center border-r">Date</th>
                             <th className="p-2 text-left border-r">Account Titles and Explanation</th>
-                            <th className="p-2 w-10 text-center border-r">P.R.</th>
-                            <th className="p-2 w-24 text-right border-r">Debit</th>
-                            <th className="p-2 w-24 text-right">Credit</th>
+                            <th className="p-2 text-center border-r">P.R.</th>
+                            <th className="p-2 text-right border-r">Debit</th>
+                            <th className="p-2 text-right">Credit</th>
                         </tr>
                     </thead>
                     <tbody>
