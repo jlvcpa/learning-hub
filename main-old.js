@@ -6,6 +6,7 @@ import { getFirestore, setLogLevel, collection, query, where, getDocs } from "ht
 import { initSettings } from './settings/settingsEngine.js';
 import { initActivities } from './activities/activitiesEngine.js';
 import { initGenerator } from './generator/generatorEngine.js';
+import { initAttendance } from './attendance/attendanceEngine.js'; // NEW IMPORT
 
 
 // --- FIREBASE GLOBAL SETUP ---
@@ -286,7 +287,9 @@ window.switchTab = function(tabName) {
             case 'generator':
                 initGenerator(db, userId, appId);
                 break;
-            // Add other cases for students, classes, etc. here later
+            case 'attendance': // NEW CASE
+                initAttendance(db, userId, appId);
+                break;
             default:
                 // For placeholder sections (dashboard, students, etc.), no action needed
                 break;
