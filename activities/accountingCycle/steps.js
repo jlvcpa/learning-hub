@@ -4,9 +4,6 @@ import { Book, Check, X, ChevronDown, ChevronRight, Table, AlertCircle, Plus, Tr
 import { ActivityHelper, sortAccounts, getAccountType, EQUITY_CAUSES } from './utils.js';
 
 const html = htm.bind(React.createElement);
-// ... (Previous Component definitions remain unchanged until TaskSection) ...
-// (JournalRow, LedgerAccount, JournalSourceView, LedgerSourceView, Step1, Step2, Step3, TrialBalanceForm, Step4, Step5, GenericStep all remain the same)
-// I will output the FULL file for completeness to avoid copy-paste errors.
 
 const StatusIcon = ({ correct, show }) => {
     if (!show) return null;
@@ -15,10 +12,13 @@ const StatusIcon = ({ correct, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
+// --- SUB-COMPONENTS TO PREVENT SYNTAX ERRORS ---
+
 const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
     const isDesc = row.isDescription;
     const isYearRow = tIdx === 0 && idx === 0;
     
+    // Validation Logic extracted here
     const getValidationState = () => {
         if (!showFeedback) return null;
         if (tIdx === 0 && idx === 0) { 
@@ -158,6 +158,8 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
     `;
 };
 
+// --- MAIN COMPONENTS ---
+
 const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback, matchedJournalEntries, isReadOnly }) => {
     const [expanded, setExpanded] = useState(true);
     
@@ -285,6 +287,10 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         const rowsL = [];
                         const rowsR = [];
                         
+                        // Push Year Row First
+                        rowsL.push({ date: '2023', part: '', pr: '', amount: null, isYear: true });
+                        rowsR.push({ date: '2023', part: '', pr: '', amount: null, isYear: true });
+                        
                         let bbDr = 0;
                         let bbCr = 0;
                         if (isSubsequentYear && beginningBalances && beginningBalances.balances[acc]) {
@@ -299,30 +305,56 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             }
                         }
 
+                        let lastMonthL = '';
+                        let lastMonthR = '';
+
+                        // If BB exists (Jan 01), set last month to Jan
+                        if (bbDr > 0) lastMonthL = 'Jan';
+                        if (bbCr > 0) lastMonthR = 'Jan';
+
                         transactions.forEach(t => {
                             const dateObj = new Date(t.date);
+                            const mmm = dateObj.toLocaleString('default', { month: 'short' });
                             const dd = dateObj.getDate().toString().padStart(2, '0');
-                            const dateStr = dd;
+                            const dateStrFull = `${mmm} ${dd}`;
 
                             t.debits.forEach(d => {
                                 if (d.account === acc) {
-                                    rowsL.push({ date: dateStr, part: 'GJ', pr: '1', amount: d.amount });
+                                    // Logic for Date Display: Show month if changed or if first entry after year
+                                    let displayDate = dd;
+                                    const isFirstEntry = rowsL.length === 1; // Only year row exists
+                                    
+                                    if (isFirstEntry || lastMonthL !== mmm) {
+                                        displayDate = dateStrFull;
+                                    }
+                                    
+                                    rowsL.push({ date: displayDate, part: 'GJ', pr: '1', amount: d.amount });
+                                    lastMonthL = mmm;
                                 }
                             });
                             t.credits.forEach(c => {
                                 if (c.account === acc) {
-                                    rowsR.push({ date: dateStr, part: 'GJ', pr: '1', amount: c.amount });
+                                    let displayDate = dd;
+                                    const isFirstEntry = rowsR.length === 1;
+                                    
+                                    if (isFirstEntry || lastMonthR !== mmm) {
+                                        displayDate = dateStrFull;
+                                    }
+
+                                    rowsR.push({ date: displayDate, part: 'GJ', pr: '1', amount: c.amount });
+                                    lastMonthR = mmm;
                                 }
                             });
                         });
 
-                        const totalDr = rowsL.reduce((sum, r) => sum + r.amount, 0);
-                        const totalCr = rowsR.reduce((sum, r) => sum + r.amount, 0);
+                        // Calculate Totals excluding the year row (which has null amount)
+                        const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
+                        const totalCr = rowsR.reduce((sum, r) => sum + (r.amount || 0), 0);
                         const net = totalDr - totalCr;
                         const balance = Math.abs(net);
                         const balanceType = net >= 0 ? 'Dr' : 'Cr';
 
-                        const maxCount = Math.max(rowsL.length, rowsR.length, 3);
+                        const maxCount = Math.max(rowsL.length, rowsR.length, 4); // Min 4 rows including year
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
                         return html`
@@ -334,19 +366,19 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                     <div className="flex-1 border-r-2 border-gray-800">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
                                         <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
-                                            <div className="w-10 border-r p-1 text-center">Date</div>
-                                            <div className="flex-1 border-r p-1 text-center">Items</div>
-                                            <div className="w-8 border-r p-1 text-center">PR</div>
-                                            <div className="w-16 p-1 text-center">Amount</div>
+                                            <div className="w-16 border-r p-1 text-center">Date</div>
+                                            <div className="flex-1 border-r p-1 text-center">Particulars</div>
+                                            <div className="w-10 border-r p-1 text-center">PR</div>
+                                            <div className="w-20 p-1 text-center">Amount</div>
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsL[i] || {};
                                             return html`
                                                 <div className="flex text-xs border-b border-gray-200 h-6 items-center">
-                                                    <div className="w-10 border-r text-center px-1 text-gray-600">${r.date || ''}</div>
+                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap">${r.date || ''}</div>
                                                     <div className="flex-1 border-r px-1 truncate text-gray-800">${r.part || ''}</div>
-                                                    <div className="w-8 border-r text-center text-gray-500">${r.pr || ''}</div>
-                                                    <div className="w-16 text-right px-1 text-gray-800">${r.amount ? r.amount.toLocaleString() : ''}</div>
+                                                    <div className="w-10 border-r text-center text-gray-500">${r.pr || ''}</div>
+                                                    <div className="w-20 text-right px-1 text-gray-800">${r.amount ? r.amount.toLocaleString() : ''}</div>
                                                 </div>
                                             `;
                                         })}
@@ -359,19 +391,19 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                     <div className="flex-1">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
                                         <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
-                                            <div className="w-10 border-r p-1 text-center">Date</div>
-                                            <div className="flex-1 border-r p-1 text-center">Items</div>
-                                            <div className="w-8 border-r p-1 text-center">PR</div>
-                                            <div className="w-16 p-1 text-center border-r">Amount</div>
+                                            <div className="w-16 border-r p-1 text-center">Date</div>
+                                            <div className="flex-1 border-r p-1 text-center">Particulars</div>
+                                            <div className="w-10 border-r p-1 text-center">PR</div>
+                                            <div className="w-20 p-1 text-center border-r">Amount</div>
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsR[i] || {};
                                             return html`
                                                 <div className="flex text-xs border-b border-gray-200 h-6 items-center">
-                                                    <div className="w-10 border-r text-center px-1 text-gray-600">${r.date || ''}</div>
+                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap">${r.date || ''}</div>
                                                     <div className="flex-1 border-r px-1 truncate text-gray-800">${r.part || ''}</div>
-                                                    <div className="w-8 border-r text-center text-gray-500">${r.pr || ''}</div>
-                                                    <div className="w-16 text-right px-1 text-gray-800 border-r">${r.amount ? r.amount.toLocaleString() : ''}</div>
+                                                    <div className="w-10 border-r text-center text-gray-500">${r.pr || ''}</div>
+                                                    <div className="w-20 text-right px-1 text-gray-800 border-r">${r.amount ? r.amount.toLocaleString() : ''}</div>
                                                 </div>
                                             `;
                                         })}
@@ -592,11 +624,8 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, expectedLe
 
 export const Step4TrialBalance = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, data, onChange, showFeedback, isReadOnly, expectedLedger }) => html`
     <div className="flex flex-col lg:flex-row gap-4 h-[36rem]">
-        <div className="lg:w-5/12 border rounded bg-white flex flex-col shadow-sm overflow-hidden">
-            <div className="bg-blue-100 p-2 font-bold text-blue-900"><${Book} size=${16} className="inline mr-2"/>Source: General Ledger</div>
-            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 bg-gray-50">
-                 <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
-            </div>
+        <div className="lg:w-5/12 h-full">
+             <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
         </div>
         <div className="lg:w-7/12 border rounded bg-white flex flex-col shadow-sm overflow-hidden">
             <div className="bg-green-100 p-2 font-bold text-green-900"><${Table} size=${16} className="inline mr-2"/>Trial Balance</div>
