@@ -203,7 +203,7 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                             <React.Fragment key=${t.id}>
                                 ${isFirst && html`
                                     <tr key="year-row" className="bg-white border-b border-gray-100">
-                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1 align-top">${yyyy}</td>
+                                        <td className="text-right pr-1 font-bold border-r text-gray-500 py-1 align-top w-16">${yyyy}</td>
                                         <td className="border-r"></td><td></td><td className="border-r"></td><td></td>
                                     </tr>
                                 `}
@@ -254,6 +254,7 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                             </td>
                                             <td className="border-r"></td>
                                             <td className="text-right pr-1 py-1 align-top">${c.amount.toLocaleString()}</td>
+                                            <td className="py-1"></td>
                                         </tr>
                                     `;
                                 })}
