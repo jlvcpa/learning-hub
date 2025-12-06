@@ -12,13 +12,12 @@ const StatusIcon = ({ correct, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
-// --- SUB-COMPONENTS TO PREVENT SYNTAX ERRORS ---
+// --- SUB-COMPONENTS ---
 
 const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
     const isDesc = row.isDescription;
     const isYearRow = tIdx === 0 && idx === 0;
     
-    // Validation Logic extracted here
     const getValidationState = () => {
         if (!showFeedback) return null;
         if (tIdx === 0 && idx === 0) { 
