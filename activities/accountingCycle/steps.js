@@ -131,7 +131,7 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
                     <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Debit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${getTotalStyle(l.drTotal, correctDr)}`} value=${l.drTotal||''} onChange=${(e)=>updateLedger(idx,'drTotal',e.target.value)} disabled=${isReadOnly} /></div>
                 </div>
                 <div className="flex-1">
-                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50">CREDIT</div>
+                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
                     <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center border-r">Amount</div><div className="w-6"></div></div>
                     ${displayRows.map(rowIdx => {
                         const row = rightRows[rowIdx] || {};
@@ -269,6 +269,36 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
     `;
 };
 
+// --- RESTORED: Simple Ledger Source View for Worksheet Activity (Step 5) ---
+const SimpleLedgerView = ({ ledgerData }) => {
+    const [expanded, setExpanded] = useState(true);
+    const sortedKeys = sortAccounts(Object.keys(ledgerData));
+    
+    return html`
+        <div className="mb-4 border rounded-lg shadow-sm bg-blue-50 overflow-hidden no-print">
+            <div className="bg-blue-100 p-2 font-bold text-blue-900 cursor-pointer flex justify-between" onClick=${()=>setExpanded(!expanded)}>
+                <span><${Table} size=${16} className="inline mr-2"/>Source: General Ledger Balances</span>
+                ${expanded ? html`<${ChevronDown} size=${16}/>` : html`<${ChevronRight} size=${16}/>`}
+            </div>
+            ${expanded && html`
+                <div className="p-2 max-h-40 overflow-y-auto flex flex-wrap gap-2">
+                    ${sortedKeys.map(acc => { 
+                        const bal = ledgerData[acc].debit - ledgerData[acc].credit; 
+                        return html`
+                            <div key=${acc} className="bg-white border px-2 py-1 text-xs rounded shadow-sm">
+                                <span className="font-semibold">${acc}:</span> 
+                                <span className=${bal >= 0 ? "text-blue-600 ml-1" : "text-green-600 ml-1"}>
+                                    ${Math.abs(bal).toLocaleString()}
+                                </span>
+                            </div>
+                        `; 
+                    })}
+                </div>
+            `}
+        </div>
+    `;
+};
+
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
     const [expanded, setExpanded] = useState(true);
     const sortedAccounts = sortAccounts(validAccounts);
@@ -308,7 +338,6 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         let lastMonthL = '';
                         let lastMonthR = '';
 
-                        // If BB exists (Jan 01), set last month to Jan
                         if (bbDr > 0) lastMonthL = 'Jan';
                         if (bbCr > 0) lastMonthR = 'Jan';
 
@@ -320,9 +349,8 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
 
                             t.debits.forEach(d => {
                                 if (d.account === acc) {
-                                    // Logic for Date Display: Show month if changed or if first entry after year
                                     let displayDate = dd;
-                                    const isFirstEntry = rowsL.length === 1; // Only year row exists
+                                    const isFirstEntry = rowsL.length === 1; 
                                     
                                     if (isFirstEntry || lastMonthL !== mmm) {
                                         displayDate = dateStrFull;
@@ -347,14 +375,13 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             });
                         });
 
-                        // Calculate Totals excluding the year row (which has null amount)
                         const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
                         const totalCr = rowsR.reduce((sum, r) => sum + (r.amount || 0), 0);
                         const net = totalDr - totalCr;
                         const balance = Math.abs(net);
                         const balanceType = net >= 0 ? 'Dr' : 'Cr';
 
-                        const maxCount = Math.max(rowsL.length, rowsR.length, 4); // Min 4 rows including year
+                        const maxCount = Math.max(rowsL.length, rowsR.length, 4);
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
                         return html`
@@ -651,7 +678,7 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
     return html`
         <div className="w-full">
             <div className="flex flex-col lg:flex-row gap-4 mb-4">
-                <div className="flex-1"><${LedgerSourceView} ledgerData=${ledgerData} /></div>
+                <div className="flex-1"><${SimpleLedgerView} ledgerData=${ledgerData} /></div>
                 <div className="flex-1 border rounded-lg shadow-sm bg-yellow-50 overflow-hidden">
                     <div className="bg-yellow-100 p-2 font-bold text-yellow-900 flex items-center gap-2"><${List} size=${16}/> Adjustments Data</div>
                     <div className="p-2 max-h-40 overflow-y-auto"><ul className="list-decimal list-inside text-xs space-y-1">${adjustments.map(adj => html`<li key=${adj.id}>${adj.desc}</li>`)}</ul></div>
