@@ -65,17 +65,23 @@ const TeacherDashboard = ({ onGenerate }) => {
                 `}
 
                 <div className="bg-orange-50 p-3 rounded border border-orange-200">
-                    <h3 className="font-bold text-orange-900 mb-2 text-sm">Deferred Items Method</h3>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Deferred Expense</label>
-                    <select value=${deferredExpenseMethod} onChange=${(e)=>setDeferredExpenseMethod(e.target.value)} className="w-full p-1 border rounded mb-2 text-sm">
-                        <option value="Asset">Asset Method (Default)</option>
-                        <option value="Expense">Expense Method</option>
-                    </select>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Deferred Income</label>
-                    <select value=${deferredIncomeMethod} onChange=${(e)=>setDeferredIncomeMethod(e.target.value)} className="w-full p-1 border rounded text-sm">
-                        <option value="Liability">Liability Method (Default)</option>
-                        <option value="Income">Income Method</option>
-                    </select>
+                    <h3 className="font-bold text-orange-900 mb-3 text-sm">Deferred Items Method</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="text-left">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Deferred Expense</label>
+                            <select value=${deferredExpenseMethod} onChange=${(e)=>setDeferredExpenseMethod(e.target.value)} className="w-full p-1 border rounded text-sm">
+                                <option value="Asset">Asset Method (Default)</option>
+                                <option value="Expense">Expense Method</option>
+                            </select>
+                        </div>
+                        <div className="text-right">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Deferred Income</label>
+                            <select value=${deferredIncomeMethod} onChange=${(e)=>setDeferredIncomeMethod(e.target.value)} className="w-full p-1 border rounded text-sm text-right">
+                                <option value="Liability">Liability Method (Default)</option>
+                                <option value="Income">Income Method</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Number of Transactions</label><input type="number" min="5" max="30" value=${numTransactions} onChange=${(e) => setNumTransactions(e.target.value)} className="w-full p-2 border rounded-md" /></div>
