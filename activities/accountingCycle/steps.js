@@ -4,6 +4,9 @@ import { Book, Check, X, ChevronDown, ChevronRight, Table, AlertCircle, Plus, Tr
 import { ActivityHelper, sortAccounts, getAccountType, EQUITY_CAUSES } from './utils.js';
 
 const html = htm.bind(React.createElement);
+// ... (Previous Component definitions remain unchanged until TaskSection) ...
+// (JournalRow, LedgerAccount, JournalSourceView, LedgerSourceView, Step1, Step2, Step3, TrialBalanceForm, Step4, Step5, GenericStep all remain the same)
+// I will output the FULL file for completeness to avoid copy-paste errors.
 
 const StatusIcon = ({ correct, show }) => {
     if (!show) return null;
@@ -12,13 +15,10 @@ const StatusIcon = ({ correct, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
-// --- SUB-COMPONENTS TO PREVENT SYNTAX ERRORS ---
-
 const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
     const isDesc = row.isDescription;
     const isYearRow = tIdx === 0 && idx === 0;
     
-    // Validation Logic extracted here
     const getValidationState = () => {
         if (!showFeedback) return null;
         if (tIdx === 0 && idx === 0) { 
@@ -115,7 +115,7 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
             </div>
             <div className="flex">
                 <div className="flex-1 border-r-2 border-gray-800">
-                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50">DEBIT</div>
+                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
                     <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center">Amount</div></div>
                     ${displayRows.map(rowIdx => {
                         const row = leftRows[rowIdx] || {};
@@ -157,8 +157,6 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
         </div>
     `;
 };
-
-// --- MAIN COMPONENTS ---
 
 const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback, matchedJournalEntries, isReadOnly }) => {
     const [expanded, setExpanded] = useState(true);
@@ -269,8 +267,6 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
     `;
 };
 
-// --- UPDATED: LedgerSourceView for Step 4 (Trial Balance) ---
-// Now renders full T-Account forms populated with data, instead of simple balances.
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
     const [expanded, setExpanded] = useState(true);
     const sortedAccounts = sortAccounts(validAccounts);
@@ -286,11 +282,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
             ${expanded && html`
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-6 bg-gray-50">
                     ${sortedAccounts.map(acc => {
-                        // 1. Prepare Data for this Account
                         const rowsL = [];
                         const rowsR = [];
                         
-                        // A. Beginning Balance
                         let bbDr = 0;
                         let bbCr = 0;
                         if (isSubsequentYear && beginningBalances && beginningBalances.balances[acc]) {
@@ -305,11 +299,10 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             }
                         }
 
-                        // B. Process Transactions
                         transactions.forEach(t => {
                             const dateObj = new Date(t.date);
                             const dd = dateObj.getDate().toString().padStart(2, '0');
-                            const dateStr = dd; // Standard day format for ledger lines
+                            const dateStr = dd;
 
                             t.debits.forEach(d => {
                                 if (d.account === acc) {
@@ -323,15 +316,12 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             });
                         });
 
-                        // C. Calculations
                         const totalDr = rowsL.reduce((sum, r) => sum + r.amount, 0);
                         const totalCr = rowsR.reduce((sum, r) => sum + r.amount, 0);
                         const net = totalDr - totalCr;
                         const balance = Math.abs(net);
                         const balanceType = net >= 0 ? 'Dr' : 'Cr';
 
-                        // D. Render Setup
-                        // Ensure at least 3 rows for visual balance, or match the longer side
                         const maxCount = Math.max(rowsL.length, rowsR.length, 3);
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
@@ -341,7 +331,6 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                     ${acc}
                                 </div>
                                 <div className="flex">
-                                    <!-- DEBIT SIDE -->
                                     <div className="flex-1 border-r-2 border-gray-800">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
                                         <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
@@ -367,7 +356,6 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         </div>
                                     </div>
 
-                                    <!-- CREDIT SIDE -->
                                     <div className="flex-1">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
                                         <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
@@ -674,7 +662,7 @@ export const GenericStep = ({ stepId, title, onChange, data }) => html`
 
 export const TaskSection = ({ step, activityData, answers, stepStatus, onValidate, updateAnswerFns, isCurrentActiveTask, isPrevStepCompleted }) => {
     const stepId = step.id;
-    const status = stepStatus[stepId] || {};
+    const status = stepStatus[stepId] || { attempts: 3, completed: false, correct: false };
     const isLocked = !isPrevStepCompleted;
     const isCompleted = status.completed;
     const isStickyActive = !isLocked && !isCompleted;
