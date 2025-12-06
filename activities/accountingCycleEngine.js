@@ -1,7 +1,7 @@
 import React from 'https://esm.sh/react@18.2.0';
 import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
 import htm from 'https://esm.sh/htm';
-import { App } from './accountingCycle/App.js';
+import App from './accountingCycle/App.js'; // Updated to default import
 
 const html = htm.bind(React.createElement);
 
