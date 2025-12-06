@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useCallback, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, RefreshCw, ArrowLeft } from 'https://esm.sh/lucide-react@0.263.1';
 import { APP_VERSION, STEPS, generateTransactions, generateBeginningBalances, sortAccounts, generateAdjustments } from './utils.js';
@@ -10,8 +10,18 @@ const TeacherDashboard = ({ onGenerate }) => {
     const [businessType, setBusinessType] = useState('Service');
     const [ownership, setOwnership] = useState('Sole Proprietorship');
     const [inventorySystem, setInventorySystem] = useState('Periodic');
-    const [numTransactions, setNumTransactions] = useState(10);
-    const [selectedSteps, setSelectedSteps] = useState(STEPS.map(s => s.id));
+    
+    // PERSISTENCE: Initialize state from localStorage if available
+    const [numTransactions, setNumTransactions] = useState(() => {
+        const saved = localStorage.getItem('ac_numTransactions');
+        return saved ? Number(saved) : 10;
+    });
+    
+    const [selectedSteps, setSelectedSteps] = useState(() => {
+        const saved = localStorage.getItem('ac_selectedSteps');
+        return saved ? JSON.parse(saved) : STEPS.map(s => s.id);
+    });
+
     const [includeTradeDiscounts, setIncludeTradeDiscounts] = useState(false);
     const [includeCashDiscounts, setIncludeCashDiscounts] = useState(false);
     const [includeFreight, setIncludeFreight] = useState(false);
@@ -20,6 +30,15 @@ const TeacherDashboard = ({ onGenerate }) => {
     const [deferredExpenseMethod, setDeferredExpenseMethod] = useState('Asset');
     const [deferredIncomeMethod, setDeferredIncomeMethod] = useState('Liability');
     
+    // PERSISTENCE: Save to localStorage whenever these values change
+    useEffect(() => {
+        localStorage.setItem('ac_numTransactions', numTransactions);
+    }, [numTransactions]);
+
+    useEffect(() => {
+        localStorage.setItem('ac_selectedSteps', JSON.stringify(selectedSteps));
+    }, [selectedSteps]);
+
     const toggleStep = (id) => setSelectedSteps(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const handleSelectAll = (e) => e.target.checked ? setSelectedSteps(STEPS.map(s => s.id)) : setSelectedSteps([]);
     const isAllSelected = selectedSteps.length === STEPS.length;
@@ -30,42 +49,67 @@ const TeacherDashboard = ({ onGenerate }) => {
             <div className="flex justify-between items-center mb-6 border-b pb-2">
                  <h2 className="text-2xl font-bold text-gray-800">Activity Configuration</h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Business Organization</label><select value=${businessType} onChange=${(e) => setBusinessType(e.target.value)} className="w-full p-2 border rounded-md"><option>Service</option><option>Merchandising</option><option>Manufacturing</option><option>Banking</option></select></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Form of Ownership</label><select value=${ownership} onChange=${(e) => setOwnership(e.target.value)} className="w-full p-2 border rounded-md"><option>Sole Proprietorship</option><option>Partnership</option><option>One Person Corporation</option><option>Cooperative</option></select></div>
-                
-                ${isMerchOrMfg && html`
-                    <div className="md:col-span-2 bg-blue-50 p-4 rounded border border-blue-200">
-                        <h3 className="font-bold text-blue-900 mb-3 text-sm uppercase">Merchandising & Manufacturing Options</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Inventory System</label>
-                                <select value=${inventorySystem} onChange=${(e) => setInventorySystem(e.target.value)} className="w-full p-2 border rounded-md bg-white">
-                                    <option>Periodic</option>
-                                    <option>Perpetual</option>
-                                </select>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="font-medium text-sm text-gray-700">Include Transactions:</label>
-                                <label className="flex items-center gap-2 cursor-pointer hover:bg-blue-100 p-1 rounded">
-                                    <input type="checkbox" checked=${includeTradeDiscounts} onChange=${(e) => setIncludeTradeDiscounts(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                                    <span className="text-sm">Trade Discounts</span>
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer hover:bg-blue-100 p-1 rounded">
-                                    <input type="checkbox" checked=${includeCashDiscounts} onChange=${(e) => setIncludeCashDiscounts(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                                    <span className="text-sm">Cash Discounts (e.g. 2/10, n/30)</span>
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer hover:bg-blue-100 p-1 rounded">
-                                    <input type="checkbox" checked=${includeFreight} onChange=${(e) => setIncludeFreight(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                                    <span className="text-sm">Freight In/Out</span>
-                                </label>
-                            </div>
+            
+            <!-- ROW 1: 3 Columns (Business Org, Ownership, Num Transactions) -->
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 items-end">
+                <div className="text-left">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Business Organization</label>
+                    <select value=${businessType} onChange=${(e) => setBusinessType(e.target.value)} className="w-full p-2 border rounded-md">
+                        <option>Service</option>
+                        <option>Merchandising</option>
+                        <option>Manufacturing</option>
+                        <option>Banking</option>
+                    </select>
+                </div>
+                <div className="text-center">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Form of Ownership</label>
+                    <select value=${ownership} onChange=${(e) => setOwnership(e.target.value)} className="w-full p-2 border rounded-md">
+                        <option>Sole Proprietorship</option>
+                        <option>Partnership</option>
+                        <option>One Person Corporation</option><option>Cooperative</option>
+                    </select>
+                </div>
+                <div className="text-right">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Number of Transactions</label>
+                    <input type="number" min="5" max="30" value=${numTransactions} onChange=${(e) => setNumTransactions(e.target.value)} className="w-full p-2 border rounded-md text-right" />
+                </div>
+            </div>
+            
+            ${isMerchOrMfg && html`
+                <div className="bg-blue-50 p-4 rounded border border-blue-200 mb-6">
+                    <h3 className="font-bold text-blue-900 mb-3 text-sm uppercase">Merchandising & Manufacturing Options</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Inventory System</label>
+                            <select value=${inventorySystem} onChange=${(e) => setInventorySystem(e.target.value)} className="w-full p-2 border rounded-md bg-white">
+                                <option>Periodic</option>
+                                <option>Perpetual</option>
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label className="font-medium text-sm text-gray-700">Include Transactions:</label>
+                            <label className="flex items-center gap-2 cursor-pointer hover:bg-blue-100 p-1 rounded">
+                                <input type="checkbox" checked=${includeTradeDiscounts} onChange=${(e) => setIncludeTradeDiscounts(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                                <span className="text-sm">Trade Discounts</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer hover:bg-blue-100 p-1 rounded">
+                                <input type="checkbox" checked=${includeCashDiscounts} onChange=${(e) => setIncludeCashDiscounts(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                                <span className="text-sm">Cash Discounts (e.g. 2/10, n/30)</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer hover:bg-blue-100 p-1 rounded">
+                                <input type="checkbox" checked=${includeFreight} onChange=${(e) => setIncludeFreight(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                                <span className="text-sm">Freight In/Out</span>
+                            </label>
                         </div>
                     </div>
-                `}
+                </div>
+            `}
 
+            <!-- ROW 2: Side-by-Side Deferred & Period Panels -->
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- Left Aligned: Deferred Items -->
                 <div className="bg-orange-50 p-3 rounded border border-orange-200">
-                    <h3 className="font-bold text-orange-900 mb-3 text-sm">Deferred Items Method</h3>
+                    <h3 className="font-bold text-orange-900 mb-3 text-sm text-left">Deferred Items Method</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="text-left">
                             <label className="block text-xs font-medium text-gray-700 mb-1">Deferred Expense</label>
@@ -84,10 +128,45 @@ const TeacherDashboard = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Number of Transactions</label><input type="number" min="5" max="30" value=${numTransactions} onChange=${(e) => setNumTransactions(e.target.value)} className="w-full p-2 border rounded-md" /></div>
-                <div className="bg-purple-50 p-3 rounded border border-purple-200"><label className="block text-sm font-bold text-purple-900 mb-2">Accounting Period</label><div className="flex flex-col gap-2"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked=${!isSubsequentYear} onChange=${() => setIsSubsequentYear(false)} /><span className="text-sm">First Year of Operations (Start from zero)</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked=${isSubsequentYear} onChange=${() => setIsSubsequentYear(true)} /><span className="text-sm">Subsequent Year (Has Beginning Balances)</span></label></div></div>
+                <!-- Right Aligned: Accounting Period -->
+                <div className="bg-purple-50 p-3 rounded border border-purple-200">
+                    <h3 className="font-bold text-purple-900 mb-2 text-sm text-right">Accounting Period</h3>
+                    <div className="flex flex-col gap-2 items-end">
+                        <label className="flex items-center gap-2 cursor-pointer justify-end w-full">
+                            <span className="text-sm">First Year of Operations (Start from zero)</span>
+                            <input type="radio" checked=${!isSubsequentYear} onChange=${() => setIsSubsequentYear(false)} />
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer justify-end w-full">
+                            <span className="text-sm">Subsequent Year (Has Beginning Balances)</span>
+                            <input type="radio" checked=${isSubsequentYear} onChange=${() => setIsSubsequentYear(true)} />
+                        </label>
+                    </div>
+                </div>
             </div>
-            <div className="mb-8"><div className="flex items-center justify-between mb-2"><label className="block text-sm font-medium text-gray-700">Include Accounting Cycle Steps</label><label className="flex items-center space-x-2 text-sm text-blue-600 cursor-pointer bg-blue-50 px-3 py-1 rounded"><input type="checkbox" checked=${isAllSelected} onChange=${handleSelectAll} /><span className="font-semibold">${isAllSelected ? 'Deselect All' : 'Select All'}</span></label></div><div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto border p-4 rounded-md bg-gray-50">${STEPS.map(step => html`<div key=${step.id} className="flex items-start space-x-2"><input type="checkbox" checked=${selectedSteps.includes(step.id)} onChange=${() => toggleStep(step.id)} className="mt-1" /><div><span className="font-semibold block text-sm">Step ${step.id}: ${step.title}</span><span className="text-xs text-gray-500">${step.description}</span></div></div>`)}</div></div>
+
+            <!-- Steps Panel: Increased Height -->
+            <div className="mb-8">
+                <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Include Accounting Cycle Steps</label>
+                    <label className="flex items-center space-x-2 text-sm text-blue-600 cursor-pointer bg-blue-50 px-3 py-1 rounded">
+                        <input type="checkbox" checked=${isAllSelected} onChange=${handleSelectAll} />
+                        <span className="font-semibold">${isAllSelected ? 'Deselect All' : 'Select All'}</span>
+                    </label>
+                </div>
+                <!-- Increased height from max-h-60 to max-h-72 (approx 15-20% increase) -->
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-72 overflow-y-auto border p-4 rounded-md bg-gray-50">
+                    ${STEPS.map(step => html`
+                        <div key=${step.id} className="flex items-start space-x-2">
+                            <input type="checkbox" checked=${selectedSteps.includes(step.id)} onChange=${() => toggleStep(step.id)} className="mt-1" />
+                            <div>
+                                <span className="font-semibold block text-sm">Step ${step.id}: ${step.title}</span>
+                                <span className="text-xs text-gray-500">${step.description}</span>
+                            </div>
+                        </div>
+                    `)}
+                </div>
+            </div>
+
             <button onClick=${() => onGenerate({ businessType, ownership, inventorySystem, numTransactions: Number(numTransactions) || 10, selectedSteps, numPartners: Number(numPartners) || 2, isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } })} className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-bold flex items-center justify-center gap-2"><${RefreshCw} size=${20} /> Generate Activity</button>
             <div className="mt-4 pt-4 border-t text-xs text-gray-400 text-center">${APP_VERSION}</div>
         </div>
@@ -104,7 +183,6 @@ const App = () => {
     const updateAnswer = useCallback((stepId, data) => setAnswers(p => ({ ...p, [stepId]: data })), []);
     const updateNestedAnswer = useCallback((stepId, key, subKey, value) => setAnswers(prev => { const stepData = prev[stepId] || {}; const keyData = stepData[key] || {}; return { ...prev, [stepId]: { ...stepData, [key]: { ...keyData, [subKey]: value } } }; }), []);
     
-    // Fix: Cleaned up definition to remove potential syntax ambiguity
     const updateTrialBalanceAnswer = useCallback((stepId, acc, side, val) => {
         setAnswers(prev => {
             const stepData = prev[stepId] || {};
