@@ -248,22 +248,6 @@ export const Step3Posting = ({ data, onChange, showFeedback, validAccounts, ledg
          return Math.abs(Number(total) - correct) <= 1 ? "text-green-600 font-bold" : "text-red-600 font-bold";
     };
     
-    // ... (Row validation logic moved inside render for brevity in this split file, or could be extracted) ...
-    // Using a simplified inline validation check for UI rendering
-    const getRowValidation = (accName, side, row, rowIdx, isSubsequentYear, begBal) => {
-        // ... (This logic is complex, keeping it inline in the large block in utils if needed, or re-implementing here) ...
-        // Re-implementing simplified version for display
-        if (!showFeedback && !isReadOnly) return { isValid: true };
-        // Full logic would be here... returning placeholder for now to save space, assuming logic is consistent with request
-        return { isValid: true }; // Placeholder: The validation logic is actually in the main App component for `isCorrect`, 
-                                  // BUT for per-row coloring we need it here. 
-                                  // Since I cannot import the hook logic easily, I will rely on the `isCorrect` prop passed down 
-                                  // or just skip per-row intense validation visualization in this split to avoid duplication,
-                                  // or copy the logic. I will copy the logic to ensure fidelity.
-        
-        // ... (Copying logic from original snippet) ...
-    };
-
     return html`
         <div className="flex flex-col lg:flex-row gap-4 h-full">
             <div className="lg:w-5/12 h-full"><${JournalSourceView} transactions=${transactions} journalPRs=${journalPRs} onTogglePR=${onTogglePR} showFeedback=${showFeedback} matchedJournalEntries=${matchedJournalEntries} isReadOnly=${isReadOnly}/></div>
@@ -331,7 +315,7 @@ export const Step3Posting = ({ data, onChange, showFeedback, validAccounts, ledg
                             `;
                         })}
                     </div>
-                    ${!isReadOnly && html`<button onClick=${()=>onChange('ledgers', [...ledgers, { id: Date.now(), account: '', leftRows:[{},{},{},{}], rightRows:[{},{},{},{}] }])} className="mt-8 w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 hover:border-blue-400 flex justify-center items-center gap-2 font-bold bg-gray-50"><${Plus} size=${20}/> Add New Account Ledger</button>`}
+                    ${!isReadOnly && html`<button onClick=${()=>onChange('ledgers', [...ledgers, { id: Date.now(), account: '', leftRows:[{},{},{},{}], rightRows:[{},{},{},{}] }])} className="mt-8 w-full py-3 border-2 border-dashed border-gray-400 text-gray-500 hover:border-blue-400 flex justify-center items-center gap-2 font-bold bg-gray-50"><${Plus} size=${20}/> Add New Account Ledger</button>`}
                 </div>
             </div>
         </div>
@@ -444,9 +428,6 @@ export const Step4TrialBalance = ({ ledgerData, data, onChange, showFeedback, is
 `;
 
 export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFeedback, isReadOnly }) => {
-    // Note: Simplification for modularity, full heavy logic remains in App or here as needed.
-    // For now, basic rendering. The complex merging logic is assumed to be handled or passed down.
-    // Re-implementing the merging for display:
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
         adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); }); 
@@ -455,6 +436,9 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
 
     const getVal = (acc, col) => data[acc]?.[col] === '' || data[acc]?.[col] === undefined ? 0 : Number(data[acc][col]);
     const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
+
+    // FIX: Define the onChange handler outside the template literal to avoid parsing errors
+    const handleChange = (acc, col, value) => onChange(acc, col, value);
 
     return html`
         <div className="w-full">
@@ -478,7 +462,7 @@ export const Step5Worksheet = ({ ledgerData, adjustments, data, onChange, showFe
                                 <tr key=${acc} className=${`border-b hover:bg-blue-50 ${bgClass}`}>
                                     <td className=${`p-1 border-r text-left truncate sticky left-0 z-0 ${bgClass} font-medium`}>${acc}</td>
                                     ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map((col) => (
-                                        html`<td key=${col} className="border-r p-0 relative"><input type="number" className=${inputClass(false)} value=${data[acc]?.[col] || ''} onChange=${(e) => onChange(acc, col, e.target.value)} disabled=${isReadOnly} /></td>`
+                                        html`<td key=${col} className="border-r p-0 relative"><input type="number" className=${inputClass(false)} value=${data[acc]?.[col] || ''} onChange=${(e) => handleChange(acc, col, e.target.value)} disabled=${isReadOnly} /></td>`
                                     ))}
                                 </tr>
                             `;
@@ -528,7 +512,23 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 2) return html`<${Step2Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${(id, newRows) => updateNestedAnswer(2, id.toString(), 'rows', newRows)} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
         if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${(key, val) => updateAnswer(3, { ...(answers[3] || {}), [key]: val })} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${(key) => { const cur = answers[3]?.journalPRs || {}; updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}}); }} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
         if (stepId === 4) return html`<${Step4TrialBalance} ledgerData=${activityData.ledger} data=${answers[4] || {}} onChange=${(key, val) => updateAnswer(4, { ...(answers[4] || {}), [key]: val })} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${stepAnswer || {}} onChange=${(rowKey, colKey, val) => { if (rowKey === 'footers') { const [section, field] = colKey.split('.'); const curFooters = stepAnswer?.footers || {}; const curSection = curFooters[section] || {}; updateAnswer(5, { ...stepAnswer, footers: { ...curFooters, [section]: { ...curSection, [field]: val } } }); } else { const curRow = stepAnswer?.[rowKey] || {}; updateAnswer(5, { ...stepAnswer, [rowKey]: { ...curRow, [colKey]: val } }); } }} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        
+        if (stepId === 5) {
+            // Fix for SyntaxError: Extracted the complex onChange logic into a variable
+            const handleStep5Change = (rowKey, colKey, val) => {
+                if (rowKey === 'footers') {
+                    const [section, field] = colKey.split('.');
+                    const curFooters = stepAnswer?.footers || {};
+                    const curSection = curFooters[section] || {};
+                    updateAnswer(5, { ...stepAnswer, footers: { ...curFooters, [section]: { ...curSection, [field]: val } } });
+                } else {
+                    const curRow = stepAnswer?.[rowKey] || {};
+                    updateAnswer(5, { ...stepAnswer, [rowKey]: { ...curRow, [colKey]: val } });
+                }
+            };
+            return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${stepAnswer || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        }
+        
         return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${(k, v) => updateAnswer(stepId, { ...stepAnswer, [k]: v })} data=${stepAnswer} />`;
     };
 
