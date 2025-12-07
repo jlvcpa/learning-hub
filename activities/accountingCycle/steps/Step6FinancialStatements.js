@@ -1,9 +1,62 @@
-import React, { useEffect } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Table, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
-import { WorksheetSourceView } from '../components.js';
+import { Table, Trash2, Plus, List, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
+import { sortAccounts, getAccountType } from '../utils.js';
 
 const html = htm.bind(React.createElement);
+
+// --- INTERNAL COMPONENTS (Moved here from components.js to make this file standalone) ---
+
+const WorksheetSourceView = ({ ledgerData, adjustments }) => {
+    // Calculates correct worksheet data on the fly for Read-Only Source View
+    const mergedAccounts = useMemo(() => { 
+        const s = new Set(Object.keys(ledgerData)); 
+        adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); }); 
+        return sortAccounts(Array.from(s)); 
+    }, [ledgerData, adjustments]);
+
+    const data = useMemo(() => {
+        return mergedAccounts.map(acc => {
+            const ledgerBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
+            const tbDr = ledgerBal > 0 ? ledgerBal : 0; const tbCr = ledgerBal < 0 ? Math.abs(ledgerBal) : 0;
+            let aDr = 0; let aCr = 0;
+            adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
+            const atbNet = (tbDr - tbCr) + (aDr - aCr);
+            const atbDr = atbNet > 0 ? atbNet : 0; const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
+            const type = getAccountType(acc); const isIS = type === 'Revenue' || type === 'Expense';
+            const isDr = isIS ? atbDr : 0; const isCr = isIS ? atbCr : 0; 
+            const bsDr = !isIS ? atbDr : 0; const bsCr = !isIS ? atbCr : 0;
+            return { acc, tbDr, tbCr, adjDr: aDr, adjCr: aCr, atbDr, atbCr, isDr, isCr, bsDr, bsCr };
+        });
+    }, [mergedAccounts, ledgerData, adjustments]);
+
+    return html`
+        <div className="h-full flex flex-col">
+            <div className="bg-purple-100 p-2 font-bold text-purple-900 border-b border-purple-200"><${Table} size=${16} className="inline mr-2"/>Source: Worksheet (Correct Answers)</div>
+            <div className="overflow-auto custom-scrollbar flex-1 bg-white">
+                <table className="w-full text-xs min-w-[1000px] border-collapse">
+                    <thead className="sticky top-0 z-10">
+                        <tr className="bg-purple-900 text-white text-center"><th className="p-1 sticky left-0 bg-purple-900 z-20">Account</th><th colSpan="2">Adjusted TB</th><th colSpan="2">Income Statement</th><th colSpan="2">Balance Sheet</th></tr>
+                        <tr className="bg-purple-800 text-white text-center"><th className="p-1 sticky left-0 bg-purple-800 z-20"></th><th>Dr</th><th>Cr</th><th>Dr</th><th>Cr</th><th>Dr</th><th>Cr</th></tr>
+                    </thead>
+                    <tbody>
+                        ${data.map((row, idx) => html`
+                            <tr key=${idx} className="border-b border-purple-100 hover:bg-purple-50">
+                                <td className="p-1 border-r sticky left-0 bg-white z-0 truncate font-medium w-40">${row.acc}</td>
+                                <td className="p-1 border-r text-right w-20">${row.atbDr || ''}</td>
+                                <td className="p-1 border-r text-right w-20">${row.atbCr || ''}</td>
+                                <td className="p-1 border-r text-right w-20 bg-green-50">${row.isDr || ''}</td>
+                                <td className="p-1 border-r text-right w-20 bg-green-50">${row.isCr || ''}</td>
+                                <td className="p-1 border-r text-right w-20 bg-indigo-50">${row.bsDr || ''}</td>
+                                <td className="p-1 text-right w-20 bg-indigo-50">${row.bsCr || ''}</td>
+                            </tr>
+                        `)}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+};
 
 const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor = "bg-gray-100" }) => {
     // Generic form for FS lists
@@ -41,6 +94,8 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
         </div>
     `;
 };
+
+// --- MAIN EXPORT ---
 
 export default function Step6FinancialStatements({ ledgerData, adjustments, activityData, data, onChange, showFeedback, isReadOnly }) {
     const { fsFormat, includeCashFlows, businessType } = activityData.config;
