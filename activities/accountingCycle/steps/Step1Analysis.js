@@ -1,9 +1,20 @@
 import React from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { StatusIcon } from '../components.js';
+import { Check, X } from 'https://esm.sh/lucide-react@0.263.1';
 import { EQUITY_CAUSES } from '../utils.js';
 
 const html = htm.bind(React.createElement);
+
+// --- INTERNAL COMPONENTS ---
+
+const StatusIcon = ({ correct, show }) => {
+    if (!show) return null;
+    return correct 
+        ? html`<${Check} size=${14} className="text-green-600 inline ml-1" />` 
+        : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
+};
+
+// --- MAIN EXPORT ---
 
 export default function Step1Analysis({ transactions = [], data, onChange, showFeedback, isReadOnly }) {
     if (!transactions || transactions.length === 0) return html`<div className="p-4 bg-red-50 text-red-600 rounded border border-red-200">No transactions generated. Please go back and regenerate the activity.</div>`;
