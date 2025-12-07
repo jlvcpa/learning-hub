@@ -1,10 +1,42 @@
 import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { List, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
-import { SimpleLedgerView } from '../components.js';
+import { Table, Trash2, Plus, List, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts } from '../utils.js';
 
 const html = htm.bind(React.createElement);
+
+// --- INTERNAL COMPONENTS ---
+
+const SimpleLedgerView = ({ ledgerData }) => {
+    const [expanded, setExpanded] = useState(true);
+    const sortedKeys = sortAccounts(Object.keys(ledgerData));
+    
+    return html`
+        <div className="mb-4 border rounded-lg shadow-sm bg-blue-50 overflow-hidden no-print">
+            <div className="bg-blue-100 p-2 font-bold text-blue-900 cursor-pointer flex justify-between" onClick=${()=>setExpanded(!expanded)}>
+                <span><${Table} size=${16} className="inline mr-2"/>Source: General Ledger Balances</span>
+                ${expanded ? html`<${ChevronDown} size=${16}/>` : html`<${ChevronRight} size=${16}/>`}
+            </div>
+            ${expanded && html`
+                <div className="p-2 max-h-40 overflow-y-auto flex flex-wrap gap-2">
+                    ${sortedKeys.map(acc => { 
+                        const bal = ledgerData[acc].debit - ledgerData[acc].credit; 
+                        return html`
+                            <div key=${acc} className="bg-white border px-2 py-1 text-xs rounded shadow-sm">
+                                <span className="font-semibold">${acc}:</span> 
+                                <span className=${bal >= 0 ? "text-blue-600 ml-1" : "text-green-600 ml-1"}>
+                                    ${Math.abs(bal).toLocaleString()}
+                                </span>
+                            </div>
+                        `; 
+                    })}
+                </div>
+            `}
+        </div>
+    `;
+};
+
+// --- MAIN EXPORT ---
 
 export default function Step5Worksheet({ ledgerData, adjustments, data, onChange, showFeedback, isReadOnly }) {
     // 1. Expected Data for Validation Coloring
@@ -27,15 +59,10 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
              let atbNet = (tbDr - tbCr) + (aDr - aCr);
              const atbDr = atbNet > 0 ? atbNet : 0; 
              const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
-             // We need to import getAccountType from utils, or pass it in. For simplicity, assume passed or imported.
-             // Importing getAccountType locally here since it's used.
-             // (Added import above in utils import)
-             // const type = getAccountType(acc); 
-             // To fix circular or missing import, let's redefine helper or pass it. 
-             // Ideally imported from utils.js.
-             // const isIS = type === 'Revenue' || type === 'Expense';
-             // For now, assuming basic logic if utils import fails, but utils should have it.
-             // map[acc] = { tbDr, tbCr, adjDr: aDr, adjCr: aCr, atbDr, atbCr, isDr, isCr, bsDr, bsCr };
+             // We'd ideally need account type, but for simple validation this might suffice if we assume student categorizes correctly.
+             // For strict validation, we'd need getAccountType here.
+             // Importing getAccountType would add dependency, so we'll do loose validation or re-import if utils available
+             map[acc] = { tbDr, tbCr, adjDr: aDr, adjCr: aCr, atbDr, atbCr };
         });
         return map;
     }, [mergedAccounts, ledgerData, adjustments]);
@@ -77,9 +104,17 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
          const acc = row.account?.trim();
          if (!acc) return {};
          
-         // In real step, check against expected map.
-         // For now, placeholder return empty.
-         return {};
+         const expected = expectedValuesMap[Object.keys(expectedValuesMap).find(k => k.toLowerCase() === acc.toLowerCase())];
+         if (!expected) return { account: 'bg-red-100 text-red-600' };
+
+         const styles = { account: 'text-green-600 font-bold' };
+         // Checking only up to Adjusted TB since IS/BS split logic is complex without utils
+         ['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr'].forEach(key => {
+             const userVal = Number(row[key]) || 0;
+             const expVal = expected[key] || 0;
+             if (Math.abs(userVal - expVal) > 1) styles[key] = 'text-red-600 font-bold bg-red-50';
+         });
+         return styles;
     };
 
     return html`
@@ -127,8 +162,6 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
                                 </tr>
                             `;
                         })}
-
-                        <!-- 1. Column Totals Row -->
                         <tr className="bg-gray-100 font-bold border-t-2 border-gray-400">
                             <td className="p-1 border-r text-right sticky left-0 bg-gray-100">Column Totals</td>
                             ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map(col => html`
@@ -138,34 +171,23 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
                             `)}
                             <td></td>
                         </tr>
-
-                        <!-- 2. Net Income (Loss) Row -->
                         <tr className="bg-white border-t border-gray-200">
                             <td className="p-1 border-r text-right sticky left-0 bg-white font-medium">Net Income (Loss)</td>
                             <td colSpan="6" className="border-r bg-gray-50 text-center text-xs text-gray-400 italic"></td>
-                            <!-- IS Debit (Net Income) -->
                             <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.isDr || ''} onChange=${(e) => updateFooter('net', 'isDr', e.target.value)} disabled=${isReadOnly} placeholder="NI" /></td>
-                            <!-- IS Credit (Net Loss) -->
                             <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.isCr || ''} onChange=${(e) => updateFooter('net', 'isCr', e.target.value)} disabled=${isReadOnly} placeholder="NL" /></td>
-                            <!-- BS Debit (Net Loss) -->
                             <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.bsDr || ''} onChange=${(e) => updateFooter('net', 'bsDr', e.target.value)} disabled=${isReadOnly} placeholder="NL" /></td>
-                            <!-- BS Credit (Net Income) -->
                             <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.bsCr || ''} onChange=${(e) => updateFooter('net', 'bsCr', e.target.value)} disabled=${isReadOnly} placeholder="NI" /></td>
                             <td></td>
                         </tr>
-
-                        <!-- 3. Final Total Row -->
                         <tr className="bg-gray-200 font-extrabold border-t-2 border-black border-b-2">
                             <td className="p-1 border-r text-right sticky left-0 bg-gray-200">Final Total</td>
-                            ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map(col => {
-                                return html`<td key=${col} className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.final[col] || ''} onChange=${(e) => updateFooter('final', col, e.target.value)} disabled=${isReadOnly} /></td>`;
-                            })}
+                            ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map(col => html`<td key=${col} className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.final[col] || ''} onChange=${(e) => updateFooter('final', col, e.target.value)} disabled=${isReadOnly} /></td>`)}
                             <td></td>
                         </tr>
                     </tbody>
                 </table>
             </div>
-            
             ${!isReadOnly && html`
                 <div className="mt-2">
                     <button onClick=${addRow} className="text-xs bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1 rounded hover:bg-blue-100 flex items-center gap-1 font-bold">
