@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, RefreshCw, ArrowLeft } from 'https://esm.sh/lucide-react@0.263.1';
-import { APP_VERSION, STEPS, generateTransactions, generateBeginningBalances, sortAccounts, generateAdjustments } from './utils.js';
+import { APP_VERSION, STEPS, generateTransactions, generateBeginningBalances, sortAccounts, generateAdjustments, getAccountType } from './utils.js';
 import { TaskSection } from './steps.js';
 
 const html = htm.bind(React.createElement);
@@ -265,38 +265,30 @@ const App = () => {
              });
              isCorrect = allAccountsValid && ledgers.length > 0;
         } else if (stepId === 4) {
-             // --- FIX: ACTUAL VALIDATION LOGIC FOR STEP 4 ---
              const rows = currentAns.rows || [];
              const expectedAccounts = Object.keys(activityData.ledger);
              let allRowsCorrect = true;
              
-             // 1. Check if all required accounts are present (filter out empty rows)
              const populatedRows = rows.filter(r => r.account && r.account.trim() !== '');
-             // We check unique accounts to handle duplicates strictly if needed, but length check is a good proxy for completeness
              if (populatedRows.length !== expectedAccounts.length) {
                  allRowsCorrect = false;
              }
 
-             // 2. Check each row's values
              populatedRows.forEach(r => {
                  const acc = r.account.trim();
-                 // Case-insensitive match for account name
                  const key = expectedAccounts.find(k => k.toLowerCase() === acc.toLowerCase());
-                 
                  if (!key) { 
-                     allRowsCorrect = false; // Unknown account
+                     allRowsCorrect = false; 
                      return; 
                  }
-                 
                  const expNet = (activityData.ledger[key].debit || 0) - (activityData.ledger[key].credit || 0);
                  const expDr = expNet > 0 ? expNet : 0;
                  const expCr = expNet < 0 ? Math.abs(expNet) : 0;
-                 
                  const usrDr = Number(r.dr) || 0;
                  const usrCr = Number(r.cr) || 0;
 
                  if (Math.abs(usrDr - expDr) > 1 || Math.abs(usrCr - expCr) > 1) {
-                     allRowsCorrect = false; // Wrong amount
+                     allRowsCorrect = false; 
                  }
              });
 
@@ -306,7 +298,45 @@ const App = () => {
              const userFinal = currentAns.footers?.final || {};
              isCorrect = Number(userFinal.finBSDr) > 0 && Math.abs(Number(userFinal.finBSDr) - Number(userFinal.finBSCr)) <= 1;
         } else if (stepId === 6) {
-             isCorrect = true;
+             // --- FIX: VALIDATION FOR STEP 6 ---
+             // We calculate the expected Balance Sheet Total from the Worksheet Data (Ledger + Adjustments)
+             // Then we check if the student entered this total in the Balance Sheet form.
+             
+             const { ledger, adjustments } = activityData;
+             const mergedAccounts = new Set(Object.keys(ledger));
+             adjustments.forEach(adj => { mergedAccounts.add(adj.drAcc); mergedAccounts.add(adj.crAcc); });
+             
+             let calcBSDr = 0;
+             let calcISDr = 0;
+             let calcISCr = 0;
+             
+             Array.from(mergedAccounts).forEach(acc => {
+                 const lBal = (ledger[acc]?.debit || 0) - (ledger[acc]?.credit || 0);
+                 let aDr = 0; let aCr = 0;
+                 adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
+                 const atbNet = lBal + (aDr - aCr);
+                 const atbDr = atbNet > 0 ? atbNet : 0; 
+                 const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
+                 
+                 const type = getAccountType(acc);
+                 const isIS = type === 'Revenue' || type === 'Expense';
+                 
+                 if (isIS) {
+                     calcISDr += atbDr;
+                     calcISCr += atbCr;
+                 } else {
+                     calcBSDr += atbDr;
+                 }
+             });
+             
+             const netInc = calcISCr - calcISDr;
+             const expectedBSTotal = calcBSDr + (netInc < 0 ? Math.abs(netInc) : 0);
+             
+             const userBSRows = currentAns.bs?.rows || [];
+             // Check if any row in the Balance Sheet has the correct Total Assets / Total L+E amount
+             const matchFound = userBSRows.some(r => Math.abs(Number(r.amount) - expectedBSTotal) <= 1);
+             
+             isCorrect = matchFound;
         } else {
              isCorrect = true;
         }
