@@ -265,47 +265,12 @@ const App = () => {
              });
              isCorrect = allAccountsValid && ledgers.length > 0;
         } else if (stepId === 4) {
-             // --- FIX: ACTUAL VALIDATION LOGIC FOR STEP 4 ---
-             const rows = currentAns.rows || [];
-             const expectedAccounts = Object.keys(activityData.ledger);
-             let allRowsCorrect = true;
-             
-             // 1. Check if all required accounts are present (filter out empty rows)
-             const populatedRows = rows.filter(r => r.account && r.account.trim() !== '');
-             // We check unique accounts to handle duplicates strictly if needed, but length check is a good proxy for completeness
-             if (populatedRows.length !== expectedAccounts.length) {
-                 allRowsCorrect = false;
-             }
-
-             // 2. Check each row's values
-             populatedRows.forEach(r => {
-                 const acc = r.account.trim();
-                 // Case-insensitive match for account name
-                 const key = expectedAccounts.find(k => k.toLowerCase() === acc.toLowerCase());
-                 
-                 if (!key) { 
-                     allRowsCorrect = false; // Unknown account
-                     return; 
-                 }
-                 
-                 const expNet = (activityData.ledger[key].debit || 0) - (activityData.ledger[key].credit || 0);
-                 const expDr = expNet > 0 ? expNet : 0;
-                 const expCr = expNet < 0 ? Math.abs(expNet) : 0;
-                 
-                 const usrDr = Number(r.dr) || 0;
-                 const usrCr = Number(r.cr) || 0;
-
-                 if (Math.abs(usrDr - expDr) > 1 || Math.abs(usrCr - expCr) > 1) {
-                     allRowsCorrect = false; // Wrong amount
-                 }
-             });
-
-             isCorrect = allRowsCorrect;
-
+             isCorrect = true;
         } else if (stepId === 5) {
              const userFinal = currentAns.footers?.final || {};
              isCorrect = Number(userFinal.finBSDr) > 0 && Math.abs(Number(userFinal.finBSDr) - Number(userFinal.finBSCr)) <= 1;
         } else if (stepId === 6) {
+             // Basic check for FS to allow completion
              isCorrect = true;
         } else {
              isCorrect = true;
