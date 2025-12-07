@@ -1,14 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Table, Trash2, Plus, List, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
+import { Table, Trash2, Plus, List } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts, getAccountType } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
-// --- INTERNAL COMPONENTS (Moved here from components.js to make this file standalone) ---
+// --- INTERNAL COMPONENTS ---
 
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
-    // Calculates correct worksheet data on the fly for Read-Only Source View
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
         adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); }); 
@@ -58,8 +57,8 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     `;
 };
 
+// Generic Form for Balance Sheet, Equity, Cash Flows, etc.
 const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor = "bg-gray-100" }) => {
-    // Generic form for FS lists
     const rows = data?.rows || [{ label: '', amount: '' }, { label: '', amount: '' }];
     
     const updateRow = (idx, field, val) => {
@@ -95,27 +94,120 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
     `;
 };
 
+// Specialized Single-Step Income Statement for Service Business
+const ServiceSingleStepIS = ({ data, onChange, isReadOnly }) => {
+    // Initialize structure if empty
+    const revenues = data?.revenues || [{ label: '', amount: '' }];
+    const expenses = data?.expenses || [{ label: '', amount: '' }];
+    
+    const updateData = (updates) => {
+        onChange({ ...data, ...updates });
+    };
+
+    const handleArrChange = (key, idx, field, val) => {
+        const arr = [...(key === 'revenues' ? revenues : expenses)];
+        arr[idx] = { ...arr[idx], [field]: val };
+        updateData({ [key]: arr });
+    };
+
+    const addRow = (key) => {
+        const arr = [...(key === 'revenues' ? revenues : expenses)];
+        updateData({ [key]: [...arr, { label: '', amount: '' }] });
+    };
+
+    const deleteRow = (key, idx) => {
+        const arr = [...(key === 'revenues' ? revenues : expenses)];
+        if (arr.length <= 1) return;
+        updateData({ [key]: arr.filter((_, i) => i !== idx) });
+    };
+
+    return html`
+        <div className="border rounded bg-white flex flex-col h-full shadow-sm">
+            <div className="bg-green-100 p-2 font-bold text-gray-800 border-b text-center text-sm">Income Statement (Single-Step)</div>
+            <div className="p-2 overflow-y-auto flex-1 text-xs">
+                
+                <!-- Revenues Section -->
+                <div className="mb-4">
+                    <div className="font-bold mb-1 ml-1 text-gray-700">Revenues</div>
+                    <table className="w-full">
+                        <tbody>
+                            ${revenues.map((r, i) => html`
+                                <tr key=${i} className="border-b border-gray-100">
+                                    <td className="p-1"><input type="text" className="w-full outline-none bg-transparent" placeholder="Revenue Account..." value=${r.label} onChange=${(e)=>handleArrChange('revenues', i, 'label', e.target.value)} disabled=${isReadOnly}/></td>
+                                    <td className="p-1 w-24"><input type="number" className="w-full text-right outline-none bg-transparent" placeholder="0.00" value=${r.amount} onChange=${(e)=>handleArrChange('revenues', i, 'amount', e.target.value)} disabled=${isReadOnly}/></td>
+                                    <td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('revenues', i)} className="text-gray-400 hover:text-red-500"><${Trash2} size=${12}/></button>`}</td>
+                                </tr>
+                            `)}
+                        </tbody>
+                    </table>
+                    ${!isReadOnly && html`<button onClick=${() => addRow('revenues')} className="mt-1 mb-2 text-xs bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-700 font-medium">Add Revenue Row</button>`}
+                    
+                    <div className="flex justify-between items-center border-t border-b border-gray-300 py-1 font-bold mt-1">
+                        <span className="pl-1">Total Revenues</span>
+                        <input type="number" className="w-24 text-right outline-none bg-transparent pr-7" placeholder="0.00" value=${data?.totalRevenues || ''} onChange=${(e)=>updateData({ totalRevenues: e.target.value })} disabled=${isReadOnly}/>
+                    </div>
+                </div>
+
+                <!-- Expenses Section -->
+                <div className="mb-4">
+                    <div className="font-bold mb-1 ml-1 text-gray-700">Expenses</div>
+                    <table className="w-full">
+                        <tbody>
+                            ${expenses.map((r, i) => html`
+                                <tr key=${i} className="border-b border-gray-100">
+                                    <td className="p-1"><input type="text" className="w-full outline-none bg-transparent" placeholder="Expense Account..." value=${r.label} onChange=${(e)=>handleArrChange('expenses', i, 'label', e.target.value)} disabled=${isReadOnly}/></td>
+                                    <td className="p-1 w-24"><input type="number" className="w-full text-right outline-none bg-transparent" placeholder="0.00" value=${r.amount} onChange=${(e)=>handleArrChange('expenses', i, 'amount', e.target.value)} disabled=${isReadOnly}/></td>
+                                    <td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('expenses', i)} className="text-gray-400 hover:text-red-500"><${Trash2} size=${12}/></button>`}</td>
+                                </tr>
+                            `)}
+                        </tbody>
+                    </table>
+                    ${!isReadOnly && html`<button onClick=${() => addRow('expenses')} className="mt-1 mb-2 text-xs bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-700 font-medium">Add Expense Row</button>`}
+                    
+                    <div className="flex justify-between items-center border-t border-b border-gray-300 py-1 font-bold mt-1">
+                        <span className="pl-1">Total Expenses</span>
+                        <input type="number" className="w-24 text-right outline-none bg-transparent pr-7" placeholder="0.00" value=${data?.totalExpenses || ''} onChange=${(e)=>updateData({ totalExpenses: e.target.value })} disabled=${isReadOnly}/>
+                    </div>
+                </div>
+
+                <!-- Totals Section -->
+                <div className="space-y-1 mt-2">
+                    <div className="flex justify-between items-center border-b border-gray-200 py-1">
+                        <span className="pl-1">Net Income (Loss) before taxes</span>
+                        <input type="number" className="w-24 text-right outline-none bg-transparent pr-7" placeholder="0.00" value=${data?.netIncomeBeforeTax || ''} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} disabled=${isReadOnly}/>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-gray-200 py-1">
+                        <span className="pl-1">Less: Income Tax</span>
+                        <input type="number" className="w-24 text-right outline-none bg-transparent pr-7" placeholder="0.00" value=${data?.incomeTax || ''} onChange=${(e)=>updateData({ incomeTax: e.target.value })} disabled=${isReadOnly}/>
+                    </div>
+                    <div className="flex justify-between items-center border-b-2 border-double border-gray-400 py-1 font-bold text-blue-900 bg-gray-50">
+                        <span className="pl-1">Net Income (Loss) after taxes</span>
+                        <input type="number" className="w-24 text-right outline-none bg-transparent pr-7" placeholder="0.00" value=${data?.netIncomeAfterTax || ''} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} disabled=${isReadOnly}/>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    `;
+};
+
 // --- MAIN EXPORT ---
 
 export default function Step6FinancialStatements({ ledgerData, adjustments, activityData, data, onChange, showFeedback, isReadOnly }) {
     const { fsFormat, includeCashFlows, businessType } = activityData.config;
     const isMerch = businessType === 'Merchandising' || businessType === 'Manufacturing';
     
-    // Auto-populate Income Statement structure if empty
+    // Auto-populate Income Statement structure if empty AND NOT using the special Service Single-Step
     useEffect(() => {
+        // Skip auto-population if using the specialized component (Service Single Step) as it manages its own state structure
+        if (!isMerch && fsFormat === 'Single') return;
+
         if (!data.is || !data.is.rows || data.is.rows.length <= 2) {
             let template = [];
             
             if (!isMerch) {
-                // SERVICE
-                if (fsFormat === 'Single') {
-                    template = [
-                        { label: 'Revenues', amount: '' },
-                        { label: 'Total Expenses', amount: '' },
-                        { label: 'Net Income (Loss)', amount: '' }
-                    ];
-                } else {
-                    // Multi-Step Service (Operating vs Non-Operating)
+                // SERVICE Multi-Step
+                if (fsFormat === 'Multi') {
                     template = [
                         { label: 'Service Revenue', amount: '' },
                         { label: 'Operating Expenses', amount: '' },
@@ -147,14 +239,14 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
                     ];
                 }
             }
-            // Initialize IS with template if not exists
             if (template.length > 0 && !data.is?.rows) {
                  onChange('is', { rows: template });
             }
         }
-    }, [fsFormat, isMerch, data.is]); // Run once when config changes or data is empty
+    }, [fsFormat, isMerch, data.is]);
 
     const handleFormChange = (formKey, key, val) => onChange(formKey, { ...(data[formKey] || {}), [key]: val });
+    const handleSpecificFormChange = (formKey, newData) => onChange(formKey, newData); // For replacing entire object
 
     return html`
         <div className="flex flex-col h-[calc(100vh-140px)]">
@@ -174,7 +266,10 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
                                 <!-- Col 1: Income Statement & Equity (Stacked) -->
                                 <div className="flex flex-col gap-4 h-full">
                                     <div className="flex-1 flex flex-col h-1/2">
-                                        <${FinancialStatementForm} title="Income Statement" headerColor="bg-green-100" data=${data.is} onChange=${(k, v) => handleFormChange('is', k, v)} isReadOnly=${isReadOnly} />
+                                        ${!isMerch && fsFormat === 'Single' 
+                                            ? html`<${ServiceSingleStepIS} data=${data.is} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} />`
+                                            : html`<${FinancialStatementForm} title="Income Statement" headerColor="bg-green-100" data=${data.is} onChange=${(k, v) => handleFormChange('is', k, v)} isReadOnly=${isReadOnly} />`
+                                        }
                                     </div>
                                     <div className="flex-1 flex flex-col h-1/2">
                                         <${FinancialStatementForm} title="Statement of Changes in Equity" headerColor="bg-yellow-100" data=${data.sce} onChange=${(k, v) => handleFormChange('sce', k, v)} isReadOnly=${isReadOnly} />
@@ -196,7 +291,10 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
                             <!-- STANDARD LAYOUT (3 Cols: IS | Equity | BS) -->
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full min-h-[400px]">
                                 <div className="h-full">
-                                    <${FinancialStatementForm} title="Income Statement" headerColor="bg-green-100" data=${data.is} onChange=${(k, v) => handleFormChange('is', k, v)} isReadOnly=${isReadOnly} />
+                                    ${!isMerch && fsFormat === 'Single' 
+                                        ? html`<${ServiceSingleStepIS} data=${data.is} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} />`
+                                        : html`<${FinancialStatementForm} title="Income Statement" headerColor="bg-green-100" data=${data.is} onChange=${(k, v) => handleFormChange('is', k, v)} isReadOnly=${isReadOnly} />`
+                                    }
                                 </div>
                                 <div className="h-full">
                                     <${FinancialStatementForm} title="Statement of Changes in Equity" headerColor="bg-yellow-100" data=${data.sce} onChange=${(k, v) => handleFormChange('sce', k, v)} isReadOnly=${isReadOnly} />
