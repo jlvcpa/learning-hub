@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
+import React, { useState } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, X, ChevronDown, ChevronRight, Table, Trash2, Plus, List } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts, getAccountType } from './utils.js';
@@ -180,14 +180,13 @@ export const SimpleLedgerView = ({ ledgerData }) => {
 };
 
 export const WorksheetSourceView = ({ ledgerData, adjustments }) => {
-    // Calculates correct worksheet data on the fly for Read-Only Source View in Step 6
-    const mergedAccounts = useMemo(() => { 
+    const mergedAccounts = React.useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
         adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); }); 
         return sortAccounts(Array.from(s)); 
     }, [ledgerData, adjustments]);
 
-    const data = useMemo(() => {
+    const data = React.useMemo(() => {
         return mergedAccounts.map(acc => {
             const ledgerBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
             const tbDr = ledgerBal > 0 ? ledgerBal : 0; const tbCr = ledgerBal < 0 ? Math.abs(ledgerBal) : 0;
