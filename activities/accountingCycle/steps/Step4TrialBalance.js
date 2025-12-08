@@ -14,6 +14,66 @@ const StatusIcon = ({ correct, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
+const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow, deleteLedger, isReadOnly, showFeedback }) => {
+    const correctDr = ledgerKey[l.account]?.debit || 0; 
+    const correctCr = ledgerKey[l.account]?.credit || 0; 
+    const correctBal = Math.abs(correctDr - correctCr); 
+    const leftRows = l.leftRows && l.leftRows.length > 0 ? l.leftRows : [{}, {}, {}, {}]; 
+    const rightRows = l.rightRows && l.rightRows.length > 0 ? l.rightRows : [{}, {}, {}, {}];
+    const maxRows = Math.max(leftRows.length, rightRows.length);
+    const displayRows = Array.from({length: maxRows}).map((_, i) => i);
+
+    return html`
+        <div className="border-2 border-gray-800 bg-white shadow-md">
+            <div className="border-b-2 border-gray-800 p-2 flex justify-between bg-gray-100 relative">
+                <div className="absolute left-2 top-2"><${StatusIcon} show=${showFeedback} correct=${!!ledgerKey[l.account]} /></div>
+                <div className="w-full text-center mx-8"><input list="step3-accs" className="w-full border-b border-gray-400 text-center bg-transparent font-bold text-lg outline-none" placeholder="Account Title" value=${l.account} onChange=${(e)=>updateLedger(idx,'account',e.target.value)} disabled=${isReadOnly} /></div>
+                ${!isReadOnly && html`<button onClick=${() => deleteLedger(idx)} className="absolute right-2 top-2 text-red-500 hover:text-red-700"><${Trash2} size=${16}/></button>`}
+            </div>
+            <div className="flex">
+                <div className="flex-1 border-r-2 border-gray-800">
+                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
+                    <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center">Amount</div></div>
+                    ${displayRows.map(rowIdx => {
+                        const row = leftRows[rowIdx] || {};
+                        return html`
+                            <div key=${`l-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-6 relative">
+                                <div className="w-16 border-r relative"><input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'date',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-10 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-20 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/></div>
+                            </div>
+                        `;
+                    })}
+                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Debit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${Math.abs(Number(l.drTotal) - correctDr) <= 1 ? (showFeedback ? "text-green-600 font-bold" : "") : (showFeedback ? "text-red-600 font-bold" : "")}`} value=${l.drTotal||''} onChange=${(e)=>updateLedger(idx,'drTotal',e.target.value)} disabled=${isReadOnly} /></div>
+                </div>
+                <div className="flex-1">
+                    <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
+                    <div className="flex text-xs font-bold border-b border-gray-400 bg-white"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center border-r">Amount</div><div className="w-6"></div></div>
+                    ${displayRows.map(rowIdx => {
+                        const row = rightRows[rowIdx] || {};
+                        return html`
+                            <div key=${`r-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-6 relative">
+                                <div className="w-16 border-r relative"><input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'date',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-10 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/></div>
+                                <div className="w-20 border-r relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/></div>
+                            </div>
+                        `;
+                    })}
+                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Credit</span><input type="number" className=${`w-24 text-right border border-gray-300 ${Math.abs(Number(l.crTotal) - correctCr) <= 1 ? (showFeedback ? "text-green-600 font-bold" : "") : (showFeedback ? "text-red-600 font-bold" : "")}`} value=${l.crTotal||''} onChange=${(e)=>updateLedger(idx,'crTotal',e.target.value)} disabled=${isReadOnly} /></div>
+                </div>
+            </div>
+            <div className="border-t border-gray-300 p-2 bg-gray-100 flex justify-center items-center gap-2">
+                <span className="text-xs font-bold uppercase text-gray-600">Balance:</span>
+                <select className="border border-gray-300 rounded text-xs p-1 outline-none bg-white" value=${l.balanceType || ''} onChange=${(e)=>updateLedger(idx, 'balanceType', e.target.value)} disabled=${isReadOnly}><option value="" disabled>Debit or Credit?</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
+                <input type="number" className="w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none" placeholder="0" value=${l.balance||''} onChange=${(e)=>updateLedger(idx,'balance',e.target.value)} disabled=${isReadOnly} />
+                <div className="ml-2"><${StatusIcon} show=${showFeedback} correct=${!!(ledgerKey[l.account] && Math.abs(Number(l.balance)-correctBal)<=1 && l.balanceType === (correctDr >= correctCr ? 'Dr' : 'Cr'))} /></div>
+            </div>
+        </div>
+    `;
+};
+
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
     const [expanded, setExpanded] = useState(true);
     const sortedAccounts = sortAccounts(validAccounts);
@@ -66,11 +126,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                 if (d.account === acc) {
                                     let displayDate = dd;
                                     const isFirstEntry = rowsL.length === 1; 
-                                    
                                     if (isFirstEntry || lastMonthL !== mmm) {
                                         displayDate = dateStrFull;
                                     }
-                                    
                                     rowsL.push({ date: displayDate, part: 'GJ', pr: '1', amount: d.amount });
                                     lastMonthL = mmm;
                                 }
@@ -79,11 +137,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                 if (c.account === acc) {
                                     let displayDate = dd;
                                     const isFirstEntry = rowsR.length === 1;
-                                    
                                     if (isFirstEntry || lastMonthR !== mmm) {
                                         displayDate = dateStrFull;
                                     }
-
                                     rowsR.push({ date: displayDate, part: 'GJ', pr: '1', amount: c.amount });
                                     lastMonthR = mmm;
                                 }
@@ -100,7 +156,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
                         return html`
-                            <div key=${acc} className="border-y-2 border-gray-800 bg-white shadow-md">
+                            <div key=${acc} className="border-y-2 border-gray-800 bg-white shadow-sm">
                                 <div className="border-b-2 border-gray-800 p-2 bg-gray-100 font-bold text-center text-lg text-gray-800">
                                     ${acc}
                                 </div>
@@ -255,15 +311,13 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, expectedLe
     `;
 };
 
-// --- MAIN EXPORT ---
-
 export default function Step4TrialBalance({ transactions, validAccounts, beginningBalances, isSubsequentYear, data, onChange, showFeedback, isReadOnly, expectedLedger }) {
     return html`
         <div className="flex flex-col lg:flex-row gap-4 h-[36rem]">
-            <div className="lg:w-1/2 h-full">
+            <div className="flex-1 lg:w-1/2 h-full min-h-0">
                  <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
             </div>
-            <div className="lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden">
+            <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
                 <div className="bg-green-100 p-2 font-bold text-green-900"><${Table} size=${16} className="inline mr-2"/>Trial Balance</div>
                 <div className="p-2 overflow-y-auto custom-scrollbar flex-1">
                      <${TrialBalanceForm} data=${data} onChange=${onChange} showFeedback=${showFeedback} isReadOnly=${isReadOnly} expectedLedger=${expectedLedger} />
