@@ -37,8 +37,8 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
 
 const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border-b border-gray-300 bg-transparent focus:border-blue-500 font-mono ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 
-// --- INTERNAL COMPONENTS ---
-
+// --- INTERNAL COMPONENT: Worksheet Source View (Read-Only) ---
+// Moved inside to remove dependency on components.js
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
@@ -54,7 +54,8 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
             adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
             const atbNet = (tbDr - tbCr) + (aDr - aCr);
             const atbDr = atbNet > 0 ? atbNet : 0; const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
-            const type = getAccountType(acc); const isIS = type === 'Revenue' || type === 'Expense';
+            const type = getAccountType(acc); 
+            const isIS = type === 'Revenue' || type === 'Expense';
             const isDr = isIS ? atbDr : 0; const isCr = isIS ? atbCr : 0; 
             const bsDr = !isIS ? atbDr : 0; const bsCr = !isIS ? atbCr : 0;
             return { acc, tbDr, tbCr, adjDr: aDr, adjCr: aCr, atbDr, atbCr, isDr, isCr, bsDr, bsCr };
@@ -110,7 +111,7 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
     `;
 };
 
-// --- SERVICE INCOME STATEMENTS (UNCHANGED) ---
+// --- SERVICE INCOME STATEMENTS ---
 
 const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals }) => {
     const revenues = data?.revenues || [{ label: '', amount: '' }];
@@ -155,9 +156,8 @@ const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculat
     `;
 };
 
-
 // --------------------------------------------------------
-// MERCHANDISING / MANUFACTURING COMPONENTS (NEW PERIODIC)
+// MERCHANDISING / MANUFACTURING COMPONENTS
 // --------------------------------------------------------
 
 const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, type = "Single" }) => {
@@ -181,7 +181,6 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const expCOGS = expTGAS - expEndInv; 
     const expGross = expNetSales - expCOGS;
     
-    // Op Expense Validation: Total IS Debits - (Beg Inv + Purch + Freight + Sales Contra)
     const totalExpenses = calculatedTotals.isDr; 
     const expOpExp = totalExpenses - (expBegInv + expPurch + expFreightIn + expSalesDisc + expSalesRet);
     const expOpIncome = expGross - expOpExp; 
@@ -189,18 +188,11 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const expNI = expOpIncome + expNonOp;
     
     const updateData = (updates) => onChange({ ...data, ...updates });
-    const renderRow = (label, valueKey, expected, isDeduction=false, indent='pl-4', placeholder='0.00', showInput=true) => html`
-        <div className="flex justify-between items-center py-1">
-            <span className=${indent}>${label}</span>
-            ${showInput ? html`<input type="text" className=${inputClass(showFeedback && !checkField(data?.[valueKey], expected, isDeduction))} value=${data?.[valueKey] || ''} onChange=${(e)=>updateData({ [valueKey]: e.target.value })} disabled=${isReadOnly} placeholder=${placeholder}/>` : ''}
-        </div>
-    `;
+    const renderRow = (label, valueKey, expected, isDeduction=false, indent='pl-4', placeholder='0.00', showInput=true) => html`<div className="flex justify-between items-center py-1"><span className=${indent}>${label}</span>${showInput ? html`<input type="text" className=${inputClass(showFeedback && !checkField(data?.[valueKey], expected, isDeduction))} value=${data?.[valueKey] || ''} onChange=${(e)=>updateData({ [valueKey]: e.target.value })} disabled=${isReadOnly} placeholder=${placeholder}/>` : ''}</div>`;
 
-    // Dynamic Row Helpers
     const expenseRows = data?.expenses || [{label:'', amount:''}];
     const opExpenseRows = data?.opExpenses || [{label:'', amount:''}];
     const nonOpRows = data?.nonOpItems || [{label:'', amount:''}];
-    
     const handleArrChange = (key, idx, field, val) => { const arr = [...(data[key] || [{label:'', amount:''} ])]; arr[idx] = {...arr[idx], [field]:val}; updateData({[key]: arr}); };
     const addRow = (key) => updateData({ [key]: [...(data[key]||[{label:'',amount:''}]), { label: '', amount: '' }] });
     const deleteRow = (key, idx) => { const arr = [...data[key]]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
@@ -235,13 +227,12 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
                 ${renderRow('Total Goods Available for Sale', 'tgas', expTGAS, false, 'pl-4 font-bold')}
                 ${renderRow('[Inventory Account - ending]', 'endInv', -expEndInv, true, 'pl-4 text-gray-500 italic', '[End Inv]')}
                 <div className="border-b border-black mb-2"></div>
-                ${renderRow('Cost of Goods Sold', 'cogs', -expCOGS, true, 'pl-0 font-bold')}
+                ${renderRow('Cost of Goods Sold', 'cogs', -expCOGS, true, 'pl-0 font-bold text-red-700')}
                 
                 <div className="border-b-2 border-black mb-4"></div>
                 ${renderRow('GROSS INCOME', 'grossIncome', expGross, false, 'pl-0 font-extrabold text-sm')}
 
                 ${type === 'Single' ? html`
-                    <!-- SINGLE STEP MERCH -->
                     ${renderRow('[Other operating / non-operating income]', 'otherInc1', 0, false, 'pl-4 text-gray-500 italic', 'Other Income...')}
                     <button onClick=${()=>addRow('otherIncome')} class="text-white bg-blue-700 px-2 py-1 rounded hover:bg-blue-800 mt-1 mb-2 text-xs"><${Plus} size=${12}/> Add Revenue Row</button>
                     ${(data.otherIncome||[]).map((r,i)=>renderRow(r.label || 'Other Income', `otherInc_${i}`, r.amount, false, 'pl-4'))}
@@ -257,7 +248,6 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
                     <div className="border-t border-black mt-1 mb-2"></div>
                     ${renderRow('Total Expenses', 'totalExpenses', expOpExp, false, 'pl-0 font-bold')}
                 ` : html`
-                    <!-- MULTI STEP MERCH -->
                     ${renderRow('Total Operating Revenues', 'totalOpRevenues', expGross, false, 'pl-0 font-bold')}
 
                     <div className="mt-4 font-bold text-gray-800">Less: Operating Expenses</div>
@@ -288,14 +278,10 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     `;
 };
 
-// --------------------------------------------------------
-// MERCHANDISING PERPETUAL (Simplified COGS)
-// --------------------------------------------------------
-
 const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, type = "Single" }) => {
     const { ledger } = calculatedTotals;
     const getBal = (accName) => { const acc = Object.keys(ledger).find(k => k.toLowerCase() === accName.toLowerCase()); if (!acc) return 0; return (ledger[acc].debit || 0) - (ledger[acc].credit || 0); };
-    
+
     // Perpetual Values
     const expSales = Math.abs(getBal('Sales')); 
     const expSalesDisc = getBal('Sales Discounts'); 
@@ -308,10 +294,10 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
     const expOpIncome = expGross - expOpExp;
     const expNonOp = 0; 
     const expNI = expOpIncome + expNonOp;
-    
+
     const updateData = (updates) => onChange({ ...data, ...updates });
     const renderRow = (label, valueKey, expected, isDeduction=false, indent='pl-4', placeholder='0.00', showInput=true) => html`<div className="flex justify-between items-center py-1"><span className=${indent}>${label}</span>${showInput ? html`<input type="text" className=${inputClass(showFeedback && !checkField(data?.[valueKey], expected, isDeduction))} value=${data?.[valueKey] || ''} onChange=${(e)=>updateData({ [valueKey]: e.target.value })} disabled=${isReadOnly} placeholder=${placeholder}/>` : ''}</div>`;
-
+    
     // Dynamic Row Helpers
     const expenseRows = data?.expenses || [{label:'', amount:''}];
     const opExpenseRows = data?.opExpenses || [{label:'', amount:''}];
