@@ -156,7 +156,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
                         return html`
-                            <div key=${acc} className="border-y-2 border-gray-800 bg-white shadow-sm">
+                            <div key=${acc} className="border-y-2 border-gray-800 bg-white shadow-md">
                                 <div className="border-b-2 border-gray-800 p-2 bg-gray-100 font-bold text-center text-lg text-gray-800">
                                     ${acc}
                                 </div>
@@ -207,7 +207,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         })}
                                         <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50 text-xs font-bold">
                                             <span>Total</span>
-                                            <span className="mr-1">${totalCr.toLocaleString()}</span>
+                                            <span>${totalCr.toLocaleString()}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -313,7 +313,7 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, expectedLe
 
 export default function Step4TrialBalance({ transactions, validAccounts, beginningBalances, isSubsequentYear, data, onChange, showFeedback, isReadOnly, expectedLedger }) {
     return html`
-        <div className="flex flex-col lg:flex-row gap-4 h-[36rem]">
+        <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-140px)] min-h-[600px]">
             <div className="flex-1 lg:w-1/2 h-full min-h-0">
                  <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
             </div>
