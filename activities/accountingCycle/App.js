@@ -7,9 +7,10 @@ import { TaskSection } from './steps.js';
 const html = htm.bind(React.createElement);
 
 const TeacherDashboard = ({ onGenerate }) => {
-    const [businessType, setBusinessType] = useState('Service');
-    const [ownership, setOwnership] = useState('Sole Proprietorship');
-    const [inventorySystem, setInventorySystem] = useState('Periodic');
+    // PERSISTENCE: Initialize state from localStorage if available, otherwise default
+    const [businessType, setBusinessType] = useState(() => localStorage.getItem('ac_businessType') || 'Service');
+    const [ownership, setOwnership] = useState(() => localStorage.getItem('ac_ownership') || 'Sole Proprietorship');
+    const [inventorySystem, setInventorySystem] = useState(() => localStorage.getItem('ac_inventorySystem') || 'Periodic');
     
     // PERSISTENCE: Initialize state from localStorage
     const [numTransactions, setNumTransactions] = useState(() => {
@@ -22,6 +23,11 @@ const TeacherDashboard = ({ onGenerate }) => {
         return saved ? JSON.parse(saved) : STEPS.map(s => s.id);
     });
 
+    // New Persistence for Financial Statement Options
+    const [fsFormat, setFsFormat] = useState(() => localStorage.getItem('ac_fsFormat') || 'Single');
+    const [includeCashFlows, setIncludeCashFlows] = useState(() => localStorage.getItem('ac_includeCashFlows') === 'true');
+
+    // Standard Options (Not currently persisted, but can be if needed)
     const [includeTradeDiscounts, setIncludeTradeDiscounts] = useState(false);
     const [includeCashDiscounts, setIncludeCashDiscounts] = useState(false);
     const [includeFreight, setIncludeFreight] = useState(false);
@@ -30,17 +36,14 @@ const TeacherDashboard = ({ onGenerate }) => {
     const [deferredExpenseMethod, setDeferredExpenseMethod] = useState('Asset');
     const [deferredIncomeMethod, setDeferredIncomeMethod] = useState('Liability');
     
-    // NEW: Step 6 Financial Statement Options
-    const [fsFormat, setFsFormat] = useState('Single'); // 'Single' or 'Multi'
-    const [includeCashFlows, setIncludeCashFlows] = useState(false);
-
-    useEffect(() => {
-        localStorage.setItem('ac_numTransactions', numTransactions);
-    }, [numTransactions]);
-
-    useEffect(() => {
-        localStorage.setItem('ac_selectedSteps', JSON.stringify(selectedSteps));
-    }, [selectedSteps]);
+    // PERSISTENCE EFFECTS: Save to localStorage on change
+    useEffect(() => { localStorage.setItem('ac_businessType', businessType); }, [businessType]);
+    useEffect(() => { localStorage.setItem('ac_ownership', ownership); }, [ownership]);
+    useEffect(() => { localStorage.setItem('ac_inventorySystem', inventorySystem); }, [inventorySystem]);
+    useEffect(() => { localStorage.setItem('ac_numTransactions', numTransactions); }, [numTransactions]);
+    useEffect(() => { localStorage.setItem('ac_selectedSteps', JSON.stringify(selectedSteps)); }, [selectedSteps]);
+    useEffect(() => { localStorage.setItem('ac_fsFormat', fsFormat); }, [fsFormat]);
+    useEffect(() => { localStorage.setItem('ac_includeCashFlows', includeCashFlows); }, [includeCashFlows]);
 
     const toggleStep = (id) => setSelectedSteps(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const handleSelectAll = (e) => e.target.checked ? setSelectedSteps(STEPS.map(s => s.id)) : setSelectedSteps([]);
@@ -107,7 +110,7 @@ const TeacherDashboard = ({ onGenerate }) => {
                 </div>
             `}
 
-            <!-- NEW: Financial Statement Configuration -->
+            <!-- Financial Statement Configuration -->
             <div className="bg-green-50 p-4 rounded border border-green-200 mb-6">
                  <h3 className="font-bold text-green-900 mb-3 text-sm uppercase">Step 6: Financial Statement Options</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -298,10 +301,6 @@ const App = () => {
              const userFinal = currentAns.footers?.final || {};
              isCorrect = Number(userFinal.finBSDr) > 0 && Math.abs(Number(userFinal.finBSDr) - Number(userFinal.finBSCr)) <= 1;
         } else if (stepId === 6) {
-             // --- FIX: VALIDATION FOR STEP 6 ---
-             // We calculate the expected Balance Sheet Total from the Worksheet Data (Ledger + Adjustments)
-             // Then we check if the student entered this total in the Balance Sheet form.
-             
              const { ledger, adjustments } = activityData;
              const mergedAccounts = new Set(Object.keys(ledger));
              adjustments.forEach(adj => { mergedAccounts.add(adj.drAcc); mergedAccounts.add(adj.crAcc); });
@@ -333,7 +332,6 @@ const App = () => {
              const expectedBSTotal = calcBSDr + (netInc < 0 ? Math.abs(netInc) : 0);
              
              const userBSRows = currentAns.bs?.rows || [];
-             // Check if any row in the Balance Sheet has the correct Total Assets / Total L+E amount
              const matchFound = userBSRows.some(r => Math.abs(Number(r.amount) - expectedBSTotal) <= 1);
              
              isCorrect = matchFound;
