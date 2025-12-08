@@ -37,8 +37,8 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
 
 const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border-b border-gray-300 bg-transparent focus:border-blue-500 font-mono ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 
-// --- INTERNAL COMPONENT: Worksheet Source View (Read-Only) ---
-// Moved inside to remove dependency on components.js
+// --- INTERNAL COMPONENTS ---
+
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
@@ -54,8 +54,7 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
             adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
             const atbNet = (tbDr - tbCr) + (aDr - aCr);
             const atbDr = atbNet > 0 ? atbNet : 0; const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
-            const type = getAccountType(acc); 
-            const isIS = type === 'Revenue' || type === 'Expense';
+            const type = getAccountType(acc); const isIS = type === 'Revenue' || type === 'Expense';
             const isDr = isIS ? atbDr : 0; const isCr = isIS ? atbCr : 0; 
             const bsDr = !isIS ? atbDr : 0; const bsCr = !isIS ? atbCr : 0;
             return { acc, tbDr, tbCr, adjDr: aDr, adjCr: aCr, atbDr, atbCr, isDr, isCr, bsDr, bsCr };
@@ -90,7 +89,6 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     `;
 };
 
-// Generic Form for Balance Sheet, Equity, Cash Flows
 const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor = "bg-gray-100" }) => {
     const rows = data?.rows || [{ label: '', amount: '' }, { label: '', amount: '' }];
     const updateRow = (idx, field, val) => { const newRows = [...rows]; newRows[idx] = { ...newRows[idx], [field]: val }; onChange('rows', newRows); };
@@ -156,6 +154,7 @@ const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculat
     `;
 };
 
+
 // --------------------------------------------------------
 // MERCHANDISING / MANUFACTURING COMPONENTS
 // --------------------------------------------------------
@@ -164,7 +163,6 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const { ledger, adjustments } = calculatedTotals;
     const getBal = (accName) => { const acc = Object.keys(ledger).find(k => k.toLowerCase() === accName.toLowerCase()); if (!acc) return 0; return (ledger[acc].debit || 0) - (ledger[acc].credit || 0); };
     
-    // Values for Validation
     const expSales = Math.abs(getBal('Sales')); 
     const expSalesDisc = getBal('Sales Discounts'); 
     const expSalesRet = getBal('Sales Returns and Allowances'); 
@@ -193,9 +191,11 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const expenseRows = data?.expenses || [{label:'', amount:''}];
     const opExpenseRows = data?.opExpenses || [{label:'', amount:''}];
     const nonOpRows = data?.nonOpItems || [{label:'', amount:''}];
+    
+    // Fix: Safely default arrays to empty if undefined
     const handleArrChange = (key, idx, field, val) => { const arr = [...(data[key] || [{label:'', amount:''} ])]; arr[idx] = {...arr[idx], [field]:val}; updateData({[key]: arr}); };
     const addRow = (key) => updateData({ [key]: [...(data[key]||[{label:'',amount:''}]), { label: '', amount: '' }] });
-    const deleteRow = (key, idx) => { const arr = [...data[key]]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
+    const deleteRow = (key, idx) => { const arr = [...(data[key] || [])]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -233,38 +233,22 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
                 ${renderRow('GROSS INCOME', 'grossIncome', expGross, false, 'pl-0 font-extrabold text-sm')}
 
                 ${type === 'Single' ? html`
-                    ${renderRow('[Other operating / non-operating income]', 'otherInc1', 0, false, 'pl-4 text-gray-500 italic', 'Other Income...')}
-                    <button onClick=${()=>addRow('otherIncome')} class="text-white bg-blue-700 px-2 py-1 rounded hover:bg-blue-800 mt-1 mb-2 text-xs"><${Plus} size=${12}/> Add Revenue Row</button>
-                    ${(data.otherIncome||[]).map((r,i)=>renderRow(r.label || 'Other Income', `otherInc_${i}`, r.amount, false, 'pl-4'))}
-                    
-                    <div className="border-t border-black mt-1 mb-2"></div>
+                    <div className="mt-4 font-bold text-gray-800">Other Operating & Non-Operating Income</div>
+                    <table className="w-full mb-1"><tbody>${(data.otherIncome||[{label:'',amount:''}]).map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="Other Income..." value=${r.label} onChange=${(e)=>handleArrChange('otherIncome',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('otherIncome',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('otherIncome',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('otherIncome')} class="text-blue-600 mb-2"><${Plus} size=${12}/> Add</button>
                     ${renderRow('Total Revenues', 'totalRevenues', expGross, false, 'pl-0 font-bold')}
 
                     <div className="mt-4 font-bold text-gray-800">Expenses</div>
-                    ${renderRow('[Operating / Non-operating Expense Account]', 'exp1', 0, false, 'pl-4 text-gray-500 italic', 'Expense...')}
-                    <button onClick=${()=>addRow('expenses')} class="text-white bg-blue-700 px-2 py-1 rounded hover:bg-blue-800 mt-1 mb-2 text-xs"><${Plus} size=${12}/> Add Expense Row</button>
-                    ${expenseRows.map((r,i)=>renderRow(r.label || 'Expense', `exp_${i}`, r.amount, false, 'pl-4'))}
-                    
-                    <div className="border-t border-black mt-1 mb-2"></div>
+                    <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="Expense..." value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('expenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class="text-blue-600 mb-2"><${Plus} size=${12}/> Add</button>
                     ${renderRow('Total Expenses', 'totalExpenses', expOpExp, false, 'pl-0 font-bold')}
                 ` : html`
-                    ${renderRow('Total Operating Revenues', 'totalOpRevenues', expGross, false, 'pl-0 font-bold')}
-
-                    <div className="mt-4 font-bold text-gray-800">Less: Operating Expenses</div>
-                    ${renderRow('[Operating Expense Account]', 'opExp1', 0, false, 'pl-4 text-gray-500 italic', 'Op Expense...')}
-                    <button onClick=${()=>addRow('opExpenses')} class="text-white bg-blue-700 px-2 py-1 rounded hover:bg-blue-800 mt-1 mb-2 text-xs"><${Plus} size=${12}/> Add Expense Row</button>
-                    ${opExpenseRows.map((r,i)=>renderRow(r.label || 'Op Expense', `opExp_${i}`, r.amount, false, 'pl-4'))}
-                    
-                    <div className="border-t border-black mt-1 mb-2"></div>
-                    ${renderRow('Total Operating Expenses', 'totalOpExpenses', expOpExp, false, 'pl-0 font-bold')}
-                    
+                    <div className="mt-4 font-bold text-gray-800">Operating Expenses</div>
+                    <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="Op Expense..." value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('opExpenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class="text-blue-600 mb-2"><${Plus} size=${12}/> Add</button>
+                    ${renderRow('Total Operating Expenses', 'totalOpExpenses', expOpExp, false, 'pl-4 font-semibold')}
                     ${renderRow('Net Operating Income (Loss)', 'netOpInc', expOpIncome, false, 'pl-0 font-bold')}
                     
                     <div className="mt-4 font-bold text-gray-800">Non-Operating Income and Expenses</div>
-                    <button onClick=${()=>addRow('nonOpItems')} class="text-white bg-blue-700 px-2 py-1 rounded hover:bg-blue-800 mt-1 mb-2 text-xs"><${Plus} size=${12}/> Add Non-Operating Row</button>
-                    ${nonOpRows.map((r,i)=>renderRow(r.label || 'Non-Op Item', `nonOp_${i}`, r.amount, false, 'pl-4'))}
-                    
-                    ${renderRow('Net Non-operating Income (Loss)', 'netNonOp', expNonOp, false, 'pl-0 font-bold')}
+                    <table className="w-full mb-1"><tbody>${nonOpRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="Non-Op Item..." value=${r.label} onChange=${(e)=>handleArrChange('nonOpItems',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('nonOpItems',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('nonOpItems',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('nonOpItems')} class="text-blue-600 mb-2"><${Plus} size=${12}/> Add</button>
+                    ${renderRow('Net Non-Operating Income (Loss)', 'netNonOp', expNonOp, false, 'pl-4')}
                 `}
 
                 <div className="mt-6 border-t-2 border-black pt-2">
@@ -282,7 +266,6 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
     const { ledger } = calculatedTotals;
     const getBal = (accName) => { const acc = Object.keys(ledger).find(k => k.toLowerCase() === accName.toLowerCase()); if (!acc) return 0; return (ledger[acc].debit || 0) - (ledger[acc].credit || 0); };
 
-    // Perpetual Values
     const expSales = Math.abs(getBal('Sales')); 
     const expSalesDisc = getBal('Sales Discounts'); 
     const expSalesRet = getBal('Sales Returns and Allowances'); 
@@ -304,7 +287,7 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
     const nonOpRows = data?.nonOpItems || [{label:'', amount:''}];
     const handleArrChange = (key, idx, field, val) => { const arr = [...(data[key] || [{label:'', amount:''} ])]; arr[idx] = {...arr[idx], [field]:val}; updateData({[key]: arr}); };
     const addRow = (key) => updateData({ [key]: [...(data[key]||[{label:'',amount:''}]), { label: '', amount: '' }] });
-    const deleteRow = (key, idx) => { const arr = [...data[key]]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
+    const deleteRow = (key, idx) => { const arr = [...(data[key]||[])]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -320,7 +303,7 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
                 <div className="border-t border-black mt-1 mb-2"></div>
                 ${renderRow('Net Sales', 'netSales', expNetSales, false, 'pl-4 font-bold')}
 
-                ${renderRow('Cost of Goods Sold', 'cogs', -expCOGS, true, 'pl-4')}
+                ${renderRow('Less: Cost of Goods Sold', 'cogs', -expCOGS, true, 'pl-4 text-red-700 font-semibold')}
                 
                 <div className="border-b-2 border-black mb-4"></div>
                 ${renderRow('GROSS INCOME', 'grossIncome', expGross, false, 'pl-0 font-extrabold text-sm')}
@@ -400,19 +383,22 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
     const handleSpecificFormChange = (formKey, newData) => onChange(formKey, newData);
 
     const renderIncomeStatement = () => {
+        // Fix: Default empty data object if undefined to prevent crash
+        const currentData = data.is || {};
+        
         if (!isMerch) {
             // SERVICE BUSINESS
             if (fsFormat === 'Single') {
-                return html`<${ServiceSingleStepIS} data=${data.is} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
+                return html`<${ServiceSingleStepIS} data=${currentData} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
             } else {
-                return html`<${ServiceMultiStepIS} data=${data.is} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
+                return html`<${ServiceMultiStepIS} data=${currentData} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
             }
         } else {
             // MERCHANDISING BUSINESS
             if (isPerpetual) {
-                return html`<${MerchPerpetualIS} type=${fsFormat} data=${data.is} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
+                return html`<${MerchPerpetualIS} type=${fsFormat} data=${currentData} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
             } else {
-                return html`<${MerchPeriodicIS} type=${fsFormat} data=${data.is} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
+                return html`<${MerchPeriodicIS} type=${fsFormat} data=${currentData} onChange=${(d) => handleSpecificFormChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
             }
         }
     };
