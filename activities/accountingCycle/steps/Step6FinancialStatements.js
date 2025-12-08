@@ -22,14 +22,18 @@ const parseUserValue = (val) => {
 };
 
 const checkField = (userVal, expectedVal, isDeduction = false) => {
-    if (Math.abs(expectedVal) < 0.01) {
+    // Round expected value to nearest integer for comparison as requested "Centavos are rounded off"
+    const expRounded = Math.round(expectedVal);
+    
+    if (Math.abs(expRounded) < 0.01) {
         return !userVal || parseUserValue(userVal) === 0;
     }
     const parsedUser = parseUserValue(userVal);
-    const matchesNumber = Math.abs(parsedUser - expectedVal) <= 1 || Math.abs(parsedUser - (-expectedVal)) <= 1;
+    // Allow loose match
+    const matchesNumber = Math.abs(parsedUser - expRounded) <= 1 || Math.abs(parsedUser - (-expRounded)) <= 1;
     
     if (!matchesNumber) return false;
-    if (expectedVal < 0 || isDeduction) {
+    if (expRounded < 0 || isDeduction) {
         if (!userVal.toString().includes('(') && !userVal.toString().includes('-') && parsedUser > 0) return false;
     }
     return true;
@@ -37,7 +41,8 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
 
 const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border-b border-gray-300 bg-transparent focus:border-blue-500 font-mono ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 
-// --- INTERNAL COMPONENT: Worksheet Source View (Read-Only) ---
+// --- INTERNAL COMPONENTS ---
+
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
@@ -88,19 +93,12 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     `;
 };
 
+// Generic Form for Balance Sheet, Equity, Cash Flows
 const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor = "bg-gray-100" }) => {
     const rows = data?.rows || [{ label: '', amount: '' }, { label: '', amount: '' }];
-    
-    const updateRow = (idx, field, val) => {
-        const newRows = [...rows];
-        newRows[idx] = { ...newRows[idx], [field]: val };
-        onChange('rows', newRows);
-    };
+    const updateRow = (idx, field, val) => { const newRows = [...rows]; newRows[idx] = { ...newRows[idx], [field]: val }; onChange('rows', newRows); };
     const addRow = () => onChange('rows', [...rows, { label: '', amount: '' }]);
-    const deleteRow = (idx) => {
-        if (rows.length <= 1) return;
-        onChange('rows', rows.filter((_, i) => i !== idx));
-    };
+    const deleteRow = (idx) => { if (rows.length <= 1) return; onChange('rows', rows.filter((_, i) => i !== idx)); };
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -110,11 +108,118 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
                     <thead><tr><th className="text-left p-1">Particulars</th><th className="text-right p-1 w-24">Amount</th><th className="w-6"></th></tr></thead>
                     <tbody>${rows.map((r, i) => html`<tr key=${i} className="border-b border-gray-100"><td className="p-1"><input type="text" className="w-full outline-none bg-transparent font-medium" placeholder="..." value=${r.label} onChange=${(e)=>updateRow(i, 'label', e.target.value)} disabled=${isReadOnly}/></td><td className="p-1"><input type="number" className="w-full text-right outline-none bg-transparent" placeholder="0" value=${r.amount} onChange=${(e)=>updateRow(i, 'amount', e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow(i)} className="text-gray-400 hover:text-red-500"><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody>
                 </table>
-                ${!isReadOnly && html`<button onClick=${addRow} className="mt-2 text-xs text-blue-600 font-medium hover:underline">Add Row</button>`}
+                ${!isReadOnly && html`<button onClick=${addRow} className="mt-2 text-xs text-blue-600 font-medium hover:underline flex items-center gap-1"><${Plus} size=${12}/> Add Line</button>`}
             </div>
         </div>
     `;
 };
+
+// --------------------------------------------------------
+// STATEMENT OF CHANGES IN EQUITY (SOLE PROPRIETORSHIP)
+// --------------------------------------------------------
+const StatementOfChangesInEquity = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, activityData }) => {
+    const { isSubsequentYear } = activityData.config;
+    const { beginningBalances, transactions, ledger } = activityData;
+
+    // Calculate Expected Values
+    // 1. Beginning Capital
+    let expBegCap = 0;
+    if (isSubsequentYear && beginningBalances) {
+        expBegCap = beginningBalances.balances['Owner, Capital']?.cr || 0;
+    }
+
+    // 2. Investments (Additions)
+    let expInvestment = 0;
+    transactions.forEach(t => {
+        t.credits.forEach(c => {
+            if (c.account === 'Owner, Capital') {
+                // If it's the first year and the very first transaction is investment, it counts.
+                // Or subsequent investments.
+                // Note: For subsequent years, beginning balance handles the opening. 
+                // Any 'Capital' credit in transactions is an additional investment.
+                expInvestment += c.amount;
+            }
+        });
+    });
+    // If first year, the initial investment is in transactions, so expInvestment covers it. 
+    // If subsequent year, the opening balance is separate, so expInvestment covers ONLY new ones.
+    
+    // 3. Net Income / Loss
+    const expNetInc = calculatedTotals.isCr - calculatedTotals.isDr; // Positive = Income, Negative = Loss
+    
+    // 4. Drawings (Deductions)
+    const expDrawings = (ledger['Owner, Drawings']?.debit || 0) - (ledger['Owner, Drawings']?.credit || 0);
+
+    // 5. Totals
+    const expTotalAdditions = expInvestment + (expNetInc > 0 ? expNetInc : 0);
+    const expTotalCapDuring = expBegCap + expTotalAdditions;
+    const expTotalDeductions = expDrawings + (expNetInc < 0 ? Math.abs(expNetInc) : 0);
+    const expEndCap = expTotalCapDuring - expTotalDeductions;
+
+    // State
+    const additions = data?.additions || [{ label: '', amount: '' }];
+    const deductions = data?.deductions || [{ label: '', amount: '' }];
+    const updateData = (updates) => onChange({ ...data, ...updates });
+
+    const handleArrChange = (key, idx, field, val) => {
+        const arr = [...(key === 'additions' ? additions : deductions)];
+        arr[idx] = { ...arr[idx], [field]: val };
+        updateData({ [key]: arr });
+    };
+    const addRow = (key) => updateData({ [key]: [...(key==='additions'?additions:deductions), { label: '', amount: '' }] });
+    const deleteRow = (key, idx) => {
+        const arr = [...(key === 'additions' ? additions : deductions)];
+        if (arr.length <= 1) return;
+        updateData({ [key]: arr.filter((_, i) => i !== idx) });
+    };
+    const btnStyle = "mt-1 mb-2 text-xs text-blue-900 font-medium flex items-center gap-1 hover:underline cursor-pointer";
+
+    return html`
+        <div className="border rounded bg-white flex flex-col h-full shadow-sm">
+            <div className="bg-yellow-100 p-2 font-bold text-gray-800 border-b text-center text-sm">Statement of Changes in Equity (Sole Proprietorship)</div>
+            <div className="p-4 overflow-y-auto flex-1 text-xs">
+                
+                <!-- Beginning Capital -->
+                <div className="flex justify-between items-center py-1">
+                    <span className="text-gray-500 italic pl-0">[Owner, Capital - beginning]</span>
+                    <input type="text" className=${inputClass(showFeedback && !checkField(data?.begCapital, expBegCap))} value=${data?.begCapital || ''} onChange=${(e)=>updateData({ begCapital: e.target.value })} disabled=${isReadOnly} placeholder="0"/>
+                </div>
+
+                <!-- Additions -->
+                <div className="mt-2 font-bold text-gray-800">Add: <span className="text-gray-400 font-normal italic">[Additions to Capital]</span></div>
+                <table className="w-full mb-1"><tbody>${additions.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="Investment / Net Income..." value=${r.label} onChange=${(e)=>handleArrChange('additions',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('additions',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('additions',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table>
+                ${!isReadOnly && html`<button onClick=${()=>addRow('additions')} className=${btnStyle}><${Plus} size=${12}/> Add Addition Row</button>`}
+                
+                <div className="flex justify-between items-center py-1 font-semibold border-t border-black">
+                    <span className="pl-8">Total Additions to Capital</span>
+                    <input type="text" className=${inputClass(showFeedback && !checkField(data?.totalAdditions, expTotalAdditions))} value=${data?.totalAdditions || ''} onChange=${(e)=>updateData({ totalAdditions: e.target.value })} disabled=${isReadOnly}/>
+                </div>
+
+                <div className="flex justify-between items-center py-2 font-semibold">
+                    <span className="">Total Owner, Capital during the period</span>
+                    <input type="text" className=${inputClass(showFeedback && !checkField(data?.totalCapDuring, expTotalCapDuring))} value=${data?.totalCapDuring || ''} onChange=${(e)=>updateData({ totalCapDuring: e.target.value })} disabled=${isReadOnly}/>
+                </div>
+
+                <!-- Deductions -->
+                <div className="mt-2 font-bold text-gray-800">Less: <span className="text-gray-400 font-normal italic">[Deductions from Capital]</span></div>
+                <table className="w-full mb-1"><tbody>${deductions.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="Drawings / Net Loss..." value=${r.label} onChange=${(e)=>handleArrChange('deductions',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('deductions',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('deductions',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table>
+                ${!isReadOnly && html`<button onClick=${()=>addRow('deductions')} className=${btnStyle}><${Plus} size=${12}/> Add Deduction Row</button>`}
+
+                <div className="flex justify-between items-center py-1 font-semibold border-t border-black">
+                    <span className="pl-8">Total Deductions from Capital</span>
+                    <input type="text" className=${inputClass(showFeedback && !checkField(data?.totalDeductions, expTotalDeductions))} value=${data?.totalDeductions || ''} onChange=${(e)=>updateData({ totalDeductions: e.target.value })} disabled=${isReadOnly}/>
+                </div>
+
+                <!-- Ending Capital -->
+                <div className="flex justify-between items-center py-2 font-bold mt-2 border-t border-black border-b-4 border-double">
+                    <span className="text-gray-500 italic">[Owner, Capital - ending]</span>
+                    <input type="text" className=${inputClass(showFeedback && !checkField(data?.endCapital, expEndCap))} value=${data?.endCapital || ''} onChange=${(e)=>updateData({ endCapital: e.target.value })} disabled=${isReadOnly} placeholder="0"/>
+                </div>
+            </div>
+        </div>
+    `;
+};
+
 
 // --- SERVICE INCOME STATEMENTS ---
 
@@ -128,7 +233,7 @@ const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calcula
     const expRev = calculatedTotals.isCr; const expExp = calculatedTotals.isDr; const expNI = expRev - expExp;
     
     // Updated Button Style: Blue text, no fill
-    const btnStyle = "ml-4 mb-2 text-xs text-blue-600 font-medium hover:underline cursor-pointer";
+    const btnStyle = "ml-4 mb-2 text-xs text-blue-900 font-medium hover:underline cursor-pointer flex items-center gap-1";
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -137,19 +242,19 @@ const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calcula
                 <div className="mb-4">
                     <div className="font-bold mb-1 text-gray-800">Revenues</div>
                     <table className="w-full mb-1"><tbody>${revenues.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Revenue Account]" value=${r.label} onChange=${(e)=>handleArrChange('revenues',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('revenues',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('revenues',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>
-                    ${!isReadOnly && html`<button onClick=${()=>addRow('revenues')} className=${btnStyle}>Add Revenue Row</button>`}
-                    <div className="flex justify-between items-center py-1 font-semibold mt-1"><span className="pl-0">Total Revenues</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.totalRevenues, expRev))} value=${data?.totalRevenues || ''} onChange=${(e)=>updateData({ totalRevenues: e.target.value })} disabled=${isReadOnly}/></div>
+                    ${!isReadOnly && html`<button onClick=${()=>addRow('revenues')} className=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>`}
+                    <div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Revenues</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.totalRevenues, expRev))} value=${data?.totalRevenues || ''} onChange=${(e)=>updateData({ totalRevenues: e.target.value })} disabled=${isReadOnly}/></div>
                 </div>
                 <div className="mb-4">
                     <div className="font-bold mb-1 text-gray-800">Less: Expenses</div>
                     <table className="w-full mb-1"><tbody>${expenses.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('expenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>
-                    ${!isReadOnly && html`<button onClick=${()=>addRow('expenses')} className=${btnStyle}>Add Expense Row</button>`}
-                    <div className="flex justify-between items-center py-1 font-semibold mt-1"><span className="pl-0">Total Expenses</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.totalExpenses, expExp))} value=${data?.totalExpenses || ''} onChange=${(e)=>updateData({ totalExpenses: e.target.value })} disabled=${isReadOnly}/></div>
+                    ${!isReadOnly && html`<button onClick=${()=>addRow('expenses')} className=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>`}
+                    <div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Expenses</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.totalExpenses, expExp))} value=${data?.totalExpenses || ''} onChange=${(e)=>updateData({ totalExpenses: e.target.value })} disabled=${isReadOnly}/></div>
                 </div>
                 <div className="space-y-1 mt-4 border-t-2 border-gray-400 pt-2">
-                    <div className="flex justify-between items-center py-1 font-semibold"><span className="">Net Income (Loss) before taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeBeforeTax, expNI))} value=${data?.netIncomeBeforeTax || ''} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} disabled=${isReadOnly}/></div>
+                    <div className="flex justify-between items-center py-1 font-bold"><span className="">Net Income (Loss) before taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeBeforeTax, expNI))} value=${data?.netIncomeBeforeTax || ''} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} disabled=${isReadOnly}/></div>
                     <div className="flex justify-between items-center py-1"><span className="pl-4">Less: Income Tax</span><input type="text" className=${inputClass(false)} value=${data?.incomeTax || ''} onChange=${(e)=>updateData({ incomeTax: e.target.value })} disabled=${isReadOnly}/></div>
-                    <div className="flex justify-between items-center py-2 font-semibold border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeAfterTax, expNI))} value=${data?.netIncomeAfterTax || ''} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} disabled=${isReadOnly}/></div>
+                    <div className="flex justify-between items-center py-2 font-bold border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeAfterTax, expNI))} value=${data?.netIncomeAfterTax || ''} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} disabled=${isReadOnly}/></div>
                 </div>
             </div>
         </div>
@@ -166,7 +271,7 @@ const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculat
     const deleteRow = (key, idx) => { const arr = [...(key==='opRevenues'?opRevenues:key==='opExpenses'?opExpenses:nonOpItems)]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
     const expRev = calculatedTotals.isCr; const expExp = calculatedTotals.isDr; const expNI = expRev - expExp;
     
-    const btnStyle = "ml-4 mb-2 text-xs text-blue-600 font-medium hover:underline cursor-pointer";
+    const btnStyle = "ml-4 mb-2 text-xs text-blue-900 font-medium hover:underline cursor-pointer flex items-center gap-1";
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -175,26 +280,26 @@ const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculat
                 <div className="mb-4">
                     <div className="font-bold mb-1">Operating Revenues</div>
                     <table className="w-full"><tbody>${opRevenues.map((r,i)=>html`<tr key=${i}><td className="pl-4"><input type="text" className="w-full bg-transparent" value=${r.label} onChange=${(e)=>handleArrChange('opRevenues',i,'label',e.target.value)} disabled=${isReadOnly} placeholder="[Revenue Account]"/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('opRevenues',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opRevenues',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table>
-                    <button onClick=${()=>addRow('opRevenues')} class=${btnStyle}>Add Revenue Row</button>
-                    <div className="flex justify-between font-semibold border-t border-black pt-1"><span>Total Operating Revenues</span><input type="text" class="w-24 text-right" value=${data?.totalOpRevenues} onChange=${(e)=>updateData({totalOpRevenues:e.target.value})} disabled=${isReadOnly}/></div>
+                    <button onClick=${()=>addRow('opRevenues')} class=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>
+                    <div className="flex justify-between font-bold border-t border-black pt-1"><span>Total Operating Revenues</span><input type="text" class="w-24 text-right" value=${data?.totalOpRevenues} onChange=${(e)=>updateData({totalOpRevenues:e.target.value})} disabled=${isReadOnly}/></div>
                 </div>
                 <div className="mb-4">
                     <div className="font-bold mb-1">Operating Expenses</div>
                     <table className="w-full"><tbody>${opExpenses.map((r,i)=>html`<tr key=${i}><td className="pl-4"><input type="text" className="w-full bg-transparent" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly} placeholder="[Operating Expense Account]"/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('opExpenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table>
-                    <button onClick=${()=>addRow('opExpenses')} class=${btnStyle}>Add Expense Row</button>
-                    <div className="flex justify-between font-semibold border-t border-black pt-1"><span>Total Operating Expenses</span><input type="text" class="w-24 text-right" value=${data?.totalOpExpenses} onChange=${(e)=>updateData({totalOpExpenses:e.target.value})} disabled=${isReadOnly}/></div>
+                    <button onClick=${()=>addRow('opExpenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
+                    <div className="flex justify-between font-bold border-t border-black pt-1"><span>Total Operating Expenses</span><input type="text" class="w-24 text-right" value=${data?.totalOpExpenses} onChange=${(e)=>updateData({totalOpExpenses:e.target.value})} disabled=${isReadOnly}/></div>
                 </div>
-                <div className="flex justify-between items-center border-t border-b border-gray-300 py-1 font-semibold bg-gray-50 mb-4"><span className="">Net Operating Income (Loss)</span><input type="text" className="w-24 text-right outline-none bg-transparent pr-7" value=${data?.netOpIncome || ''} onChange=${(e)=>updateData({ netOpIncome: e.target.value })} disabled=${isReadOnly}/></div>
+                <div className="flex justify-between items-center border-t border-b border-gray-300 py-1 font-bold bg-gray-50 mb-4"><span className="">Net Operating Income (Loss)</span><input type="text" className="w-24 text-right outline-none bg-transparent pr-7" value=${data?.netOpIncome || ''} onChange=${(e)=>updateData({ netOpIncome: e.target.value })} disabled=${isReadOnly}/></div>
                 <div className="mb-4">
                     <div className="font-bold mb-1">Non-Operating Income and Expenses</div>
                     <table className="w-full"><tbody>${nonOpItems.map((r,i)=>html`<tr key=${i}><td className="pl-4"><input type="text" className="w-full bg-transparent" value=${r.label} onChange=${(e)=>handleArrChange('nonOpItems',i,'label',e.target.value)} disabled=${isReadOnly} placeholder="[Non-Operating Account]"/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrChange('nonOpItems',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('nonOpItems',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table>
-                    <button onClick=${()=>addRow('nonOpItems')} class=${btnStyle}>Add Non-Operating Row</button>
-                    <div className="flex justify-between font-semibold border-t border-black pt-1"><span>Net Non-operating Income (Loss)</span><input type="text" class="w-24 text-right" value=${data?.netNonOpIncome} onChange=${(e)=>updateData({netNonOpIncome:e.target.value})} disabled=${isReadOnly}/></div>
+                    <button onClick=${()=>addRow('nonOpItems')} class=${btnStyle}><${Plus} size=${12}/> Add Non-Operating Row</button>
+                    <div className="flex justify-between font-bold border-t border-black pt-1"><span>Net Non-operating Income (Loss)</span><input type="text" class="w-24 text-right" value=${data?.netNonOpIncome} onChange=${(e)=>updateData({netNonOpIncome:e.target.value})} disabled=${isReadOnly}/></div>
                 </div>
                 <div className="space-y-1 mt-4 border-t-2 border-gray-400 pt-2">
-                    <div className="flex justify-between items-center py-1 font-semibold"><span className="">Net Income (Loss) before taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeBeforeTax, expNI))} value=${data?.netIncomeBeforeTax || ''} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} disabled=${isReadOnly}/></div>
+                    <div className="flex justify-between items-center py-1 font-bold"><span className="">Net Income (Loss) before taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeBeforeTax, expNI))} value=${data?.netIncomeBeforeTax || ''} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} disabled=${isReadOnly}/></div>
                     <div className="flex justify-between items-center py-1"><span className="pl-4">Less: Income Tax</span><input type="text" className=${inputClass(false)} value=${data?.incomeTax || ''} onChange=${(e)=>updateData({ incomeTax: e.target.value })} disabled=${isReadOnly}/></div>
-                    <div className="flex justify-between items-center py-2 font-semibold border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeAfterTax, expNI))} value=${data?.netIncomeAfterTax || ''} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} disabled=${isReadOnly}/></div>
+                    <div className="flex justify-between items-center py-2 font-bold border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><input type="text" className=${inputClass(showFeedback && !checkField(data?.netIncomeAfterTax, expNI))} value=${data?.netIncomeAfterTax || ''} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} disabled=${isReadOnly}/></div>
                 </div>
             </div>
         </div>
@@ -210,6 +315,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const { ledger, adjustments } = calculatedTotals;
     const getBal = (accName) => { const acc = Object.keys(ledger).find(k => k.toLowerCase() === accName.toLowerCase()); if (!acc) return 0; return (ledger[acc].debit || 0) - (ledger[acc].credit || 0); };
     
+    // Values for Validation
     const expSales = Math.abs(getBal('Sales')); 
     const expSalesDisc = getBal('Sales Discounts'); 
     const expSalesRet = getBal('Sales Returns and Allowances'); 
@@ -226,6 +332,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const expCOGS = expTGAS - expEndInv; 
     const expGross = expNetSales - expCOGS;
     
+    // Expenses
     const totalExpenses = calculatedTotals.isDr; 
     const expOpExp = totalExpenses - (expBegInv + expPurch + expFreightIn + expSalesDisc + expSalesRet);
     const expOpIncome = expGross - expOpExp; 
@@ -258,8 +365,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     const addRow = (key) => updateData({ [key]: [...(data[key]||[{label:'',amount:''}]), { label: '', amount: '' }] });
     const deleteRow = (key, idx) => { const arr = [...(data[key] || [])]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
     
-    // Style for Merch buttons
-    const btnStyle = "ml-4 mb-1 text-xs text-blue-600 font-medium hover:underline cursor-pointer";
+    const btnStyle = "ml-4 mb-1 text-xs text-blue-900 font-medium hover:underline cursor-pointer flex items-center gap-1";
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -267,7 +373,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
             <div className="p-4 overflow-y-auto flex-1 text-xs">
                 ${type === 'Single' ? html`<div className="mb-2 font-bold text-gray-800">Revenues</div>` : html`<div className="mb-2 font-bold text-gray-800">Operating Revenues</div>`}
                 ${renderRow('[Sales Account]', 'sales', expSales, false, 'pl-4', '0.00', true, 'salesLabel')}
-                <div className="flex items-center gap-2 pl-8 text-blue-600 mb-1 cursor-pointer hover:underline text-xs" onClick=${()=>updateData({showSalesDetails: !data.showSalesDetails})}>${data.showSalesDetails ? 'Hide' : 'Show'} Sales Discounts / Allowances Row</div>
+                <div className="flex items-center gap-2 pl-8 text-blue-600 mb-1 cursor-pointer hover:underline text-xs" onClick=${()=>updateData({showSalesDetails: !data.showSalesDetails})}>${data.showSalesDetails ? '- Hide' : '+ Show'} Sales Discounts / Allowances Row</div>
                 ${data.showSalesDetails && html`
                     ${renderRow('Less: Sales Discounts', 'salesDisc', -expSalesDisc, true, 'pl-8')}
                     ${renderRow('Less: Sales Returns and Allowances', 'salesRet', -expSalesRet, true, 'pl-8')}
@@ -278,7 +384,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
                 <div className="mt-4 mb-2 font-bold text-gray-800">Cost of Goods Sold</div>
                 ${renderRow('[Inventory Account - beginning]', 'begInv', expBegInv, false, 'pl-4', '[Beg Inv]', true, 'begInvLabel')}
                 ${renderRow('[Purchases Account]', 'purchases', expPurch, false, 'pl-4', '[Purchases]', true, 'purchasesLabel')}
-                <div className="flex items-center gap-2 pl-8 text-blue-600 mb-1 cursor-pointer hover:underline text-xs" onClick=${()=>updateData({showPurchDetails: !data.showPurchDetails})}>${data.showPurchDetails ? 'Hide' : 'Show'} Purchase Discounts / Allowances Row</div>
+                <div className="flex items-center gap-2 pl-8 text-blue-600 mb-1 cursor-pointer hover:underline text-xs" onClick=${()=>updateData({showPurchDetails: !data.showPurchDetails})}>${data.showPurchDetails ? '- Hide' : '+ Show'} Purchase Discounts / Allowances Row</div>
                 ${data.showPurchDetails && html`
                      ${renderRow('Less: Purchase Discounts', 'purchDisc', -expPurchDisc, true, 'pl-12')}
                      ${renderRow('Less: Purchase Returns', 'purchRet', -expPurchRet, true, 'pl-12')}
@@ -294,24 +400,24 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
                 ${renderRow('Cost of Goods Sold', 'cogs', -expCOGS, true, 'pl-0 font-bold text-red-700')}
                 
                 <div className="border-b-2 border-black mb-4"></div>
-                ${renderRow('Gross Income', 'grossIncome', expGross, false, 'pl-0 font-bold')}
+                ${renderRow('GROSS INCOME', 'grossIncome', expGross, false, 'pl-0 font-bold')}
 
                 ${type === 'Single' ? html`
                     <div className="mt-4 font-bold text-gray-800">Other Operating & Non-Operating Income</div>
-                    <table className="w-full mb-1"><tbody>${(data.otherIncome||[{label:'',amount:''}]).map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Other operating / non-operating income]" value=${r.label} onChange=${(e)=>handleArrChange('otherIncome',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('otherIncome',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('otherIncome',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('otherIncome')} class=${btnStyle}>Add Revenue Row</button>
+                    <table className="w-full mb-1"><tbody>${(data.otherIncome||[{label:'',amount:''}]).map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Other operating / non-operating income]" value=${r.label} onChange=${(e)=>handleArrChange('otherIncome',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('otherIncome',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('otherIncome',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('otherIncome')} class=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>
                     ${renderRow('Total Revenues', 'totalRevenues', expGross, false, 'pl-0 font-bold')}
 
                     <div className="mt-4 font-bold text-gray-800">Expenses</div>
-                    <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating / Non-operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('expenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class=${btnStyle}>Add Expense Row</button>
+                    <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating / Non-operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('expenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Expenses', 'totalExpenses', expOpExp, false, 'pl-0 font-bold')}
                 ` : html`
                     <div className="mt-4 font-bold text-gray-800">Operating Expenses</div>
-                    <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('opExpenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class=${btnStyle}>Add Expense Row</button>
+                    <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('opExpenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Operating Expenses', 'totalOpExpenses', expOpExp, false, 'pl-4 font-semibold')}
                     ${renderRow('Net Operating Income (Loss)', 'netOpInc', expOpIncome, false, 'pl-0 font-bold')}
                     
                     <div className="mt-4 font-bold text-gray-800">Non-Operating Income and Expenses</div>
-                    <table className="w-full mb-1"><tbody>${nonOpRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Non-Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('nonOpItems',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('nonOpItems',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('nonOpItems',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('nonOpItems')} class=${btnStyle}>Add Non-Operating Row</button>
+                    <table className="w-full mb-1"><tbody>${nonOpRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Non-Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('nonOpItems',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('nonOpItems',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('nonOpItems',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('nonOpItems')} class=${btnStyle}><${Plus} size=${12}/> Add Non-Operating Row</button>
                     ${renderRow('Net Non-Operating Income (Loss)', 'netNonOp', expNonOp, false, 'pl-4')}
                 `}
 
@@ -369,7 +475,7 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
     const addRow = (key) => updateData({ [key]: [...(data[key]||[{label:'',amount:''}]), { label: '', amount: '' }] });
     const deleteRow = (key, idx) => { const arr = [...(data[key]||[])]; if(arr.length<=1)return; updateData({[key]: arr.filter((_, i)=>i!==idx)}); };
 
-    const btnStyle = "ml-4 mb-1 text-xs text-blue-600 font-medium hover:underline cursor-pointer";
+    const btnStyle = "ml-4 mb-1 text-xs text-blue-900 font-medium hover:underline cursor-pointer flex items-center gap-1";
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -377,7 +483,7 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
             <div className="p-4 overflow-y-auto flex-1 text-xs">
                 ${type === 'Single' ? html`<div className="mb-2 font-bold text-gray-800">Revenues</div>` : html`<div className="mb-2 font-bold text-gray-800">Operating Revenues</div>`}
                 ${renderRow('[Sales Account]', 'sales', expSales, false, 'pl-4', '0.00', true, 'salesLabel')}
-                <div className="flex items-center gap-2 pl-8 text-blue-600 mb-1 cursor-pointer hover:underline text-xs" onClick=${()=>updateData({showSalesDetails: !data.showSalesDetails})}>${data.showSalesDetails ? 'Hide' : 'Show'} Sales Discounts / Allowances Row</div>
+                <div className="flex items-center gap-2 pl-8 text-blue-600 mb-1 cursor-pointer hover:underline text-xs" onClick=${()=>updateData({showSalesDetails: !data.showSalesDetails})}>${data.showSalesDetails ? '- Hide' : '+ Show'} Sales Discounts / Allowances Row</div>
                 ${data.showSalesDetails && html`
                     ${renderRow('Less: Sales Discounts', 'salesDisc', -expSalesDisc, true, 'pl-8')}
                     ${renderRow('Less: Sales Returns and Allowances', 'salesRet', -expSalesRet, true, 'pl-8')}
@@ -392,20 +498,20 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
 
                 ${type === 'Single' ? html`
                     <div className="mt-4 font-bold text-gray-800">Other Operating & Non-Operating Income</div>
-                    <table className="w-full mb-1"><tbody>${(otherIncomeRows).map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Other operating / non-operating income]" value=${r.label} onChange=${(e)=>handleArrChange('otherIncome',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('otherIncome',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('otherIncome',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('otherIncome')} class=${btnStyle}>Add Revenue Row</button>
+                    <table className="w-full mb-1"><tbody>${(otherIncomeRows).map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Other operating / non-operating income]" value=${r.label} onChange=${(e)=>handleArrChange('otherIncome',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('otherIncome',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('otherIncome',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('otherIncome')} class=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>
                     ${renderRow('Total Revenues', 'totalRevenues', expGross, false, 'pl-0 font-bold')}
 
                     <div className="mt-4 font-bold text-gray-800">Expenses</div>
-                    <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating / Non-operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('expenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class=${btnStyle}>Add Expense Row</button>
+                    <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating / Non-operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('expenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Expenses', 'totalExpenses', expOpExp, false, 'pl-0 font-bold')}
                 ` : html`
                     <div className="mt-4 font-bold text-gray-800">Less: Operating Expenses</div>
-                    <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('opExpenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class=${btnStyle}>Add Expense Row</button>
+                    <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('opExpenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Operating Expenses', 'totalOpExpenses', expOpExp, false, 'pl-4 font-semibold')}
                     ${renderRow('Net Operating Income (Loss)', 'netOpInc', expOpIncome, false, 'pl-0 font-bold')}
                     
                     <div className="mt-4 font-bold text-gray-800">Non-Operating Income and Expenses</div>
-                    <table className="w-full mb-1"><tbody>${nonOpRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Non-Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('nonOpItems',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('nonOpItems',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('nonOpItems',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('nonOpItems')} class=${btnStyle}>Add Non-Operating Row</button>
+                    <table className="w-full mb-1"><tbody>${nonOpRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Non-Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('nonOpItems',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('nonOpItems',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('nonOpItems',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('nonOpItems')} class=${btnStyle}><${Plus} size=${12}/> Add Non-Operating Row</button>
                     ${renderRow('Net Non-Operating Income (Loss)', 'netNonOp', expNonOp, false, 'pl-4')}
                 `}
 
@@ -485,7 +591,7 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
                                         ${renderIncomeStatement()}
                                     </div>
                                     <div className="flex-1 flex flex-col h-1/2">
-                                        <${FinancialStatementForm} title="Statement of Changes in Equity" headerColor="bg-yellow-100" data=${data.sce} onChange=${(k, v) => handleFormChange('sce', k, v)} isReadOnly=${isReadOnly} />
+                                        <${StatementOfChangesInEquity} data=${data.sce} onChange=${(val) => handleSpecificFormChange('sce', val)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} />
                                     </div>
                                 </div>
                                 <div className="h-full">
@@ -502,7 +608,7 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
                                     ${renderIncomeStatement()}
                                 </div>
                                 <div className="h-full">
-                                    <${FinancialStatementForm} title="Statement of Changes in Equity" headerColor="bg-yellow-100" data=${data.sce} onChange=${(k, v) => handleFormChange('sce', k, v)} isReadOnly=${isReadOnly} />
+                                    <${StatementOfChangesInEquity} data=${data.sce} onChange=${(val) => handleSpecificFormChange('sce', val)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} />
                                 </div>
                                 <div className="h-full">
                                     <${FinancialStatementForm} title="Balance Sheet" headerColor="bg-blue-100" data=${data.bs} onChange=${(k, v) => handleFormChange('bs', k, v)} isReadOnly=${isReadOnly} />
