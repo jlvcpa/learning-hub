@@ -346,6 +346,7 @@ const App = () => {
              
              isCorrect = matchFound;
         } else if (stepId === 7) {
+             // --- STEP 7 VALIDATION (Adjusting Entries) ---
              const journalData = currentAns.journal || {};
              const ledgerData = currentAns.ledger || {};
              const { adjustments, ledger } = activityData;
@@ -353,6 +354,7 @@ const App = () => {
              let allJournalCorrect = true;
              let allLedgerCorrect = true;
 
+             // 1. Validate Journal
              adjustments.forEach(adj => {
                  const entry = journalData[adj.id] || {};
                  const drMatch = entry.drAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
@@ -360,6 +362,7 @@ const App = () => {
                  if (!drMatch || !crMatch) allJournalCorrect = false;
              });
 
+             // 2. Validate Ledger
              const affectedAccounts = new Set();
              adjustments.forEach(a => { affectedAccounts.add(a.drAcc); affectedAccounts.add(a.crAcc); });
              
@@ -386,25 +389,66 @@ const App = () => {
         } else if (stepId === 8) {
              // --- STEP 8 VALIDATION (Closing Entries) ---
              const ledgers = currentAns.ledgers || [];
+             const journalData = currentAns.journal || {};
+             const { ledger, adjustments, validAccounts, config, beginningBalances } = activityData;
+
+             // 1. Nominal Accounts Check (Must be 0)
              let allNominalClosed = true;
-             
              ledgers.forEach(l => {
                  const type = getAccountType(l.account);
-                 // Nominal Accounts: Revenue, Expense, Income Summary, Drawings
                  const isNominal = ['Revenue', 'Expense'].includes(type) || l.account.includes('Drawing') || l.account === 'Income Summary';
-                 
                  if (isNominal) {
-                     // Balance must be 0 after closing
                      if (Number(l.balance) !== 0) allNominalClosed = false;
                  }
              });
+
+             // 2. Journal Validation (Totals)
+             const getBlockTotal = (blockId) => {
+                 const rows = journalData[blockId]?.rows || [];
+                 // Averages Dr and Cr to get the transaction amount
+                 return rows.reduce((sum, r) => sum + (Number(r.dr) || 0) + (Number(r.cr) || 0), 0) / 2;
+             };
+
+             // Calculate targets
+             let totalRev = 0, totalExp = 0, totalDraw = 0;
+             validAccounts.forEach(acc => {
+                 const rawDr = ledger[acc]?.debit || 0;
+                 const rawCr = ledger[acc]?.credit || 0;
+                 let val = rawDr - rawCr; // +Dr, -Cr
+                 adjustments.forEach(a => { if (a.drAcc === acc) val += a.amount; if (a.crAcc === acc) val -= a.amount; });
+                 const type = getAccountType(acc);
+                 if (type === 'Revenue') totalRev += Math.abs(val);
+                 if (type === 'Expense') totalExp += val;
+                 if (acc.includes('Drawing')) totalDraw += Math.abs(val);
+             });
+             const netIncome = totalRev - totalExp;
+
+             const revCorrect = Math.abs(getBlockTotal('closeRev') - totalRev) <= 1;
+             const expCorrect = Math.abs(getBlockTotal('closeExp') - totalExp) <= 1;
+             const incSumCorrect = Math.abs(getBlockTotal('closeInc') - Math.abs(netIncome)) <= 1;
+             const drawCorrect = Math.abs(getBlockTotal('closeDrw') - totalDraw) <= 1;
              
-             // Journal Validation: Check if closing entries exist and sum is reasonable
-             const journalData = currentAns.journal || {};
-             const entries = Object.values(journalData);
-             const hasEntries = entries.length >= 4;
+             const journalValid = revCorrect && expCorrect && incSumCorrect && drawCorrect;
+
+             // 3. Capital Account Check
+             let begCap = 0;
+             if (config.isSubsequentYear && beginningBalances) {
+                 const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
+                 if (capAcc && beginningBalances.balances[capAcc]) begCap = beginningBalances.balances[capAcc].cr;
+             } else {
+                 const capAccName = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
+                 // For first year, calculate adjusted capital before closing
+                 const rawDr = ledger[capAccName]?.debit || 0;
+                 const rawCr = ledger[capAccName]?.credit || 0;
+                 begCap = Math.abs(rawDr - rawCr); // Net credits
+             }
              
-             isCorrect = allNominalClosed && hasEntries;
+             const endCap = begCap + netIncome - totalDraw;
+             const capAccName = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
+             const userCap = ledgers.find(l => l.account === capAccName);
+             const capitalValid = userCap && Math.abs(Number(userCap.balance) - endCap) <= 1;
+
+             isCorrect = allNominalClosed && journalValid && capitalValid;
 
         } else {
              isCorrect = true;
