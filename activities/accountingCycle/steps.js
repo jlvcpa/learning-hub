@@ -56,6 +56,8 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         }
     };
     const handleStep6Change = (section, data) => updateAnswerFns.updateAnswer(6, { ...(answers[6] || {}), [section]: data });
+        const handleStep7Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
+
     const handleGenericChange = (k, v) => updateAnswerFns.updateAnswer(stepId, { ...(answers[stepId] || {}), [k]: v });
 
     const renderStepContent = () => {
@@ -68,7 +70,8 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 4) return html`<${Step4TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
         if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        
+        if (stepId === 7) return html`<${Step7AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep7Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+       
         return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${handleGenericChange} data=${answers[stepId]} />`;
     };
 
