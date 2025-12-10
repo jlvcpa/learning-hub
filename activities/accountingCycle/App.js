@@ -335,6 +335,49 @@ const App = () => {
              const matchFound = userBSRows.some(r => Math.abs(Number(r.amount) - expectedBSTotal) <= 1);
              
              isCorrect = matchFound;
+
+            } else if (stepId === 7) {
+             // --- STEP 7 VALIDATION ---
+             const journalData = currentAns.journal || {};
+             const ledgerData = currentAns.ledger || {};
+             const { adjustments, ledger } = activityData;
+             
+             let allJournalCorrect = true;
+             let allLedgerCorrect = true;
+
+             // 1. Validate Journal Entries
+             adjustments.forEach(adj => {
+                 const entry = journalData[adj.id] || {};
+                 const drMatch = entry.drAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
+                 const crMatch = entry.crAcc?.toLowerCase() === adj.crAcc.toLowerCase() && Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
+                 if (!drMatch || !crMatch) allJournalCorrect = false;
+             });
+
+             // 2. Validate Ledger Balances (Only affected accounts need to be correct, others remain unchanged)
+             const affectedAccounts = new Set();
+             adjustments.forEach(a => { affectedAccounts.add(a.drAcc); affectedAccounts.add(a.crAcc); });
+             
+             Array.from(affectedAccounts).forEach(acc => {
+                 // Calculate expected adjusted balance
+                 const rawDr = ledger[acc]?.debit || 0;
+                 const rawCr = ledger[acc]?.credit || 0;
+                 let adjDr = 0, adjCr = 0;
+                 adjustments.forEach(a => {
+                     if (a.drAcc === acc) adjDr += a.amount;
+                     if (a.crAcc === acc) adjCr += a.amount;
+                 });
+                 const finalNet = (rawDr + adjDr) - (rawCr + adjCr);
+                 const expBal = Math.abs(finalNet);
+                 const expType = finalNet >= 0 ? 'Dr' : 'Cr';
+
+                 const userAcc = ledgerData[acc] || {};
+                 if (Math.abs(Number(userAcc.endBal) - expBal) > 1 || userAcc.balType !== expType) {
+                     allLedgerCorrect = false;
+                 }
+             });
+             
+             isCorrect = allJournalCorrect && allLedgerCorrect;
+            
         } else {
              isCorrect = true;
         }
