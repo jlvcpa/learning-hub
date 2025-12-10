@@ -19,7 +19,7 @@ const HistoricalJournalView = ({ transactions }) => {
     
     return html`
         <div className="mb-4 border rounded bg-white overflow-hidden shadow-sm flex flex-col">
-            <div className="bg-gray-100 p-2 font-bold text-gray-700 cursor-pointer flex justify-between items-center" onClick=${()=>setExpanded(!expanded)}>
+            <div className="bg-gray-100 p-2 font-bold text-gray-700 cursor-pointer flex justify-between items-center flex-shrink-0" onClick=${()=>setExpanded(!expanded)}>
                 <div className="flex items-center">
                     <${Book} size=${16} className="inline mr-2 w-4 h-4"/>
                     <span>Historical Journal Entries (Read-Only)</span>
@@ -30,51 +30,67 @@ const HistoricalJournalView = ({ transactions }) => {
                 </div>
             </div>
             ${expanded && html`
-                <div className="h-64 overflow-y-auto border-t border-gray-200">
-                    <table className="w-full text-xs table-fixed">
-                        <thead className="sticky top-0 bg-gray-50 text-gray-600 border-b z-10">
-                            <tr>
-                                <th className="p-2 w-16 text-center border-r">Date</th>
-                                <th className="p-2 text-left border-r">Account Titles</th>
-                                <th className="p-2 w-10 text-center border-r">P.R.</th>
-                                <th className="p-2 w-20 text-right border-r">Debit</th>
-                                <th className="p-2 w-20 text-right">Credit</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${transactions.map((t) => {
-                                const dateObj = new Date(t.date);
-                                const dateStr = `${dateObj.toLocaleString('default', { month: 'short' })} ${dateObj.getDate().toString().padStart(2, '0')}`;
-                                return html`
-                                    <React.Fragment key=${t.id}>
-                                        ${t.debits.map((d, i) => html`
-                                            <tr className="border-b border-gray-50">
-                                                <td className="p-1 border-r text-right pr-2 text-gray-500">${i===0 ? dateStr : ''}</td>
-                                                <td className="p-1 border-r font-medium">${d.account}</td>
-                                                <td className="p-1 border-r text-center text-gray-400">1</td>
-                                                <td className="p-1 border-r text-right">${d.amount.toLocaleString()}</td>
-                                                <td className="p-1 text-right"></td>
-                                            </tr>
-                                        `)}
-                                        ${t.credits.map((c) => html`
-                                            <tr className="border-b border-gray-50">
-                                                <td className="p-1 border-r"></td>
-                                                <td className="p-1 border-r pl-6">${c.account}</td>
-                                                <td className="p-1 border-r text-center text-gray-400">1</td>
-                                                <td className="p-1 border-r text-right"></td>
-                                                <td className="p-1 text-right">${c.amount.toLocaleString()}</td>
-                                            </tr>
-                                        `)}
-                                        <tr className="bg-gray-50 text-gray-500 italic">
-                                            <td className="border-r"></td>
-                                            <td className="p-1 border-r pl-8 text-[10px]">(${t.description})</td>
-                                            <td colSpan="3"></td>
-                                        </tr>
-                                    </React.Fragment>
-                                `;
-                            })}
-                        </tbody>
-                    </table>
+                <div className="h-64 flex flex-col overflow-hidden border-t border-gray-200">
+                    <div className="flex bg-gray-50 text-gray-700 border-b border-gray-300 font-bold text-xs text-center flex-shrink-0">
+                        <div className="w-16 border-r p-2 flex-shrink-0">Date</div>
+                        <div className="flex-1 border-r p-2 text-left">Account Titles and Explanation</div>
+                        <div className="w-16 border-r p-2 flex-shrink-0">P.R.</div>
+                        <div className="w-24 border-r p-2 text-right flex-shrink-0">Debit</div>
+                        <div className="w-24 p-2 text-right flex-shrink-0">Credit</div>
+                    </div>
+                    <div className="overflow-y-auto flex-1 bg-white">
+                        ${transactions.map((t, tIdx) => {
+                            const txnDate = new Date(t.date);
+                            const yyyy = txnDate.getFullYear();
+                            const mm = txnDate.toLocaleString('default', { month: 'short' });
+                            const dd = txnDate.getDate().toString().padStart(2, '0');
+                            const isFirst = tIdx === 0;
+                            const dateDisplay = isFirst ? `${mm} ${dd}` : dd;
+
+                            return html`
+                                <React.Fragment key=${t.id}>
+                                    ${isFirst && html`
+                                        <div className="flex border-b border-gray-100 text-xs h-8 items-center text-gray-500">
+                                            <div className="w-16 border-r text-right pr-1 font-bold flex-shrink-0">${yyyy}</div>
+                                            <div className="flex-1 border-r"></div>
+                                            <div className="w-16 border-r flex-shrink-0"></div>
+                                            <div className="w-24 border-r flex-shrink-0"></div>
+                                            <div className="w-24 flex-shrink-0"></div>
+                                        </div>
+                                    `}
+                                    
+                                    ${t.debits.map((d, i) => html`
+                                        <div key=${`dr-${t.id}-${i}`} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
+                                            <div className="w-16 border-r text-right pr-1 flex-shrink-0 text-gray-500">${i === 0 ? dateDisplay : ''}</div>
+                                            <div className="flex-1 border-r pl-1 font-medium text-gray-800 truncate" title=${d.account}>${d.account}</div>
+                                            <div className="w-16 border-r text-center flex justify-center items-center flex-shrink-0 text-gray-400">1</div>
+                                            <div className="w-24 border-r text-right pr-1 flex-shrink-0 text-gray-800">${d.amount.toLocaleString()}</div>
+                                            <div className="w-24 text-right pr-1 flex-shrink-0"></div>
+                                        </div>
+                                    `)}
+                                    
+                                    ${t.credits.map((c, i) => html`
+                                        <div key=${`cr-${t.id}-${i}`} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
+                                            <div className="w-16 border-r flex-shrink-0"></div>
+                                            <div className="flex-1 border-r pl-6 text-gray-800 truncate" title=${c.account}>${c.account}</div>
+                                            <div className="w-16 border-r text-center flex justify-center items-center flex-shrink-0 text-gray-400">1</div>
+                                            <div className="w-24 border-r flex-shrink-0"></div>
+                                            <div className="w-24 text-right pr-1 flex-shrink-0 text-gray-800">${c.amount.toLocaleString()}</div>
+                                        </div>
+                                    `)}
+                                    
+                                    <div key=${'desc' + t.id} className="flex border-b border-gray-200 text-xs h-8 items-center text-gray-500 italic bg-gray-50/50">
+                                        <div className="w-16 border-r flex-shrink-0"></div>
+                                        <div className="flex-1 border-r pl-8 truncate" title=${t.description}>(${t.description})</div>
+                                        <div className="w-16 border-r flex-shrink-0"></div>
+                                        <div className="w-24 border-r flex-shrink-0"></div>
+                                        <div className="w-24 flex-shrink-0"></div>
+                                    </div>
+                                </React.Fragment>
+                            `;
+                        })}
+                        <div className="h-8"></div>
+                    </div>
                 </div>
             `}
         </div>
