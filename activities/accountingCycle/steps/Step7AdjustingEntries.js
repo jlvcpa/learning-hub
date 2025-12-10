@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, X, ChevronDown, ChevronRight, Table, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts, getAccountType } from '../utils.js';
+import { sortAccounts } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
@@ -15,15 +15,18 @@ const StatusIcon = ({ correct, show }) => {
 // --- LEFT PANEL: JOURNAL COMPONENTS ---
 
 const HistoricalJournalView = ({ transactions }) => {
-    const [expanded, setExpanded] = useState(false); // Collapsed by default to save space for adjustments
+    const [expanded, setExpanded] = useState(false);
     
     return html`
         <div className="mb-4 border rounded bg-white overflow-hidden shadow-sm flex flex-col">
             <div className="bg-gray-100 p-2 font-bold text-gray-700 cursor-pointer flex justify-between items-center" onClick=${()=>setExpanded(!expanded)}>
-                <span><${Book} size={16} className="inline mr-2"/>Historical Journal Entries (Read-Only)</span>
+                <div className="flex items-center">
+                    <${Book} size=${16} className="inline mr-2 w-4 h-4"/>
+                    <span>Historical Journal Entries (Read-Only)</span>
+                </div>
                 <div className="flex items-center gap-2 text-xs font-normal">
                     ${expanded ? 'Click to Collapse' : 'Click to View'}
-                    ${expanded ? html`<${ChevronDown} size={16}/>` : html`<${ChevronRight} size={16}/>`}
+                    ${expanded ? html`<${ChevronDown} size={16} className="w-4 h-4"/>` : html`<${ChevronRight} size={16} className="w-4 h-4"/>`}
                 </div>
             </div>
             ${expanded && html`
@@ -65,7 +68,7 @@ const HistoricalJournalView = ({ transactions }) => {
                                         <tr className="bg-gray-50 text-gray-500 italic">
                                             <td className="border-r"></td>
                                             <td className="p-1 border-r pl-8 text-[10px]">(${t.description})</td>
-                                            <td colspan="3"></td>
+                                            <td colSpan="3"></td>
                                         </tr>
                                     </React.Fragment>
                                 `;
@@ -79,8 +82,6 @@ const HistoricalJournalView = ({ transactions }) => {
 };
 
 const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeedback }) => {
-    // data is an object: { 'adj1': { drAcc: '', crAcc: '', drAmt: '', crAmt: '' }, ... }
-    
     const handleChange = (adjId, field, val) => {
         const current = data[adjId] || {};
         onChange(adjId, { ...current, [field]: val });
@@ -88,7 +89,10 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
 
     return html`
         <div className="border rounded bg-white shadow-sm flex flex-col flex-1 min-h-0">
-            <div className="bg-blue-100 p-2 font-bold text-blue-900 border-b"><${Book} size={16} className="inline mr-2"/>Journalize Adjusting Entries</div>
+            <div className="bg-blue-100 p-2 font-bold text-blue-900 border-b flex items-center">
+                <${Book} size=${16} className="inline mr-2 w-4 h-4"/>
+                Journalize Adjusting Entries
+            </div>
             <div className="overflow-y-auto p-2 flex-1">
                 ${adjustments.map((adj, idx) => {
                     const entry = data[adj.id] || {};
@@ -268,7 +272,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                 <tfoot>
                     ${!isReadOnly && html`
                         <tr>
-                            <td colspan="6" className="p-1 bg-gray-50 border-t">
+                            <td colSpan="6" className="p-1 bg-gray-50 border-t">
                                 <button onClick=${handleAddRow} className="text-blue-600 flex items-center gap-1 hover:underline text-[10px] w-full justify-center">
                                     <${Plus} size=${10}/> Add Adjustment Row
                                 </button>
@@ -277,7 +281,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                     `}
                     <!-- Totals Row -->
                     <tr className="font-bold border-t border-black bg-gray-50">
-                        <td colspan="3" className="text-right pr-2">Totals</td>
+                        <td colSpan="3" className="text-right pr-2">Totals</td>
                         <td className="p-0 border-r border-l border-black relative">
                             <input type="number" className=${`w-full text-right px-1 outline-none bg-transparent ${showFeedback && Math.abs(Number(userLedger?.totalDr) - (histDrTotal + correctAdjDr)) > 1 ? 'text-red-600' : ''}`} 
                                 value=${userLedger?.totalDr || ''} onChange=${(e)=>handleTotalChange('totalDr', e.target.value)} disabled=${isReadOnly} placeholder="0"/>
@@ -290,8 +294,8 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                     </tr>
                     <!-- Balance Row -->
                     <tr className="font-bold border-t border-double border-black bg-yellow-50">
-                        <td colspan="3" className="text-right pr-2">Ending Balance</td>
-                        <td colspan="2" className="p-1 flex items-center gap-1 justify-end">
+                        <td colSpan="3" className="text-right pr-2">Ending Balance</td>
+                        <td colSpan="2" className="p-1 flex items-center gap-1 justify-end">
                             <select className="bg-transparent border-b border-gray-300 text-xs" value=${userLedger?.balType || ''} onChange=${(e)=>handleTotalChange('balType', e.target.value)} disabled=${isReadOnly}>
                                 <option value="" disabled>Type</option>
                                 <option value="Dr">Dr</option>
@@ -314,7 +318,10 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
 
     return html`
         <div className="h-full flex flex-col">
-            <div className="bg-blue-100 p-2 font-bold text-blue-900 border-b border-blue-200"><${Table} size={16} className="inline mr-2"/>General Ledger (Adjusted)</div>
+            <div className="bg-blue-100 p-2 font-bold text-blue-900 border-b border-blue-200 flex items-center">
+                <${Table} size=${16} className="inline mr-2 w-4 h-4"/>
+                General Ledger (Adjusted)
+            </div>
             <div className="overflow-y-auto p-4 flex-1 bg-gray-50 custom-scrollbar">
                 ${sortedAccounts.map(acc => {
                     // Calculate Correct Ending Values for Validation
