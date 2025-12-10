@@ -3,7 +3,6 @@ import htm from 'https://esm.sh/htm';
 import { Lock, Check, Printer } from 'https://esm.sh/lucide-react@0.263.1';
 import { ActivityHelper } from './utils.js';
 
-// Import all modular steps
 import Step1Analysis from './steps/Step1Analysis.js';
 import Step2Journalizing from './steps/Step2Journalizing.js';
 import Step3Posting from './steps/Step3Posting.js';
@@ -11,7 +10,7 @@ import Step4TrialBalance from './steps/Step4TrialBalance.js';
 import Step5Worksheet from './steps/Step5Worksheet.js';
 import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
-import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
+import Step8ClosingEntries from './steps/Step8ClosingEntries.js'; // Added
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
@@ -40,26 +39,16 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
     const handleStep1Change = (id, key, val) => updateAnswerFns.updateNestedAnswer(1, id.toString(), key, val);
     const handleStep2Change = (id, newRows) => updateAnswerFns.updateNestedAnswer(2, id.toString(), 'rows', newRows);
     const handleStep3Change = (key, val) => updateAnswerFns.updateAnswer(3, { ...(answers[3] || {}), [key]: val });
-    const handleStep3TogglePR = (key) => {
-        const cur = answers[3]?.journalPRs || {};
-        updateAnswerFns.updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}});
-    };
+    const handleStep3TogglePR = (key) => { const cur = answers[3]?.journalPRs || {}; updateAnswerFns.updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}}); };
     const handleStep4Change = (key, val) => updateAnswerFns.updateAnswer(4, { ...(answers[4] || {}), [key]: val });
     const handleStep5Change = (type, payload) => {
-        const stepAnswer = answers[stepId] || {};
-        const currentFooters = stepAnswer.footers || {};
-        if (type === 'rows') {
-             updateAnswerFns.updateAnswer(5, { ...stepAnswer, rows: payload });
-        } else if (type === 'footers') {
-             const { section, field, val } = payload;
-             const newSection = { ...currentFooters[section], [field]: val };
-             updateAnswerFns.updateAnswer(5, { ...stepAnswer, footers: { ...currentFooters, [section]: newSection } });
-        }
+        const stepAnswer = answers[stepId] || {}; const currentFooters = stepAnswer.footers || {};
+        if (type === 'rows') updateAnswerFns.updateAnswer(5, { ...stepAnswer, rows: payload });
+        else if (type === 'footers') { const { section, field, val } = payload; const newSection = { ...currentFooters[section], [field]: val }; updateAnswerFns.updateAnswer(5, { ...stepAnswer, footers: { ...currentFooters, [section]: newSection } }); }
     };
     const handleStep6Change = (section, data) => updateAnswerFns.updateAnswer(6, { ...(answers[6] || {}), [section]: data });
     const handleStep7Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
     const handleStep8Change = (section, data) => updateAnswerFns.updateAnswer(8, { ...(answers[8] || {}), [section]: data });
-
     const handleGenericChange = (k, v) => updateAnswerFns.updateAnswer(stepId, { ...(answers[stepId] || {}), [k]: v });
 
     const renderStepContent = () => {
@@ -74,7 +63,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 7) return html`<${Step7AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep7Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 8) return html`<${Step8ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep8Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-
+        
         return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${handleGenericChange} data=${answers[stepId]} />`;
     };
 
@@ -95,9 +84,10 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
                 </div>
                 ${(stepId === 2) && html`<div className="mt-2 pt-2 border-t text-sm"><div className="bg-yellow-50 p-2 rounded border border-yellow-200" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts) }} /></div>`}
                 ${(stepId === 3) && html`<div className="mt-2 pt-2 border-t text-sm"><div className="bg-yellow-50 p-2 rounded border border-yellow-200" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts, activityData.config.isSubsequentYear, activityData.beginningBalances) }} /></div>`}
+                ${(stepId === 8) && html`<div className="mt-2 pt-2 border-t text-sm"><div className="bg-yellow-50 p-2 rounded border border-yellow-200"><p class="font-bold">Instructions:</p><ul class="list-disc list-inside space-y-1 ml-2"><li>Journalize the closing entries using the REID method (Revenue, Expenses, Income Summary, Drawings).</li><li>Post the closing entries to the General Ledger.</li><li>Ensure all nominal accounts (Revenues, Expenses, Drawings) have a zero balance.</li></ul></div></div>`}
             </div>
-            <div className="no-print space-y-3 mb-6">
-                ${stepId !== 2 && stepId !== 3 && html`<div className="bg-gray-100 p-3 rounded-lg border text-sm" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts) }} />`}
+            <div class="no-print space-y-3 mb-6">
+                ${stepId !== 2 && stepId !== 3 && stepId !== 7 && stepId !== 8 && html`<div className="bg-gray-100 p-3 rounded-lg border text-sm" dangerouslySetInnerHTML=${{ __html: ActivityHelper.getInstructionsHTML(stepId, step.title, activityData.validAccounts) }} />`}
                 <div dangerouslySetInnerHTML=${{ __html: ActivityHelper.getRubricHTML(stepId, step.title) }} />
             </div>
             <div className=${`printable-area task-content-${stepId}`}>${renderStepContent()}</div>
