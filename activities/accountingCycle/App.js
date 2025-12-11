@@ -450,6 +450,69 @@ const App = () => {
 
              isCorrect = allNominalClosed && journalValid && capitalValid;
 
+            } else if (stepId === 9) {
+             // --- STEP 9 VALIDATION (Post-Closing Trial Balance) ---
+             const rows = currentAns.rows || [];
+             const { ledger, adjustments, validAccounts } = activityData;
+             
+             // 1. Calculate Expected Post-Closing Balances
+             const finalBalances = {};
+             let capitalAcc = '';
+             let ni = 0;
+             let draw = 0;
+
+             // Calculate Adjusted Balances & Identify Components
+             validAccounts.forEach(acc => {
+                 const rawDr = ledger[acc]?.debit || 0;
+                 const rawCr = ledger[acc]?.credit || 0;
+                 let aDr = 0, aCr = 0;
+                 adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
+                 const net = (rawDr + aDr) - (rawCr + aCr);
+                 const type = getAccountType(acc);
+                 
+                 if (type === 'Revenue') ni += Math.abs(net);
+                 else if (type === 'Expense') ni -= net;
+                 else if (acc.includes('Drawing')) draw += net;
+                 else if (type === 'Equity') capitalAcc = acc;
+                 
+                 // Store for Real Accounts
+                 if (['Asset','Liability'].includes(type)) finalBalances[acc] = net;
+             });
+
+             // Calculate Final Capital
+             const rawCapDr = ledger[capitalAcc]?.debit || 0;
+             const rawCapCr = ledger[capitalAcc]?.credit || 0;
+             const startCap = Math.abs(rawCapDr - rawCapCr); // Credit Normal
+             const endCap = startCap + ni - draw;
+             finalBalances[capitalAcc] = -endCap; // Store as credit (negative)
+
+             // 2. Validate User Rows
+             // Must have rows for all non-zero real accounts. No nominals.
+             let allCorrect = true;
+             const expectedCount = Object.keys(finalBalances).filter(k => Math.abs(finalBalances[k]) > 0).length;
+             let validUserRows = 0;
+
+             rows.forEach(r => {
+                 const acc = r.account.trim();
+                 if (!acc) return;
+                 const expVal = finalBalances[Object.keys(finalBalances).find(k=>k.toLowerCase()===acc.toLowerCase())];
+                 
+                 if (expVal === undefined) { 
+                     // Entered a nominal account or invalid account
+                     allCorrect = false; 
+                 } else {
+                     const uDr = Number(r.dr)||0;
+                     const uCr = Number(r.cr)||0;
+                     const uNet = uDr - uCr;
+                     if (Math.abs(uNet - expVal) > 1) allCorrect = false;
+                     validUserRows++;
+                 }
+             });
+
+             if (validUserRows < expectedCount) allCorrect = false;
+
+             isCorrect = allCorrect && rows.length > 0;
+
         } else {
              isCorrect = true;
         }
