@@ -13,6 +13,7 @@ import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
+import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
@@ -61,6 +62,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
     const handleStep7Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
     const handleStep8Change = (section, data) => updateAnswerFns.updateAnswer(8, { ...(answers[8] || {}), [section]: data });
     const handleStep9Change = (key, val) => updateAnswerFns.updateAnswer(9, { ...(answers[9] || {}), [key]: val });
+    const handleStep10Change = (adjId, val) => updateAnswerFns.updateAnswer(10, { ...(answers[10] || {}), [adjId]: val });
 
     const handleGenericChange = (k, v) => updateAnswerFns.updateAnswer(stepId, { ...(answers[stepId] || {}), [k]: v });
 
@@ -76,7 +78,8 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 7) return html`<${Step7AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep7Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 8) return html`<${Step8ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep8Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 9) return html`<${Step9PostClosingTB} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;        
+        if (stepId === 9) return html`<${Step9PostClosingTB} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`; 
+        if (stepId === 10) return html`<${Step10ReversingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep10Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         
         return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${handleGenericChange} data=${answers[stepId]} />`;
     };
