@@ -264,21 +264,43 @@ const App = () => {
                 if (a.A === t.analysis.assets && a.L === t.analysis.liabilities && a.E === t.analysis.equity && (a.Cause === t.analysis.cause || (t.analysis.cause === '' && !a.Cause))) correctChecks++;
             });
             isCorrect = correctChecks === activityData.transactions.length;
-        } else if (stepId === 2) {
-            let correctTx = 0;
-            activityData.transactions.forEach((t, tIdx) => {
-                const entry = currentAns[t.id] || {};
-                const userRows = entry.rows || [];
-                if (userRows.length > 0) correctTx++; 
-            });
-            isCorrect = correctTx === activityData.transactions.length;
-        } else if (stepId === 3) {
-             const ledgers = currentAns.ledgers || [];
-             let allAccountsValid = true;
-             ledgers.forEach(l => {
-                 if (!activityData.validAccounts.includes(l.account)) allAccountsValid = false;
-             });
-             isCorrect = allAccountsValid && ledgers.length > 0;
+        
+        // Suggested Fix for Step 2 in App.js
+} else if (stepId === 2) {
+    let correctTx = 0;
+    activityData.transactions.forEach((t) => {
+        const entry = currentAns[t.id] || {};
+        const rows = entry.rows || [];
+        // Check if AT LEAST one debit and one credit match the transaction requirements
+        const hasCorrectDebit = rows.some(r => t.debits.some(d => d.account === r.acc && Math.abs(Number(r.dr)-d.amount)<1));
+        const hasCorrectCredit = rows.some(r => t.credits.some(c => c.account === r.acc && Math.abs(Number(r.cr)-c.amount)<1));
+        if (hasCorrectDebit && hasCorrectCredit) correctTx++;
+    });
+    isCorrect = correctTx === activityData.transactions.length;
+            
+        // Suggested Fix for Step 3 in App.js
+} else if (stepId === 3) {
+    const ledgers = currentAns.ledgers || [];
+    // 1. Check if all valid accounts are present
+    const userAccountNames = ledgers.map(l => l.account);
+    const hasAllAccounts = activityData.validAccounts.every(acc => userAccountNames.includes(acc));
+    
+    // 2. Check Balances
+    let balancesCorrect = true;
+    ledgers.forEach(l => {
+        const expected = activityData.ledger[l.account]; // { debit: x, credit: y }
+        if (!expected) return; // Should be caught by hasAllAccounts
+        const expBal = (expected.debit || 0) - (expected.credit || 0);
+        const userBal = Number(l.balance) || 0;
+        // Check amount and type (Dr/Cr)
+        const isDr = expBal >= 0;
+        if (Math.abs(Math.abs(expBal) - userBal) > 1) balancesCorrect = false;
+        if (isDr && l.balanceType !== 'Dr') balancesCorrect = false;
+        if (!isDr && l.balanceType !== 'Cr') balancesCorrect = false;
+    });
+    
+    isCorrect = hasAllAccounts && balancesCorrect;
+            
         } else if (stepId === 4) {
              const rows = currentAns.rows || [];
              const expectedAccounts = Object.keys(activityData.ledger);
