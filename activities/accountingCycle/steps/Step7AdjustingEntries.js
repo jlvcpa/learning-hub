@@ -27,7 +27,7 @@ const HistoricalJournalView = ({ transactions }) => {
                 </div>
                 <div className="flex items-center gap-2 text-xs font-normal">
                     ${expanded ? 'Click to Collapse' : 'Click to View'}
-                    ${expanded ? html`<${ChevronDown} size={16} className="w-4 h-4"/>` : html`<${ChevronRight} size={16} className="w-4 h-4"/>`}
+                    ${expanded ? html`<${ChevronDown} size=${16} className="w-4 h-4"/>` : html`<${ChevronRight} size=${16} className="w-4 h-4"/>`}
                 </div>
             </div>
             ${expanded && html`
