@@ -4,7 +4,7 @@ import { Lock, Check, Printer } from 'https://esm.sh/lucide-react@0.263.1';
 import { ActivityHelper } from './utils.js';
 
 // Import all modular steps
-import Step1Analysis from './steps/Step1Analysis.js';
+import Step01Analysis from './steps/Step01Analysis.js';
 import Step2Journalizing from './steps/Step2Journalizing.js';
 import Step3Posting from './steps/Step3Posting.js';
 import Step4TrialBalance from './steps/Step4TrialBalance.js';
@@ -39,7 +39,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
     };
 
-    const handleStep1Change = (id, key, val) => updateAnswerFns.updateNestedAnswer(1, id.toString(), key, val);
+    const handleStep01Change = (id, key, val) => updateAnswerFns.updateNestedAnswer(1, id.toString(), key, val);
     const handleStep2Change = (id, newRows) => updateAnswerFns.updateNestedAnswer(2, id.toString(), 'rows', newRows);
     const handleStep3Change = (key, val) => updateAnswerFns.updateAnswer(3, { ...(answers[3] || {}), [key]: val });
     const handleStep3TogglePR = (key) => {
@@ -70,7 +70,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
         const showFeedback = status.attempts < 3;
 
-        if (stepId === 1) return html`<${Step1Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep1Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        if (stepId === 1) return html`<${Step01Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep01Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 2) return html`<${Step2Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep2Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
         if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
         if (stepId === 4) return html`<${Step4TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
