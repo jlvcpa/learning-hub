@@ -365,7 +365,7 @@ const App = () => {
              const netInc = calcISCr - calcISDr;
              const expectedBSTotal = calcBSDr + (netInc < 0 ? Math.abs(netInc) : 0);
              
-             const userBSRows = currentAns.bs?.rows || [];
+             currentAns.bs?.totalLiabEquity || [];
              const matchFound = userBSRows.some(r => Math.abs(Number(r.amount) - expectedBSTotal) <= 1);
              
              isCorrect = matchFound;
