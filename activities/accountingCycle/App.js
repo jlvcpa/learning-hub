@@ -13,8 +13,8 @@ import Step5Worksheet from './steps/Step5Worksheet.js';
 import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
-import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
-import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
+//import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
+//import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
