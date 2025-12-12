@@ -1,4 +1,4 @@
-// --- Step1Analysis.js ---
+// --- Step01Analysis.js ---
 import React from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Check, X } from 'https://esm.sh/lucide-react@0.263.1';
@@ -28,7 +28,7 @@ const checkRow = (transaction, answer = {}) => {
 };
 
 // --- EXPORTED VALIDATION FUNCTION (For App.js) ---
-export const validateStep1 = (transactions, allAnswers) => {
+export const validateStep01 = (transactions, allAnswers) => {
     let correctCount = 0;
     transactions.forEach(t => {
         const { isRowFullyCorrect } = checkRow(t, allAnswers[t.id]);
@@ -46,7 +46,7 @@ const StatusIcon = ({ correct, show }) => {
 };
 
 // --- MAIN COMPONENT ---
-export default function Step1Analysis({ transactions = [], data, onChange, showFeedback, isReadOnly }) {
+export default function Step01Analysis({ transactions = [], data, onChange, showFeedback, isReadOnly }) {
     if (!transactions || transactions.length === 0) return html`<div className="p-4 bg-red-50 text-red-600 rounded border border-red-200">No transactions generated. Please go back and regenerate the activity.</div>`;
     
     return html`
