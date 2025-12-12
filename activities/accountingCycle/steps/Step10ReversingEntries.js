@@ -18,6 +18,10 @@ const StatusIcon = ({ correct, show }) => {
 const HistoricalJournalView = ({ entries }) => {
     const [expanded, setExpanded] = useState(true);
     
+    // Get Year from the first entry
+    const firstDate = entries.length > 0 ? new Date(entries[0].rawDate || Date.now()) : new Date();
+    const year = firstDate.getFullYear();
+
     return html`
         <div className="mb-4 border rounded bg-white overflow-hidden shadow-sm flex flex-col h-full">
             <div className="bg-gray-100 p-2 font-bold text-gray-700 cursor-pointer flex justify-between items-center flex-shrink-0" onClick=${()=>setExpanded(!expanded)}>
@@ -39,34 +43,58 @@ const HistoricalJournalView = ({ entries }) => {
                         <div className="w-20 p-2 text-right flex-shrink-0">Credit</div>
                     </div>
                     <div className="overflow-y-auto flex-1 bg-white custom-scrollbar">
+                        <!-- Year Row -->
+                        <div className="flex border-b border-gray-100 text-xs h-6 items-center">
+                            <div className="w-16 border-r text-center font-bold text-gray-800 flex-shrink-0 bg-gray-50">${year}</div>
+                            <div className="flex-1 border-r"></div>
+                            <div className="w-16 border-r"></div>
+                            <div className="w-20 border-r"></div>
+                            <div className="w-20"></div>
+                        </div>
+
                         ${entries.map((t, tIdx) => {
-                            const isFirst = true; // Simplified for combined view
+                            const isFirst = tIdx === 0;
+                            // Format: Mmm d for first, d for rest
+                            const dateParts = t.date.split(' '); // Assumes "Mmm d" format comes from main component
+                            const dateDisplay = isFirst ? t.date : (dateParts[1] || t.date); 
                             
                             return html`
                                 <React.Fragment key=${t.id + tIdx}>
+                                    <!-- Dr/Cr Rows -->
                                     ${t.rows.map((row, i) => html`
-                                        <div key=${i} className="flex border-b border-gray-100 text-xs h-6 items-center hover:bg-gray-50">
-                                            <div className="w-16 border-r text-right pr-1 flex-shrink-0 text-gray-500">${i === 0 ? t.date : ''}</div>
-                                            <div className="flex-1 border-r pl-1 font-medium text-gray-800 truncate" title=${row.account}>
-                                                ${row.type === 'cr' ? html`<span className="ml-4">${row.account}</span>` : row.account}
+                                        <div key=${i} className="flex text-xs h-6 items-center hover:bg-gray-50">
+                                            <div className="w-16 border-r text-center flex-shrink-0 text-gray-600 border-gray-100">
+                                                ${i === 0 ? dateDisplay : ''}
                                             </div>
-                                            <div className="w-16 border-r text-center flex justify-center items-center flex-shrink-0 text-gray-400">
+                                            <div className="flex-1 border-r border-gray-100 pl-1 font-medium text-gray-800 truncate" title=${row.account}>
+                                                ${row.type === 'cr' ? html`<span className="ml-8">${row.account}</span>` : row.account}
+                                            </div>
+                                            <div className="w-16 border-r border-gray-100 text-center flex justify-center items-center flex-shrink-0 text-gray-400">
                                                 ${t.type === 'GJ' ? '1' : t.type === 'ADJ' ? '2' : '3'}
                                             </div>
-                                            <div className="w-20 border-r text-right pr-1 flex-shrink-0 text-gray-800">
+                                            <div className="w-20 border-r border-gray-100 text-right pr-1 flex-shrink-0 text-gray-800">
                                                 ${row.type === 'dr' ? Number(row.amount).toLocaleString() : ''}
                                             </div>
-                                            <div className="w-20 text-right pr-1 flex-shrink-0 text-gray-800">
+                                            <div className="w-20 text-right pr-1 flex-shrink-0 text-gray-800 border-gray-100 border-r-0">
                                                 ${row.type === 'cr' ? Number(row.amount).toLocaleString() : ''}
                                             </div>
                                         </div>
                                     `)}
-                                    <div className="flex border-b border-gray-200 text-xs h-6 items-center text-gray-500 italic bg-gray-50/50 mb-2">
-                                        <div className="w-16 border-r flex-shrink-0"></div>
-                                        <div className="flex-1 border-r pl-8 truncate" title=${t.description}>(${t.description})</div>
-                                        <div className="w-16 border-r flex-shrink-0"></div>
-                                        <div className="w-20 border-r flex-shrink-0"></div>
+                                    <!-- Description Row -->
+                                    <div className="flex text-xs h-6 items-center text-gray-500 italic mb-2">
+                                        <div className="w-16 border-r border-gray-100 flex-shrink-0"></div>
+                                        <div className="flex-1 border-r border-gray-100 pl-12 truncate" title=${t.description}>${t.description}</div>
+                                        <div className="w-16 border-r border-gray-100 flex-shrink-0"></div>
+                                        <div className="w-20 border-r border-gray-100 flex-shrink-0"></div>
                                         <div className="w-20 flex-shrink-0"></div>
+                                    </div>
+                                    <!-- Empty Spacer Row -->
+                                    <div className="flex h-6 border-b border-gray-100">
+                                        <div className="w-16 border-r border-gray-100"></div>
+                                        <div className="flex-1 border-r border-gray-100"></div>
+                                        <div className="w-16 border-r border-gray-100"></div>
+                                        <div className="w-20 border-r border-gray-100"></div>
+                                        <div className="w-20"></div>
                                     </div>
                                 </React.Fragment>
                             `;
@@ -117,59 +145,104 @@ const ReversingEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeedb
                 </span>
             </div>
             <div className="overflow-y-auto p-2 flex-1 custom-scrollbar">
+                
+                <div className="flex bg-gray-50 text-gray-700 border-b border-gray-300 font-bold text-xs text-center flex-shrink-0 mb-2">
+                    <div className="w-16 border-r p-2 flex-shrink-0">Date</div>
+                    <div className="flex-1 border-r p-2 text-left">Account Titles and Explanation</div>
+                    <div className="w-16 border-r p-2 flex-shrink-0">P.R.</div>
+                    <div className="w-20 border-r p-2 text-right flex-shrink-0">Debit</div>
+                    <div className="w-20 p-2 text-right flex-shrink-0">Credit</div>
+                </div>
+
                 ${adjustments.map((adj, idx) => {
                     const entry = data[adj.id] || {};
                     const shouldReverse = isReversable(adj);
+                    const isFirst = idx === 0;
                     
-                    // Validation Logic for Feedback
-                    // Correct if:
-                    // 1. Should Reverse AND (Dr matches Adj Cr AND Cr matches Adj Dr AND Amts match)
-                    // 2. Should NOT Reverse AND (Fields are empty)
-                    
+                    // Logic for Feedback
                     let isDrCorrect = false;
                     let isCrCorrect = false;
+                    let isDescCorrect = false;
+                    let isDateCorrect = false;
+                    let isYearCorrect = true;
 
                     if (shouldReverse) {
                         isDrCorrect = entry.drAcc?.toLowerCase() === adj.crAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
                         isCrCorrect = entry.crAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
+                        isDescCorrect = entry.desc?.toLowerCase().includes('reversing');
+                        // Date check: First needs "Jan 1" or "Jan 01", others just "1" or "01"
+                        const d = entry.date?.toLowerCase().replace(/0/g,''); // simplified loose check
+                        isDateCorrect = isFirst ? (d === 'jan 1') : (d === '1');
+                        if (isFirst) isYearCorrect = !!entry.year;
                     } else {
-                        isDrCorrect = !entry.drAcc && !entry.drAmt;
-                        isCrCorrect = !entry.crAcc && !entry.crAmt;
+                        // Correct if empty
+                        const hasData = entry.drAcc || entry.drAmt || entry.crAcc || entry.crAmt;
+                        isDrCorrect = !hasData;
+                        isCrCorrect = !hasData;
+                        isDescCorrect = !entry.desc;
+                        isDateCorrect = !entry.date;
+                        isYearCorrect = !entry.year;
                     }
-                    
-                    const isEmpty = !entry.drAcc && !entry.drAmt && !entry.crAcc && !entry.crAmt;
 
                     return html`
-                        <div key=${adj.id} className="mb-4 border border-blue-200 rounded overflow-hidden">
-                            <div className="bg-blue-50 px-2 py-1 text-xs font-bold text-blue-800 border-b border-blue-200 flex justify-between">
-                                <span>Reversing Entry for AJE #${idx + 1} (${adj.desc})</span>
-                                <span className="text-gray-500 font-normal">Jan 01</span>
+                        <div key=${adj.id} className="mb-4 rounded overflow-hidden">
+                            <div className="bg-gray-100 px-2 py-1 text-[10px] font-bold text-gray-500 border-b border-gray-200 flex justify-between">
+                                <span>Ref: AJE #${idx + 1} (${adj.desc})</span>
+                                <span>${shouldReverse ? "Reversing Required" : "No Entry Needed"}</span>
                             </div>
+
+                            <!-- Year Row (First Entry Only) -->
+                            ${isFirst && html`
+                                <div className="flex border-b border-gray-100 h-7">
+                                    <div className="w-16 border-r border-gray-200 bg-white p-0 relative">
+                                        <input type="text" className=${`w-full h-full text-center font-bold text-xs outline-none ${showFeedback && !isYearCorrect ? 'bg-red-50' : ''}`} placeholder="YYYY" value=${entry.year || ''} onChange=${(e) => handleChange(adj.id, 'year', e.target.value)} disabled=${isReadOnly}/>
+                                    </div>
+                                    <div className="flex-1 border-r border-gray-200"></div>
+                                    <div className="w-16 border-r border-gray-200"></div>
+                                    <div className="w-20 border-r border-gray-200"></div>
+                                    <div className="w-20"></div>
+                                </div>
+                            `}
                             
                             <!-- Debit Row -->
-                            <div className="flex border-b border-gray-100">
-                                <div className="w-16 p-1 text-center border-r bg-gray-50 text-xs flex items-center justify-center text-gray-500">Jan 01</div>
-                                <div className="flex-1 p-0 border-r relative">
-                                    <input type="text" className=${`w-full h-full p-1 outline-none text-sm ${showFeedback && !isDrCorrect ? 'bg-red-50' : ''}`} placeholder=${shouldReverse ? "Account..." : "No Entry Needed"} value=${entry.drAcc || ''} onChange=${(e) => handleChange(adj.id, 'drAcc', e.target.value)} disabled=${isReadOnly}/>
+                            <div className="flex border-b border-gray-100 h-7">
+                                <div className="w-16 border-r border-gray-200 p-0 relative">
+                                    <input type="text" className=${`w-full h-full text-center text-xs outline-none ${showFeedback && !isDateCorrect ? 'bg-red-50' : ''}`} placeholder=${isFirst ? "Mmm d" : "d"} value=${entry.date || ''} onChange=${(e) => handleChange(adj.id, 'date', e.target.value)} disabled=${isReadOnly}/>
+                                </div>
+                                <div className="flex-1 p-0 border-r border-gray-200 relative">
+                                    <input type="text" className=${`w-full h-full p-1 text-xs outline-none ${showFeedback && !isDrCorrect ? 'bg-red-50' : ''}`} placeholder="Debit Account" value=${entry.drAcc || ''} onChange=${(e) => handleChange(adj.id, 'drAcc', e.target.value)} disabled=${isReadOnly}/>
                                     <div className="absolute right-1 top-1"><${StatusIcon} show=${showFeedback} correct=${isDrCorrect} /></div>
                                 </div>
-                                <div className="w-24 p-0 border-r relative">
-                                    <input type="number" className=${`w-full h-full p-1 text-right outline-none text-sm ${showFeedback && !isDrCorrect ? 'bg-red-50' : ''}`} placeholder="Debit" value=${entry.drAmt || ''} onChange=${(e) => handleChange(adj.id, 'drAmt', e.target.value)} disabled=${isReadOnly}/>
+                                <div className="w-16 border-r border-gray-200"></div>
+                                <div className="w-20 p-0 border-r border-gray-200 relative">
+                                    <input type="number" className=${`w-full h-full p-1 text-right text-xs outline-none ${showFeedback && !isDrCorrect ? 'bg-red-50' : ''}`} placeholder="Debit" value=${entry.drAmt || ''} onChange=${(e) => handleChange(adj.id, 'drAmt', e.target.value)} disabled=${isReadOnly}/>
                                 </div>
-                                <div className="w-24 p-1 bg-gray-50 border-r"></div>
+                                <div className="w-20 p-1 bg-gray-50"></div>
                             </div>
 
                             <!-- Credit Row -->
-                            <div className="flex border-b border-gray-100">
-                                <div className="w-16 border-r bg-gray-50"></div>
-                                <div className="flex-1 p-0 border-r relative pl-6">
-                                    <input type="text" className=${`w-full h-full p-1 outline-none text-sm ${showFeedback && !isCrCorrect ? 'bg-red-50' : ''}`} placeholder=${shouldReverse ? "Account..." : "No Entry Needed"} value=${entry.crAcc || ''} onChange=${(e) => handleChange(adj.id, 'crAcc', e.target.value)} disabled=${isReadOnly}/>
+                            <div className="flex border-b border-gray-100 h-7">
+                                <div className="w-16 border-r border-gray-200 bg-white"></div>
+                                <div className="flex-1 p-0 border-r border-gray-200 relative pl-8"> <!-- Indent 5 spaces approx via padding -->
+                                    <input type="text" className=${`w-full h-full p-1 text-xs outline-none ${showFeedback && !isCrCorrect ? 'bg-red-50' : ''}`} placeholder="Credit Account" value=${entry.crAcc || ''} onChange=${(e) => handleChange(adj.id, 'crAcc', e.target.value)} disabled=${isReadOnly}/>
                                     <div className="absolute right-1 top-1"><${StatusIcon} show=${showFeedback} correct=${isCrCorrect} /></div>
                                 </div>
-                                <div className="w-24 p-1 bg-gray-50 border-r"></div>
-                                <div className="w-24 p-0 border-r relative">
-                                    <input type="number" className=${`w-full h-full p-1 text-right outline-none text-sm ${showFeedback && !isCrCorrect ? 'bg-red-50' : ''}`} placeholder="Credit" value=${entry.crAmt || ''} onChange=${(e) => handleChange(adj.id, 'crAmt', e.target.value)} disabled=${isReadOnly}/>
+                                <div className="w-16 border-r border-gray-200"></div>
+                                <div className="w-20 p-1 bg-gray-50 border-r border-gray-200"></div>
+                                <div className="w-20 p-0 relative">
+                                    <input type="number" className=${`w-full h-full p-1 text-right text-xs outline-none ${showFeedback && !isCrCorrect ? 'bg-red-50' : ''}`} placeholder="Credit" value=${entry.crAmt || ''} onChange=${(e) => handleChange(adj.id, 'crAmt', e.target.value)} disabled=${isReadOnly}/>
                                 </div>
+                            </div>
+
+                            <!-- Description Row -->
+                            <div className="flex border-b border-gray-100 h-7">
+                                <div className="w-16 border-r border-gray-200 bg-white"></div>
+                                <div className="flex-1 p-0 border-r border-gray-200 relative pl-12"> <!-- Indent 8 spaces approx -->
+                                    <input type="text" className=${`w-full h-full p-1 text-xs italic text-gray-600 outline-none ${showFeedback && !isDescCorrect ? 'bg-red-50' : ''}`} placeholder="Description" value=${entry.desc || ''} onChange=${(e) => handleChange(adj.id, 'desc', e.target.value)} disabled=${isReadOnly}/>
+                                </div>
+                                <div className="w-16 border-r border-gray-200"></div>
+                                <div className="w-20 border-r border-gray-200"></div>
+                                <div className="w-20"></div>
                             </div>
                         </div>
                     `;
@@ -194,7 +267,7 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
             const rows = [];
             t.debits.forEach(d => rows.push({ account: d.account, amount: d.amount, type: 'dr' }));
             t.credits.forEach(c => rows.push({ account: c.account, amount: c.amount, type: 'cr' }));
-            entries.push({ id: `txn-${t.id}`, date: dateStr, desc: t.description, type: 'GJ', rows });
+            entries.push({ id: `txn-${t.id}`, date: dateStr, rawDate: t.date, description: t.description, type: 'GJ', rows });
         });
 
         // 2. Adjusting Entries
@@ -203,50 +276,87 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
                 { account: adj.drAcc, amount: adj.amount, type: 'dr' },
                 { account: adj.crAcc, amount: adj.amount, type: 'cr' }
             ];
-            entries.push({ id: `adj-${i}`, date: 'Dec 31', desc: adj.desc, type: 'ADJ', rows });
+            entries.push({ id: `adj-${i}`, date: 'Dec 31', rawDate: '2023-12-31', description: adj.desc, type: 'ADJ', rows });
         });
 
-        // 3. Closing Entries (Generated on the fly for visualization)
-        // Calculate Nominal Totals
+        // 3. Closing Entries
+        // Nominal Totals
         let totalRev = 0, totalExp = 0, totalDraw = 0;
-        let revRows = [], expRows = [], drawRows = []; // For detailed entries if needed
         
-        // Helper to get balance
+        // Use a temporary map to sum accurately including BB and Trans and Adj
+        const tempLedger = {};
         const getBal = (acc) => {
-            let dr = 0, cr = 0;
-            if (config.isSubsequentYear && beginningBalances?.balances[acc]) { dr += beginningBalances.balances[acc].dr; cr += beginningBalances.balances[acc].cr; }
-            transactions.forEach(t => { t.debits.forEach(d => { if(d.account===acc) dr+=d.amount; }); t.credits.forEach(c => { if(c.account===acc) cr+=c.amount; }); });
-            adjustments.forEach(a => { if(a.drAcc===acc) dr+=a.amount; if(a.crAcc===acc) cr+=a.amount; });
-            return dr - cr;
+             if (tempLedger[acc] !== undefined) return tempLedger[acc];
+             let dr = 0, cr = 0;
+             if (config.isSubsequentYear && beginningBalances?.balances[acc]) { dr += beginningBalances.balances[acc].dr; cr += beginningBalances.balances[acc].cr; }
+             transactions.forEach(t => { t.debits.forEach(d => { if(d.account===acc) dr+=d.amount; }); t.credits.forEach(c => { if(c.account===acc) cr+=c.amount; }); });
+             adjustments.forEach(a => { if(a.drAcc===acc) dr+=a.amount; if(a.crAcc===acc) cr+=a.amount; });
+             const net = dr - cr;
+             tempLedger[acc] = net;
+             return net;
         };
+
+        const closingEntries = [];
+        
+        validAccounts.forEach(acc => {
+            const net = getBal(acc);
+            const type = getAccountType(acc);
+            
+            if (type === 'Revenue' && Math.abs(net) > 0) {
+                totalRev += Math.abs(net);
+                closingEntries.push({ 
+                    id: `close-rev-${acc}`, date: 'Dec 31', rawDate: '2023-12-31', 
+                    description: 'To close the revenue accounts.', 
+                    type: 'CLS', 
+                    rows: [{account: acc, amount: Math.abs(net), type: 'dr'}, {account: 'Income Summary', amount: Math.abs(net), type: 'cr'}] 
+                });
+            }
+        });
 
         validAccounts.forEach(acc => {
             const net = getBal(acc);
             const type = getAccountType(acc);
-            if (type === 'Revenue') {
-                totalRev += Math.abs(net);
-                if (Math.abs(net) > 0) entries.push({ id: `close-rev-${acc}`, date: 'Dec 31', desc: 'Closing Entry', type: 'CLS', rows: [{account: acc, amount: Math.abs(net), type: 'dr'}, {account: 'Income Summary', amount: Math.abs(net), type: 'cr'}] });
-            }
-            if (type === 'Expense') {
+            if (type === 'Expense' && net > 0) {
                 totalExp += net;
-                if (net > 0) entries.push({ id: `close-exp-${acc}`, date: 'Dec 31', desc: 'Closing Entry', type: 'CLS', rows: [{account: 'Income Summary', amount: net, type: 'dr'}, {account: acc, amount: net, type: 'cr'}] });
-            }
-            if (acc.includes('Drawing') && net > 0) {
-                const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
-                entries.push({ id: `close-drw-${acc}`, date: 'Dec 31', desc: 'Closing Entry', type: 'CLS', rows: [{account: capAcc, amount: net, type: 'dr'}, {account: acc, amount: net, type: 'cr'}] });
+                closingEntries.push({ 
+                    id: `close-exp-${acc}`, date: 'Dec 31', rawDate: '2023-12-31', 
+                    description: 'To close the expense accounts.', 
+                    type: 'CLS', 
+                    rows: [{account: 'Income Summary', amount: net, type: 'dr'}, {account: acc, amount: net, type: 'cr'}] 
+                });
             }
         });
 
-        // Close Income Summary
         const ni = totalRev - totalExp;
-        const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
-        if (ni >= 0) {
-            entries.push({ id: 'close-ni', date: 'Dec 31', desc: 'Close Net Income', type: 'CLS', rows: [{account: 'Income Summary', amount: ni, type: 'dr'}, {account: capAcc, amount: ni, type: 'cr'}] });
-        } else {
-            entries.push({ id: 'close-nl', date: 'Dec 31', desc: 'Close Net Loss', type: 'CLS', rows: [{account: capAcc, amount: Math.abs(ni), type: 'dr'}, {account: 'Income Summary', amount: Math.abs(ni), type: 'cr'}] });
+        const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing') && !a.includes('Dividends'));
+        
+        // Close Income Summary
+        if (ni !== 0) {
+             const rows = ni >= 0 
+                ? [{account: 'Income Summary', amount: ni, type: 'dr'}, {account: capAcc, amount: ni, type: 'cr'}]
+                : [{account: capAcc, amount: Math.abs(ni), type: 'dr'}, {account: 'Income Summary', amount: Math.abs(ni), type: 'cr'}];
+             
+             closingEntries.push({ 
+                id: 'close-inc', date: 'Dec 31', rawDate: '2023-12-31', 
+                description: 'To close the income summary account.', 
+                type: 'CLS', rows 
+            });
         }
 
-        return entries;
+        // Close Drawings
+        validAccounts.forEach(acc => {
+            const net = getBal(acc);
+            if ((acc.includes('Drawing') || acc.includes('Dividends')) && net > 0) {
+                closingEntries.push({ 
+                    id: `close-drw-${acc}`, date: 'Dec 31', rawDate: '2023-12-31', 
+                    description: 'To close the drawing accounts.', 
+                    type: 'CLS', 
+                    rows: [{account: capAcc, amount: net, type: 'dr'}, {account: acc, amount: net, type: 'cr'}] 
+                });
+            }
+        });
+
+        return [...entries, ...closingEntries];
     }, [activityData]);
 
     return html`
