@@ -13,6 +13,8 @@ import Step5Worksheet from './steps/Step5Worksheet.js';
 import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
+import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
+import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
@@ -514,36 +516,25 @@ const App = () => {
              isCorrect = allCorrect && rows.length > 0;
 
             } else if (stepId === 10) {
-             // --- STEP 10 VALIDATION (Reversing Entries) ---
-             const reverseData = currentAns || {};
-             const { adjustments, config } = activityData;
-             let allReverseCorrect = true;
-             
-             adjustments.forEach(adj => {
-                 const type = adj.type || '';
-                 // Determine if reversable
-                 let shouldReverse = false;
-                 // 1. Accruals always reverse
-                 if (type.includes('Accrued')) shouldReverse = true;
-                 // 2. Deferrals reverse only if initial entry was to Expense/Income (Alternative method)
-                 if (type.includes('Deferred Expense') && config.deferredExpenseMethod === 'Expense') shouldReverse = true;
-                 if (type.includes('Deferred Income') && config.deferredIncomeMethod === 'Income') shouldReverse = true;
-                 
-                 const entry = reverseData[adj.id] || {};
-                 
-                 if (shouldReverse) {
-                     // Must swap accounts compared to the adjustment
-                     const isDrMatch = entry.drAcc?.toLowerCase() === adj.crAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
-                     const isCrMatch = entry.crAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
-                     if (!isDrMatch || !isCrMatch) allReverseCorrect = false;
-                 } else {
-                     // Must be empty if not reversable
-                     const hasData = entry.drAcc || entry.drAmt || entry.crAcc || entry.crAmt;
-                     if (hasData) allReverseCorrect = false;
-                 }
-             });
-             
-             isCorrect = allReverseCorrect;
+            // --- STEP 10 VALIDATION (Reversing Entries) ---
+            const { adjustments, config } = activityData;
+            const currentAns = answers[10] || {};
+            
+            let allCorrect = true;
+            adjustments.forEach((adj, idx) => {
+                const entry = currentAns[adj.id] || {};
+                const isFirst = idx === 0;
+                
+                // Use the helper function exported from the Step 10 file
+                // This checks Accounts, Amounts, Dates, Year, AND Description
+                const result = validateReversingEntry(entry, adj, config, isFirst);
+                
+                if (!result.isEntryCorrect) {
+                    allCorrect = false;
+                }
+            });
+            
+            isCorrect = allCorrect;
 
         } else {
              isCorrect = true;
