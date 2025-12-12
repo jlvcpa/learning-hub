@@ -145,7 +145,7 @@ const HistoricalJournalView = ({ entries }) => {
                     <span>Historical General Journal (Dec 31)</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-normal">
-                    ${expanded ? html`<${ChevronDown} size=&{16} className="w-4 h-4"/>` : html`<${ChevronRight} size={16} className="w-4 h-4"/>`}
+                    ${expanded ? html`<${ChevronDown} size=&{16} className="w-4 h-4"/>` : html`<${ChevronRight} size=${16} className="w-4 h-4"/>`}
                 </div>
             </div>
             ${expanded && html`
