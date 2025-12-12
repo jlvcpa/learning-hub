@@ -17,13 +17,57 @@ const StatusIcon = ({ correct, show }) => {
 
 // --- VALIDATION HELPER (Exported for App.js) ---
 export const validateReversingEntry = (entry, adj, config, isFirst) => {
-    const type = adj.type || '';
+    // 1. Safe Inputs & Normalization
+    const type = (adj.type || '').toLowerCase();
+    const desc = (adj.desc || '').toLowerCase();
+    const drAcc = (adj.drAcc || '').toLowerCase(); // Adjustment Debit Account
+    const crAcc = (adj.crAcc || '').toLowerCase(); // Adjustment Credit Account
     
-    // Determine if Reversable
+    // We also need to check account types if possible, but we can rely on standard naming conventions
+    // for Prepaids, Supplies, Unearned, etc.
+
+    // 2. Determine if Reversable (STRICT LOGIC)
     let shouldReverse = false;
-    if (type.includes('Accrued')) shouldReverse = true;
-    if (type.includes('Deferred Expense') && config.deferredExpenseMethod === 'Expense') shouldReverse = true;
-    if (type.includes('Deferred Income') && config.deferredIncomeMethod === 'Income') shouldReverse = true;
+
+    // --- CHECK 1: ACCRUALS ---
+    // Rule: Accruals ALWAYS reverse.
+    // Logic: Look for "Payable" in Credit (Accrued Expense) or "Receivable" in Debit (Accrued Income)
+    // Exception: Do not reverse Accounts Payable/Receivable (Trade accounts)
+    
+    const isAccruedExpense = crAcc.includes('payable') && !crAcc.includes('accounts payable') && !crAcc.includes('notes payable');
+    const isAccruedIncome = drAcc.includes('receivable') && !drAcc.includes('accounts receivable') && !drAcc.includes('notes receivable');
+
+    if (type.includes('accrued') || desc.includes('accrued') || isAccruedExpense || isAccruedIncome) {
+        shouldReverse = true;
+    }
+
+    // --- CHECK 2: DEFERRALS (EXPENSE METHOD) ---
+    // Context: Teacher selected "Expense Method".
+    // Scenario: Initial entry was Dr Expense. 
+    // Adjustment Entry made: Dr Asset (Prepaid/Supplies), Cr Expense.
+    // logic: If config is 'Expense' AND the adjustment DEBITS an Asset (Prepaid/Supplies), REVERSE IT.
+    
+    if (config.deferredExpenseMethod === 'Expense') {
+        const isAssetAdjustment = drAcc.includes('prepaid') || drAcc.includes('supplies');
+        if (isAssetAdjustment) {
+            shouldReverse = true;
+        }
+    }
+
+    // --- CHECK 3: DEFERRALS (INCOME METHOD) ---
+    // Context: Teacher selected "Income Method".
+    // Scenario: Initial entry was Cr Income.
+    // Adjustment Entry made: Dr Income, Cr Liability (Unearned).
+    // Logic: If config is 'Income' AND the adjustment CREDITS a Liability (Unearned), REVERSE IT.
+
+    if (config.deferredIncomeMethod === 'Income') {
+        const isLiabilityAdjustment = crAcc.includes('unearned') || crAcc.includes('advance');
+        if (isLiabilityAdjustment) {
+            shouldReverse = true;
+        }
+    }
+
+    // --- VALIDATION OF USER INPUT ---
 
     let isDrCorrect = false;
     let isCrCorrect = false;
@@ -32,25 +76,48 @@ export const validateReversingEntry = (entry, adj, config, isFirst) => {
     let isYearCorrect = true;
 
     if (shouldReverse) {
-        // Accounts & Amounts (Swapped vs Adjustment)
-        isDrCorrect = entry.drAcc?.toLowerCase() === adj.crAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
-        isCrCorrect = entry.crAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
+        // [SCENARIO A] REVERSING ENTRY IS REQUIRED
         
-        // Description
-        isDescCorrect = entry.desc?.toLowerCase().includes('reversing');
-        
-        // Date Logic (Robust check)
-        const d = entry.date?.toLowerCase().trim() || '';
-        if (isFirst) {
-            isDateCorrect = d === 'jan 1' || d === 'jan 01' || d === 'jan. 1' || d === 'jan. 01';
-            isYearCorrect = !!entry.year; // Year required for first
-        } else {
-            isDateCorrect = d === '1' || d === '01';
-            isYearCorrect = !entry.year; // Year not required
+        // CRITICAL FIX: If user entered NOTHING, but reversal is required, this is WRONG.
+        // This stops the "Override" issue where empty answers were marked correct.
+        const hasData = entry.drAcc || entry.crAcc || entry.drAmt;
+        if (!hasData) {
+            return { isEntryCorrect: false, shouldReverse: true, debug: 'Missing Required Entry' };
         }
+
+        // 1. Validate Accounts (Must be Swapped vs Adjustment)
+        // User Debit = Adjustment Credit
+        const userDrAcc = (entry.drAcc || '').toLowerCase().trim();
+        const userCrAcc = (entry.crAcc || '').toLowerCase().trim();
+        
+        // 2. Validate Amounts
+        const userDrAmt = Number(entry.drAmt);
+        const userCrAmt = Number(entry.crAmt);
+
+        isDrCorrect = userDrAcc === crAcc && Math.abs(userDrAmt - adj.amount) <= 1;
+        isCrCorrect = userCrAcc === drAcc && Math.abs(userCrAmt - adj.amount) <= 1;
+        
+        // 3. Description (Must contain 'reversing')
+        isDescCorrect = (entry.desc || '').toLowerCase().includes('reversing');
+        
+        // 4. Date Logic (Jan 1)
+        const d = (entry.date || '').toLowerCase().trim();
+        // Accept varying formats for Jan 1
+        const validDates = ['jan 1', 'jan 01', 'jan. 1', 'jan. 01', '1/1', '01/01', '1', '01'];
+        if (isFirst) {
+            isDateCorrect = validDates.some(vd => d.includes(vd)) || d === '1'; 
+            isYearCorrect = !!entry.year; 
+        } else {
+            isDateCorrect = validDates.some(vd => d.includes(vd)) || d === '1';
+            isYearCorrect = !entry.year; 
+        }
+
     } else {
-        // Should be empty
+        // [SCENARIO B] NO ENTRY REQUIRED (Standard Deferrals, Depreciation, Bad Debts)
+        
+        // If user entered ANY data, it is incorrect.
         const hasData = entry.drAcc || entry.drAmt || entry.crAcc || entry.crAmt;
+        
         isDrCorrect = !hasData;
         isCrCorrect = !hasData;
         isDescCorrect = !entry.desc;
