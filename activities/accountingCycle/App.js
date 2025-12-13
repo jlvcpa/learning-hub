@@ -9,7 +9,7 @@ import { TaskSection } from './steps.js';
 
 // Import all modular steps
 import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
-import Step2Journalizing from './steps/Step2Journalizing.js';
+import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js'; // CHANGED
 import Step3Posting from './steps/Step3Posting.js';
 import Step4TrialBalance from './steps/Step4TrialBalance.js';
 import Step5Worksheet from './steps/Step5Worksheet.js';
@@ -266,17 +266,10 @@ const App = () => {
             isCorrect = validateStep01(activityData.transactions, currentAns);
         
         // Suggested Fix for Step 2 in App.js
-} else if (stepId === 2) {
-    let correctTx = 0;
-    activityData.transactions.forEach((t) => {
-        const entry = currentAns[t.id] || {};
-        const rows = entry.rows || [];
-        // Check if AT LEAST one debit and one credit match the transaction requirements
-        const hasCorrectDebit = rows.some(r => t.debits.some(d => d.account === r.acc && Math.abs(Number(r.dr)-d.amount)<1));
-        const hasCorrectCredit = rows.some(r => t.credits.some(c => c.account === r.acc && Math.abs(Number(r.cr)-c.amount)<1));
-        if (hasCorrectDebit && hasCorrectCredit) correctTx++;
-    });
-    isCorrect = correctTx === activityData.transactions.length;
+        } else if (stepId === 2) {
+            // DRY IMPLEMENTATION:
+            // Use the exported validator from Step02Journalizing.js
+            isCorrect = validateStep02(activityData.transactions, currentAns);
             
         // Suggested Fix for Step 3 in App.js
 } else if (stepId === 3) {
