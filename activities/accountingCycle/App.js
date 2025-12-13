@@ -261,9 +261,9 @@ const App = () => {
         let isCorrect = false;
 
         if (stepId === 1) {
-            // DRY IMPLEMENTATION:
-            // Instead of writing the loop logic here, we call the function from the step file
-            isCorrect = validateStep01(activityData.transactions, currentAns);
+        // NEW CODE (Handle Object return type)
+            const result = validateStep01(activityData.transactions, currentAns);
+            isCorrect = result.isCorrect
         
         } else if (stepId === 2) {
             // FIX: Handle the object return type from validateStep02
