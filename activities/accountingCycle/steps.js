@@ -5,8 +5,8 @@ import { Lock, Check, Printer } from 'https://esm.sh/lucide-react@0.263.1';
 import { ActivityHelper } from './utils.js';
 
 // Import all modular steps with their validation functions
-import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
-import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js';
+import Step01Analysis from './steps/Step01Analysis.js';
+import Step02Journalizing from './steps/Step02Journalizing.js';
 import Step3Posting from './steps/Step3Posting.js';
 import Step4TrialBalance from './steps/Step4TrialBalance.js';
 import Step5Worksheet from './steps/Step5Worksheet.js';
@@ -14,7 +14,7 @@ import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
-import Step10ReversingEntries, { validateReversingEntry } from './steps/Step10ReversingEntries.js';
+import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
