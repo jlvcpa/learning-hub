@@ -1,8 +1,8 @@
 // --- Step04TrialBalance.js ---
-import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
+import React, { useState } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, X, Table, Trash2, Plus, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts, formatCurrency } from '../utils.js';
+import { Book, Check, X, Table, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
+import { sortAccounts } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
@@ -22,19 +22,19 @@ const getLastDayOfMonth = (dateStr) => {
 export const validateStep04 = (transactions, data, expectedLedger) => {
     let score = 0;
     let maxScore = 0;
-    const feedback = { header: {}, rows: [] };
+    const feedback = { header: {}, rows: [], totals: {} };
     
     // 1. HEADER VALIDATION (3 Points)
     maxScore += 3;
     const header = data.header || {};
     
-    // A. Company Name (1pt) - Lenient check: Just ensure it's not empty and looks like a title
+    // A. Company Name (1pt)
     const companyName = (header.company || '').trim();
     const isCompanyValid = companyName.length > 3; 
     if (isCompanyValid) score += 1;
     feedback.header.company = isCompanyValid;
 
-    // B. Document Name (1pt) - Must be "Trial Balance" (case insensitive)
+    // B. Document Name (1pt) - Must be "Trial Balance"
     const docName = (header.doc || '').trim().toLowerCase();
     const isDocValid = docName === 'trial balance';
     if (isDocValid) score += 1;
@@ -43,7 +43,6 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     // C. Date (1pt) - Must match the last day of the transaction month
     const targetDate = getLastDayOfMonth(transactions[0]?.date);
     const inputDate = (header.date || '').trim();
-    // Allow slight variations (e.g. "Jan 31" vs "January 31") but ideally exact match
     const isDateValid = inputDate.toLowerCase() === targetDate.toLowerCase();
     if (isDateValid) score += 1;
     feedback.header.date = isDateValid;
@@ -56,12 +55,12 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     let expTotalDr = 0;
     let expTotalCr = 0;
 
-    // Pre-calculate expected balances for lookup
+    // Pre-calculate expected balances
     const expBalances = {};
     expectedAccounts.forEach(acc => {
         const net = expectedLedger[acc].debit - expectedLedger[acc].credit;
         const absNet = Math.abs(net);
-        if (absNet > 0) { // Only score accounts that have a balance
+        if (absNet > 0) { 
             expBalances[acc] = {
                 amount: absNet,
                 side: net >= 0 ? 'dr' : 'cr'
@@ -69,20 +68,18 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
             if (net >= 0) expTotalDr += net;
             else expTotalCr += Math.abs(net);
             
-            // Add to Max Score: 1 for Account Name, 1 for Amount/Side
+            // Max Score: 1 for Account Name, 1 for Amount/Side
             maxScore += 2;
         }
     });
 
-    // Add Max Score for Totals (1 for Dr Total, 1 for Cr Total)
+    // Max Score for Totals (1 for Dr Total, 1 for Cr Total)
     maxScore += 2;
 
-    // Validate Rows
     let userTotalDr = 0;
     let userTotalCr = 0;
-    const processedAccounts = new Set(); // Prevent double counting same account
+    const processedAccounts = new Set();
 
-    // Iterate user rows to score
     rows.forEach((row, idx) => {
         const userAcc = (row.account || '').trim();
         const userDr = Number(row.dr) || 0;
@@ -94,11 +91,10 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
         const rowFeedback = { acc: false, amt: false };
         
         if (userAcc) {
-            // Find matching expected account (case insensitive)
             const matchedKey = Object.keys(expBalances).find(k => k.toLowerCase() === userAcc.toLowerCase());
             
             if (matchedKey && !processedAccounts.has(matchedKey)) {
-                // 1 Point for Correct Account Name existing
+                // 1 Point for Correct Account Name
                 score += 1;
                 rowFeedback.acc = true;
                 processedAccounts.add(matchedKey);
@@ -127,7 +123,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     feedback.totals = { dr: isTotalDrCorrect, cr: isTotalCrCorrect };
 
     // Grade Calculation
-    const percent = (score / maxScore) * 100;
+    const percent = maxScore > 0 ? (score / maxScore) * 100 : 0;
     let letterGrade = 'F';
     if (percent >= 90) letterGrade = 'A';
     else if (percent >= 80) letterGrade = 'B';
@@ -137,7 +133,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     return {
         score,
         maxScore,
-        isCorrect: score === maxScore, // Strict correctness for "Completion"
+        isCorrect: score === maxScore, 
         letterGrade,
         feedback
     };
@@ -146,46 +142,6 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
 // --- INTERNAL COMPONENTS ---
 
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
-    // (Kept identical to your previous code for the Source View)
-    const [expanded, setExpanded] = useState(true);
-    const sortedAccounts = sortAccounts(validAccounts);
-
-    return html`
-        <div className="mb-4 border rounded-lg shadow-sm bg-blue-50 overflow-hidden no-print h-full flex flex-col">
-            <div className="bg-blue-100 p-2 font-bold text-blue-900 cursor-pointer flex justify-between items-center flex-shrink-0" onClick=${()=>setExpanded(!expanded)}>
-                <span><${Book} size=${16} className="inline mr-2"/>Source: General Ledger</span>
-            </div>
-            ${expanded && html`
-                <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-6 bg-gray-50">
-                    ${sortedAccounts.map(acc => {
-                         // Simplify rendering logic for brevity in this snippet, 
-                         // but effectively it recalculates the ledger visually
-                         // ... (Reuse the exact Ledger Rendering Logic from your previous Step4 to ensure visual consistency)
-                        let balance = 0;
-                        // For brevity, using a simplified view calculation or assume the passed helper
-                        // In a real merge, paste the full LedgerSourceView implementation here.
-                        // I will render a summary card for each account to save space in this response,
-                        // but you should use your full table implementation.
-                        return html`
-                            <div key=${acc} className="bg-white p-2 border shadow-sm rounded">
-                                <div className="font-bold border-b mb-1">${acc}</div>
-                                <div className="text-xs text-gray-500">Refer to General Ledger entries</div>
-                            </div>
-                        `
-                    })}
-                     <div className="text-center text-sm text-gray-500 italic p-4">
-                        (Full General Ledger Detail View)
-                    </div>
-                </div>
-            `}
-        </div>
-    `;
-};
-
-// Re-implementing the full Ledger View correctly to ensure user sees data
-// (Actually, better to use the exact code you provided for LedgerSourceView to avoid breaking the "Source" visual)
-const FullLedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
-    // This is the EXACT component from your provided code
     const [expanded, setExpanded] = useState(true);
     const sortedAccounts = sortAccounts(validAccounts);
 
@@ -276,7 +232,6 @@ const FullLedgerSourceView = ({ transactions, validAccounts, beginningBalances, 
     `;
 };
 
-
 const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validationResult }) => {
     const rows = data.rows || Array(15).fill({ account: '', dr: '', cr: '' });
     const header = data.header || { company: '', doc: '', date: '' };
@@ -305,7 +260,6 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
     const totalDr = rows.reduce((sum, r) => sum + (Number(r.dr) || 0), 0);
     const totalCr = rows.reduce((sum, r) => sum + (Number(r.cr) || 0), 0);
 
-    // Dynamic Feedback Styles
     const getHeaderStyle = (isValid) => {
         if (!showFeedback) return 'border-black';
         return isValid ? 'border-green-600 bg-green-50 text-green-700' : 'border-red-600 bg-red-50';
@@ -346,7 +300,6 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
                     disabled=${isReadOnly}
                 />
             </div>
-
             <div className="flex-1 overflow-auto">
                 <table className="w-full text-sm border-collapse">
                     <thead className="bg-gray-100 sticky top-0 z-10">
@@ -367,7 +320,6 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
                                         value=${row.account} 
                                         onChange=${(e)=>updateRow(idx, 'account', e.target.value)} 
                                         disabled=${isReadOnly} 
-                                        placeholder="" 
                                     />
                                 </td>
                                 <td className="p-1 border">
@@ -414,8 +366,6 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
 };
 
 export default function Step04TrialBalance({ transactions, validAccounts, beginningBalances, isSubsequentYear, data, onChange, showFeedback, isReadOnly, expectedLedger }) {
-    
-    // Calculate validation result on the fly for display purposes (if feedback is shown)
     const validationResult = showFeedback 
         ? validateStep04(transactions, data, expectedLedger) 
         : null;
@@ -427,7 +377,7 @@ export default function Step04TrialBalance({ transactions, validAccounts, beginn
     return html`
         <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-140px)] min-h-[600px]">
             <div className="flex-1 lg:w-1/2 h-full min-h-0">
-                 <${FullLedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
+                 <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
             </div>
             <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
                 <div className="bg-green-100 p-2 font-bold text-green-900 flex justify-between items-center">
