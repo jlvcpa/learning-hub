@@ -43,8 +43,8 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
 
     const handleStep01Change = (id, key, val) => updateAnswerFns.updateNestedAnswer(1, id.toString(), key, val);
     const handleStep02Change = (id, newRows) => updateAnswerFns.updateNestedAnswer(2, id.toString(), 'rows', newRows);
-    const handleStep3Change = (key, val) => updateAnswerFns.updateAnswer(3, { ...(answers[3] || {}), [key]: val });
-    const handleStep3TogglePR = (key) => {
+    const handleStep03Change = (key, val) => updateAnswerFns.updateAnswer(3, { ...(answers[3] || {}), [key]: val });
+    const handleStep03TogglePR = (key) => {
         const cur = answers[3]?.journalPRs || {};
         updateAnswerFns.updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}});
     };
@@ -99,7 +99,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 2) return html`<${Step02Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep02Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
         
         // --- UPDATED STEP 3 RENDER ---
-        if (stepId === 3) return html`<${Step03Posting} activityData=${activityData} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
+        if (stepId === 3) return html`<${Step03Posting} activityData=${activityData} data=${answers[3] || {}} onChange=${handleStep03Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep03TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
         
         if (stepId === 4) return html`<${Step4TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
         if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
