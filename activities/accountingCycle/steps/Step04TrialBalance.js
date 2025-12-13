@@ -20,6 +20,18 @@ const getLastDayOfMonth = (dateStr) => {
 
 // --- VALIDATION LOGIC ---
 export const validateStep04 = (transactions, data, expectedLedger) => {
+    // --- SAFETY GUARD ---
+    // If expectedLedger is missing (e.g. during loading), return a default empty result
+    if (!expectedLedger || !data) {
+        return { 
+            score: 0, 
+            maxScore: 0, 
+            isCorrect: false, 
+            letterGrade: 'F', 
+            feedback: { header: {}, rows: [], totals: {} } 
+        };
+    }
+
     let score = 0;
     let maxScore = 0;
     const feedback = { header: {}, rows: [], totals: {} };
@@ -41,9 +53,9 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     feedback.header.doc = isDocValid;
 
     // C. Date (1pt) - Must match the last day of the transaction month
-    const targetDate = getLastDayOfMonth(transactions[0]?.date);
+    const targetDate = getLastDayOfMonth(transactions ? transactions[0]?.date : '');
     const inputDate = (header.date || '').trim();
-    const isDateValid = inputDate.toLowerCase() === targetDate.toLowerCase();
+    const isDateValid = targetDate && inputDate.toLowerCase() === targetDate.toLowerCase();
     if (isDateValid) score += 1;
     feedback.header.date = isDateValid;
 
@@ -143,7 +155,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
 
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
     const [expanded, setExpanded] = useState(true);
-    const sortedAccounts = sortAccounts(validAccounts);
+    const sortedAccounts = sortAccounts(validAccounts || []);
 
     return html`
         <div className="mb-4 border rounded-lg shadow-sm bg-blue-50 overflow-hidden no-print h-full flex flex-col">
@@ -168,29 +180,31 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         let lastMonthL = bbDr > 0 ? 'Jan' : '';
                         let lastMonthR = bbCr > 0 ? 'Jan' : '';
 
-                        transactions.forEach(t => {
-                            const dateObj = new Date(t.date);
-                            const mmm = dateObj.toLocaleString('default', { month: 'short' });
-                            const dd = dateObj.getDate().toString().padStart(2, '0');
-                            const dateStrFull = `${mmm} ${dd}`;
+                        if (transactions) {
+                            transactions.forEach(t => {
+                                const dateObj = new Date(t.date);
+                                const mmm = dateObj.toLocaleString('default', { month: 'short' });
+                                const dd = dateObj.getDate().toString().padStart(2, '0');
+                                const dateStrFull = `${mmm} ${dd}`;
 
-                            t.debits.forEach(d => {
-                                if (d.account === acc) {
-                                    let displayDate = dd;
-                                    if (rowsL.length === 1 || lastMonthL !== mmm) displayDate = dateStrFull;
-                                    rowsL.push({ date: displayDate, part: 'GJ', pr: '1', amount: d.amount });
-                                    lastMonthL = mmm;
-                                }
+                                t.debits.forEach(d => {
+                                    if (d.account === acc) {
+                                        let displayDate = dd;
+                                        if (rowsL.length === 1 || lastMonthL !== mmm) displayDate = dateStrFull;
+                                        rowsL.push({ date: displayDate, part: 'GJ', pr: '1', amount: d.amount });
+                                        lastMonthL = mmm;
+                                    }
+                                });
+                                t.credits.forEach(c => {
+                                    if (c.account === acc) {
+                                        let displayDate = dd;
+                                        if (rowsR.length === 1 || lastMonthR !== mmm) displayDate = dateStrFull;
+                                        rowsR.push({ date: displayDate, part: 'GJ', pr: '1', amount: c.amount });
+                                        lastMonthR = mmm;
+                                    }
+                                });
                             });
-                            t.credits.forEach(c => {
-                                if (c.account === acc) {
-                                    let displayDate = dd;
-                                    if (rowsR.length === 1 || lastMonthR !== mmm) displayDate = dateStrFull;
-                                    rowsR.push({ date: displayDate, part: 'GJ', pr: '1', amount: c.amount });
-                                    lastMonthR = mmm;
-                                }
-                            });
-                        });
+                        }
 
                         const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
                         const totalCr = rowsR.reduce((sum, r) => sum + (r.amount || 0), 0);
