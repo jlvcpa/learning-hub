@@ -67,14 +67,16 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
 
     const handleGenericChange = (k, v) => updateAnswerFns.updateAnswer(stepId, { ...(answers[stepId] || {}), [k]: v });
 
-    // --- SCORE DISPLAY LOGIC (Step 2 Only) ---
-    // Note: Step 1 and 10 have valid imports now, but we only calculate visual score for Step 2 as requested.
+    // --- SCORE DISPLAY LOGIC ---
     let scoreDisplay = null;
     if (stepId === 2 && answers[2] && (status.completed || status.attempts < 3)) {
         // Safe check to ensure validateStep02 is available
         if (typeof validateStep02 === 'function') {
             const res = validateStep02(activityData.transactions, answers[2]);
-            scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            // Only show score if maxScore > 0 to avoid IR on empty load
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
         }
     }
 
