@@ -5,7 +5,7 @@ import { ActivityHelper } from './utils.js';
 
 // Import all modular steps
 import Step01Analysis from './steps/Step01Analysis.js';
-import Step2Journalizing from './steps/Step2Journalizing.js';
+import Step02Journalizing from './steps/Step02Journalizing.js'; // CHANGED
 import Step3Posting from './steps/Step3Posting.js';
 import Step4TrialBalance from './steps/Step4TrialBalance.js';
 import Step5Worksheet from './steps/Step5Worksheet.js';
@@ -40,7 +40,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
     };
 
     const handleStep01Change = (id, key, val) => updateAnswerFns.updateNestedAnswer(1, id.toString(), key, val);
-    const handleStep2Change = (id, newRows) => updateAnswerFns.updateNestedAnswer(2, id.toString(), 'rows', newRows);
+    const handleStep02Change = (id, newRows) => updateAnswerFns.updateNestedAnswer(2, id.toString(), 'rows', newRows);
     const handleStep3Change = (key, val) => updateAnswerFns.updateAnswer(3, { ...(answers[3] || {}), [key]: val });
     const handleStep3TogglePR = (key) => {
         const cur = answers[3]?.journalPRs || {};
@@ -71,8 +71,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         const showFeedback = status.attempts < 3;
 
         if (stepId === 1) return html`<${Step01Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep01Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 2) return html`<${Step2Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep2Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
-        if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
+        if (stepId === 2) return html`<${Step02Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep2Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`; // CHANGED NAME        if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
         if (stepId === 4) return html`<${Step4TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
         if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
