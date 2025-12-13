@@ -8,14 +8,11 @@ const html = htm.bind(React.createElement);
 
 // --- HELPER: GET EXPECTED ROW CONFIG ---
 const getExpectedConfig = (t, rowIdx) => {
-    // Returns what SHOULD be at this row index based on standard accounting rules
-    // Rule: All Debits first, then all Credits
-    
     const numDebits = t.debits.length;
     const numCredits = t.credits.length;
     const totalLines = numDebits + numCredits;
 
-    if (rowIdx >= totalLines) return null; // Out of bounds
+    if (rowIdx >= totalLines) return null;
 
     if (rowIdx < numDebits) {
         return { type: 'debit', data: t.debits[rowIdx] };
@@ -28,14 +25,11 @@ const getExpectedConfig = (t, rowIdx) => {
 const validateRow = (row, t, tIdx, idx) => {
     const result = { date: null, acc: null, drAmt: null, crAmt: null, score: 0, maxScore: 0 };
     
-    // 1. DATE VALIDATION (Only on first row/transaction specific)
+    // 1. DATE VALIDATION
     if (tIdx === 0 && idx === 0) {
         const txnDate = new Date(t.date);
         const yyyy = txnDate.getFullYear().toString();
         const val = row.date?.trim() || "";
-        // Needs Year and nothing else in other columns if it's a dedicated year row (optional style)
-        // However, usually Year and Date are same row in this grid style.
-        // Let's assume strict check: First row needs correct Year/Date
         result.maxScore += 1;
         if (val === yyyy) { result.date = true; result.score += 1; } 
         else { result.date = false; }
@@ -54,18 +48,17 @@ const validateRow = (row, t, tIdx, idx) => {
         if (dateValid) { result.date = true; result.score += 1; }
         else { result.date = false; }
     } else {
-        result.date = true; // No score, just valid/ignored
+        result.date = true;
     }
 
-    // 2. ACCOUNT & AMOUNT VALIDATION (Strict Order)
+    // 2. ACCOUNT & AMOUNT VALIDATION
     if (!row.isDescription) {
         const expected = getExpectedConfig(t, idx);
         
         if (!expected) {
-            // Extra row that shouldn't exist
             result.acc = false; result.drAmt = false; result.crAmt = false;
         } else {
-            result.maxScore += 2; // 1 for Account Name/Indent, 1 for Amount/Column
+            result.maxScore += 2; 
 
             const acc = row.acc || "";
             const dr = Number(row.dr) || 0;
@@ -74,12 +67,10 @@ const validateRow = (row, t, tIdx, idx) => {
             // CHECK 1: ACCOUNT NAME & INDENTATION
             let accValid = false;
             if (expected.type === 'debit') {
-                // Expect 0 indentation
                 if (acc && !acc.startsWith(' ') && acc.trim() === expected.data.account) {
                     accValid = true;
                 }
             } else {
-                // Expect 3 spaces indentation
                 const threeSpaces = '   ';
                 if (acc && acc.startsWith(threeSpaces) && acc[3] !== ' ' && acc.substring(3) === expected.data.account) {
                     accValid = true;
@@ -91,22 +82,20 @@ const validateRow = (row, t, tIdx, idx) => {
             // CHECK 2: AMOUNT & COLUMN
             let amtValid = false;
             if (expected.type === 'debit') {
-                // Should be in Debit column, 0 in Credit
-                result.crAmt = null; // Don't flag credit column
+                result.crAmt = null; 
                 if (Math.abs(dr - expected.data.amount) <= 1 && cr === 0) {
                     amtValid = true;
                     result.drAmt = true;
                 } else {
-                    result.drAmt = false; // Flag debit column
+                    result.drAmt = false; 
                 }
             } else {
-                // Should be in Credit column, 0 in Debit
-                result.drAmt = null; // Don't flag debit column
+                result.drAmt = null;
                 if (Math.abs(cr - expected.data.amount) <= 1 && dr === 0) {
                     amtValid = true;
                     result.crAmt = true;
                 } else {
-                    result.crAmt = false; // Flag credit column
+                    result.crAmt = false;
                 }
             }
 
@@ -118,11 +107,16 @@ const validateRow = (row, t, tIdx, idx) => {
 };
 
 // --- GLOBAL VALIDATION / SCORING FUNCTION ---
-export const validateStep02 = (transactions, currentAns) => {
+export const validateStep02 = (transactions, currentAns = {}) => {
     let totalScore = 0;
     let maxScore = 0;
     let correctTx = 0;
     
+    // Safety check if transactions are empty
+    if (!transactions || transactions.length === 0) {
+        return { isCorrect: false, score: 0, maxScore: 0, letterGrade: 'IR' };
+    }
+
     transactions.forEach((t, tIdx) => {
         const entry = currentAns[t.id] || {};
         const rows = entry.rows || [];
@@ -131,78 +125,51 @@ export const validateStep02 = (transactions, currentAns) => {
         let txMax = 0;
         let isTxPerfect = true;
 
-        // Determine which rows to check (exclude description row for validation count logic usually, but here we iterate logic rows)
-        // Logical rows in grid: 
-        // Transaction 1: Row 0 (Year), Row 1 (Date/Debit 1), Row 2 (Debit 2/Credit 1)...
-        // Transaction >1: Row 0 (Date/Debit 1), Row 1...
-        
         const contentRows = rows.filter(r => !r.isDescription);
-        
-        // Logical Index Mapping
-        // We need to map grid rows to logical transaction lines.
-        // T1: Grid Row 0 is Year (Date Check Only). Grid Row 1 is Line 0. Grid Row 2 is Line 1.
-        // T2+: Grid Row 0 is Line 0. Grid Row 1 is Line 1.
+        const expectedCount = t.debits.length + t.credits.length;
 
+        // Iterate based on EXPECTED lines to ensure we count score for missing lines
+        // We calculate max score based on what SHOULD be there.
+        
+        // Calculate Max Score for this transaction first
+        // Date/Year pts
+        if (tIdx === 0) txMax += 2; // Year + Date
+        else txMax += 1; // Date only
+        
+        // Account/Amount pts (2 pts per line)
+        txMax += (expectedCount * 2);
+
+        // Calculate Actual Score by iterating rows
         rows.forEach((row, rIdx) => {
             if (row.isDescription) return;
 
             let logicalLineIdx = -1;
             if (tIdx === 0) {
-                if (rIdx === 0) logicalLineIdx = -1; // Year row
+                if (rIdx === 0) logicalLineIdx = -1; 
                 else logicalLineIdx = rIdx - 1;
             } else {
                 logicalLineIdx = rIdx;
             }
 
-            // If logicalLineIdx < 0, it's just a date/year row check
-            // If logicalLineIdx >= 0, it matches getExpectedConfig(t, logicalLineIdx)
+            // We only validate rows that map to actual expected lines (or date rows)
+            // If user added 100 extra rows, we don't score them (they are just wrong)
             
-            // Adjust validateRow to accept logical index? 
-            // Reuse validateRow but handle the 'idx' param carefully.
-            // Actually validateRow handles tIdx/idx for date logic internally.
-            // For account logic, we need to pass logicalLineIdx.
-            
-            // Refactored call to validateRow to separate Date and Account logic?
-            // Let's stick to existing validateRow but ensure it knows the "Content Index"
-            
-            // Actually, validateRow uses `idx` for Date checks (grid index) 
-            // and `idx` for Account checks (assuming 1:1 map). 
-            // We need to fix that assumption inside validateRow or here.
-            
-            // FIX:
-            // T1: Row 0 (Year). 
-            // T1: Row 1 (Date + Line 0).
-            // T1: Row 2 (Line 1).
-            
-            // The existing `validateRow` logic uses `idx` (grid index) to check `expected`
-            // If T1, Row 1 (Grid) -> Line 0 (Expected).
-            
-            // Let's modify the Account Check inside `validateRow` to use a `logicalIndex` prop.
-            // But `validateRow` is internal. 
-            
-            // We will just patch `validateRow` logic here by copying strictly what we need for scoring:
-            const res = validateRow(row, t, tIdx, rIdx); 
-            
-            // Wait, validateRow uses `getExpectedConfig(t, idx)`. 
-            // If tIdx===0, idx=1, it gets expected[1] which is wrong (should be [0]).
-            // We need to fix `validateRow`'s `idx` passed to `getExpectedConfig`.
-            
-            // Let's fix `validateRow` in the component to handle the offset.
-            // See the fixed `validateRow` below (I will rewrite it in the final output block to be clean).
-            
+            const res = validateRow(row, t, tIdx, logicalLineIdx);
             txScore += res.score;
-            txMax += res.maxScore;
-            if (res.score < res.maxScore) isTxPerfect = false;
+            
+            // If any specific field is wrong, the transaction is not perfect
+            if (res.date === false || res.acc === false || res.drAmt === false || res.crAmt === false) {
+                isTxPerfect = false;
+            }
         });
 
-        // Penalize if missing rows (though we auto-add, scoring happens after)
-        const expectedCount = t.debits.length + t.credits.length;
-        if (contentRows.length < expectedCount) {
-            isTxPerfect = false;
-            // Add max score for missing rows so percentage is correct
-            const missing = expectedCount - contentRows.length;
-            txMax += (missing * 2); 
-        }
+        // Penalize for missing rows (score won't increase, so implies penalty against max)
+        if (contentRows.length < expectedCount) isTxPerfect = false;
+        // Penalize for extra rows
+        if (contentRows.length > expectedCount) isTxPerfect = false;
+        
+        // Double check perfect status against score
+        if (txScore < txMax) isTxPerfect = false;
 
         totalScore += txScore;
         maxScore += txMax;
@@ -217,7 +184,6 @@ export const validateStep02 = (transactions, currentAns) => {
     };
 };
 
-
 // --- INTERNAL COMPONENTS ---
 
 const StatusIcon = ({ status, show }) => {
@@ -230,20 +196,15 @@ const StatusIcon = ({ status, show }) => {
 const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
     const isDesc = row.isDescription;
     
-    // Determine Logical Line Index for Content
     let logicalLineIdx = idx;
     if (tIdx === 0) {
-        if (idx === 0) logicalLineIdx = -1; // Year row, no account expected
+        if (idx === 0) logicalLineIdx = -1; 
         else logicalLineIdx = idx - 1;
     }
 
-    // Custom Validation Call for Render
-    // We recreate the logic inside validateRow but ensuring the correct logical index is passed for Account
     const validateForRender = () => {
-        // Reuse the same logic as global, but tailored for this specific row render
         const res = { date: null, acc: null, drAmt: null, crAmt: null };
         
-        // Date Logic (same as before)
         if (tIdx === 0 && idx === 0) {
             const txnDate = new Date(t.date);
             const val = row.date?.trim() || "";
@@ -251,17 +212,17 @@ const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isRead
         } else if ((tIdx === 0 && idx === 1) || (tIdx > 0 && idx === 0)) {
             const txnDate = new Date(t.date);
             const mm = txnDate.toLocaleString('default', { month: 'short' });
-            const dd = txnDate.getDate().toString().padStart(2, '0');
+            const dd = txnDate.getDate().toString(); // Fixed: check raw string match logic in helper
+            const dd0 = dd.padStart(2, '0');
             const val = row.date?.trim() || "";
             let valid = false;
-            if (tIdx === 0 && idx === 1) valid = val === `${mm} ${parseInt(dd)}` || val === `${mm} ${dd}`;
-            else valid = val === parseInt(dd).toString() || val === dd;
+            if (tIdx === 0 && idx === 1) valid = val === `${mm} ${dd}` || val === `${mm} ${dd0}`;
+            else valid = val === dd || val === dd0;
             res.date = valid;
         } else {
             res.date = true;
         }
 
-        // Account Logic
         if (!isDesc && logicalLineIdx >= 0) {
             const expected = getExpectedConfig(t, logicalLineIdx);
             const acc = row.acc || "";
@@ -269,25 +230,22 @@ const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isRead
             const cr = Number(row.cr) || 0;
 
             if (!expected) {
-                 // Extra row?
                  res.acc = false; res.drAmt = false; res.crAmt = false;
             } else {
-                 // Account
                  if (expected.type === 'debit') {
                      res.acc = (acc && !acc.startsWith(' ') && acc.trim() === expected.data.account);
                      res.crAmt = null; 
                      res.drAmt = (Math.abs(dr - expected.data.amount) <= 1 && cr === 0);
-                     if (!res.drAmt) res.drAmt = false; // Ensure X shows
+                     if (!res.drAmt) res.drAmt = false; 
                  } else {
                      const threeSpaces = '   ';
                      res.acc = (acc && acc.startsWith(threeSpaces) && acc[3] !== ' ' && acc.substring(3) === expected.data.account);
                      res.drAmt = null;
                      res.crAmt = (Math.abs(cr - expected.data.amount) <= 1 && dr === 0);
-                     if (!res.crAmt) res.crAmt = false; // Ensure X shows
+                     if (!res.crAmt) res.crAmt = false; 
                  }
             }
         } else if (logicalLineIdx === -1) {
-             // Year Row
              res.acc = null; res.drAmt = null; res.crAmt = null;
         }
 
@@ -352,33 +310,25 @@ export default function Step02Journalizing({ transactions = [], data, onChange, 
                 const entry = data[t.id] || {};
                 const currentRows = entry.rows || [];
                 
-                // Calculate Required Rows
-                // For T1: 1 (Year) + Debits + Credits + 1 (Desc)
-                // For T2+: Debits + Credits + 1 (Desc)
                 const lineItems = t.debits.length + t.credits.length;
-                const requiredCount = (tIdx === 0 ? 1 : 0) + lineItems + 1;
+                const requiredCount = (tIdx === 0 ? 1 : 0) + lineItems + 1; // +1 for desc
 
                 if (currentRows.length < requiredCount) {
                     changesMade = true;
-                    // Reconstruct rows
                     const newRows = [...currentRows];
                     
-                    // Find description row
                     const descIndex = newRows.findIndex(r => r.isDescription);
                     const descRow = descIndex >= 0 ? newRows.splice(descIndex, 1)[0] : { id: 'desc', date: '', acc: `      ${t.description}`, dr: '', cr: '', pr: '', isDescription: true };
                     
-                    // Add missing content rows
-                    while (newRows.length < (requiredCount - 1)) {
+                    // Add rows until we have enough for Lines + Year (if needed)
+                    // The description is added last.
+                    const neededContentRows = requiredCount - 1; // remove desc from count
+                    
+                    while (newRows.length < neededContentRows) {
                         newRows.push({ id: Date.now() + Math.random(), date: '', acc: '', dr: '', cr: '', pr: '' });
                     }
                     
-                    // Add desc back
                     newRows.push(descRow);
-                    
-                    // Trigger Update directly
-                    // Note: This calls onChange inside a loop. Since React batches, it might be okay, 
-                    // but safer to do one bulk update if possible. 
-                    // Given the structure, we must call the parent's onChange(id, rows).
                     onChange(t.id, newRows);
                 }
             });
@@ -411,7 +361,6 @@ export default function Step02Journalizing({ transactions = [], data, onChange, 
                     const entry = data[t.id] || {};
                     let initialRows = entry.rows;
                     if (!initialRows) {
-                        // Default Setup (2 lines + desc)
                         const lines = [{ id: 1, date: '', acc: '', dr: '', cr: '', pr: '' }, { id: 2, date: '', acc: '', dr: '', cr: '', pr: '' }];
                         if (tIdx === 0) lines.unshift({ id: 'year', date: '', acc: '', dr: '', cr: '', pr: '' });
                         lines.push({ id: 'desc', date: '', acc: `      ${t.description}`, dr: '', cr: '', pr: '', isDescription: true });
