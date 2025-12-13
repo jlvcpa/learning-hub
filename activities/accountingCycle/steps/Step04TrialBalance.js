@@ -17,7 +17,7 @@ const getLastDayOfMonth = (dateStr) => {
     return lastDay.toLocaleString('default', { month: 'long', day: 'numeric', year: 'numeric' });
 };
 
-// --- VALIDATION LOGIC (DRY) ---
+// --- VALIDATION LOGIC ---
 export const validateStep04 = (transactions, data, expectedLedger) => {
     // Safety guard
     if (!expectedLedger || !data) {
@@ -56,6 +56,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
 
     // 2. BODY VALIDATION
     const rows = data.rows || [];
+    const totals = data.totals || { dr: '', cr: '' }; // Get manual totals
     const expectedAccounts = Object.keys(expectedLedger);
     
     // Calculate Expected Totals & Map for Lookup
@@ -77,8 +78,6 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     // Max Score for Totals
     maxScore += 2;
 
-    let userTotalDr = 0;
-    let userTotalCr = 0;
     const processedAccounts = new Set();
 
     rows.forEach((row, idx) => {
@@ -86,9 +85,6 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
         const userDr = Number(row.dr) || 0;
         const userCr = Number(row.cr) || 0;
         
-        userTotalDr += userDr;
-        userTotalCr += userCr;
-
         const rowFeedback = { acc: false, amt: false };
         
         if (userAcc) {
@@ -114,9 +110,12 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
         feedback.rows[idx] = rowFeedback;
     });
 
-    // 3. TOTALS VALIDATION
-    const isTotalDrCorrect = Math.abs(userTotalDr - expTotalDr) <= 1;
-    const isTotalCrCorrect = Math.abs(userTotalCr - expTotalCr) <= 1;
+    // 3. TOTALS VALIDATION (Compare USER INPUT to EXPECTED SUMS)
+    const userTotalDrInput = Number(totals.dr) || 0;
+    const userTotalCrInput = Number(totals.cr) || 0;
+
+    const isTotalDrCorrect = Math.abs(userTotalDrInput - expTotalDr) <= 1;
+    const isTotalCrCorrect = Math.abs(userTotalCrInput - expTotalCr) <= 1;
 
     if (isTotalDrCorrect) score += 1;
     if (isTotalCrCorrect) score += 1;
@@ -139,8 +138,8 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
 const StatusIcon = ({ correct, show }) => {
     if (!show) return null;
     return correct 
-        ? html`<${Check} size=${16} className="text-green-600 inline ml-1 flex-shrink-0" />` 
-        : html`<${X} size=${16} className="text-red-600 inline ml-1 flex-shrink-0" />`;
+        ? html`<${Check} size=${16} className="text-green-600 inline ml-1 flex-shrink-0" strokeWidth=${3} />` 
+        : html`<${X} size=${16} className="text-red-600 inline ml-1 flex-shrink-0" strokeWidth=${3} />`;
 };
 
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
@@ -239,8 +238,8 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
 const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validationResult }) => {
     const rows = data.rows || Array(15).fill({ account: '', dr: '', cr: '' });
     const header = data.header || { company: '', doc: '', date: '' };
+    const totals = data.totals || { dr: '', cr: '' };
     const fb = validationResult?.feedback || { header: {}, rows: [], totals: {} };
-    const result = validationResult || {};
 
     const updateHeader = (field, val) => {
         onChange('header', { ...header, [field]: val });
@@ -250,6 +249,10 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
         const newRows = [...rows];
         newRows[idx] = { ...newRows[idx], [field]: val };
         onChange('rows', newRows);
+    };
+    
+    const updateTotals = (field, val) => {
+        onChange('totals', { ...totals, [field]: val });
     };
 
     const addRow = () => {
@@ -262,9 +265,6 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
         onChange('rows', newRows);
     };
 
-    const totalDr = rows.reduce((sum, r) => sum + (Number(r.dr) || 0), 0);
-    const totalCr = rows.reduce((sum, r) => sum + (Number(r.cr) || 0), 0);
-
     const getHeaderStyle = (isValid) => {
         if (!showFeedback) return 'border-black';
         return isValid ? 'border-green-600 bg-green-50 text-green-700' : 'border-red-600 bg-red-50';
@@ -272,25 +272,19 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
 
     return html`
         <div className="flex flex-col h-full">
-            ${showFeedback && html`
-                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm mx-4 mt-2">
-                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
-                    <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'F'})</span>
-                </div>
-            `}
-
+            
             <div className="flex flex-col gap-2 mb-6 items-center px-8 mt-2">
-                <div className="w-3/4 flex items-center">
+                <div className="w-3/4 flex items-center justify-center relative">
                     <input type="text" placeholder="[StudentLastName] Accounting Services" className=${`text-center font-bold text-lg border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.company)}`} value=${header.company} onChange=${(e) => updateHeader('company', e.target.value)} disabled=${isReadOnly}/>
-                    <${StatusIcon} show=${showFeedback} correct=${fb.header.company} />
+                    <div className="absolute -right-6"><${StatusIcon} show=${showFeedback} correct=${fb.header.company} /></div>
                 </div>
-                <div className="w-1/2 flex items-center">
+                <div className="w-1/2 flex items-center justify-center relative">
                     <input type="text" placeholder="Trial Balance" className=${`text-center font-bold text-md border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.doc)}`} value=${header.doc} onChange=${(e) => updateHeader('doc', e.target.value)} disabled=${isReadOnly}/>
-                    <${StatusIcon} show=${showFeedback} correct=${fb.header.doc} />
+                    <div className="absolute -right-6"><${StatusIcon} show=${showFeedback} correct=${fb.header.doc} /></div>
                 </div>
-                <div className="w-1/3 flex items-center">
+                <div className="w-1/3 flex items-center justify-center relative">
                     <input type="text" placeholder="Month DD, YYYY" className=${`text-center text-sm border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.date)}`} value=${header.date} onChange=${(e) => updateHeader('date', e.target.value)} disabled=${isReadOnly}/>
-                    <${StatusIcon} show=${showFeedback} correct=${fb.header.date} />
+                    <div className="absolute -right-6"><${StatusIcon} show=${showFeedback} correct=${fb.header.date} /></div>
                 </div>
             </div>
 
@@ -307,13 +301,15 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
                     <tbody>
                         ${rows.map((row, idx) => {
                             const rowFB = fb.rows[idx] || {};
-                            const hasInput = row.account || row.dr || row.cr;
+                            const hasAccInput = row.account && row.account.trim().length > 0;
+                            const hasAmtInput = Number(row.dr) > 0 || Number(row.cr) > 0;
+
                             return html`
                             <tr key=${idx} className="border-b hover:bg-gray-50">
                                 <td className="p-1 border relative">
                                     <div className="flex items-center">
                                         <input type="text" className="w-full outline-none bg-transparent" value=${row.account} onChange=${(e)=>updateRow(idx, 'account', e.target.value)} disabled=${isReadOnly} />
-                                        ${hasInput && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.acc} />`}
+                                        ${hasAccInput && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.acc} />`}
                                     </div>
                                 </td>
                                 <td className="p-1 border relative">
@@ -337,16 +333,30 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
                     <tfoot className="bg-gray-100 font-bold sticky bottom-0 border-t-2 border-gray-300">
                         <tr>
                             <td className="p-2 text-right uppercase text-xs text-gray-600">Total</td>
-                            <td className="p-2 text-right border-double border-gray-400 relative">
-                                <div className="flex items-center justify-end gap-2">
-                                    <span>${totalDr.toLocaleString()}</span>
-                                    <${StatusIcon} show=${showFeedback} correct=${fb.totals.dr} />
+                            <td className="p-1 border-double border-gray-400 relative">
+                                <div className="flex items-center justify-end">
+                                    <input 
+                                        type="number" 
+                                        className=${`w-full text-right outline-none bg-transparent font-bold ${showFeedback ? (fb.totals.dr ? 'text-green-700' : 'text-red-600') : ''}`} 
+                                        value=${totals.dr} 
+                                        onChange=${(e) => updateTotals('dr', e.target.value)}
+                                        disabled=${isReadOnly}
+                                        placeholder="0"
+                                    />
+                                    ${(totals.dr !== '' && Number(totals.dr) > 0) && html`<${StatusIcon} show=${showFeedback} correct=${fb.totals.dr} />`}
                                 </div>
                             </td>
-                            <td className="p-2 text-right border-double border-gray-400 relative">
-                                <div className="flex items-center justify-end gap-2">
-                                    <span>${totalCr.toLocaleString()}</span>
-                                    <${StatusIcon} show=${showFeedback} correct=${fb.totals.cr} />
+                            <td className="p-1 border-double border-gray-400 relative">
+                                <div className="flex items-center justify-end">
+                                    <input 
+                                        type="number" 
+                                        className=${`w-full text-right outline-none bg-transparent font-bold ${showFeedback ? (fb.totals.cr ? 'text-green-700' : 'text-red-600') : ''}`} 
+                                        value=${totals.cr} 
+                                        onChange=${(e) => updateTotals('cr', e.target.value)}
+                                        disabled=${isReadOnly}
+                                        placeholder="0"
+                                    />
+                                    ${(totals.cr !== '' && Number(totals.cr) > 0) && html`<${StatusIcon} show=${showFeedback} correct=${fb.totals.cr} />`}
                                 </div>
                             </td>
                             <td></td>
@@ -364,27 +374,38 @@ export default function Step04TrialBalance({ transactions, validAccounts, beginn
         ? validateStep04(transactions, data, expectedLedger) 
         : null;
 
+    const result = validationResult || {};
+
     const handleChange = (key, val) => {
         onChange(key, val);
     };
 
     return html`
-        <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-140px)] min-h-[600px]">
-            <div className="flex-1 lg:w-1/2 h-full min-h-0">
-                 <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
-            </div>
-            <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
-                <div className="bg-green-100 p-2 font-bold text-green-900 flex justify-between items-center">
-                    <span><${Table} size=${16} className="inline mr-2"/>Trial Balance</span>
+        <div className="flex flex-col h-[calc(100vh-140px)] min-h-[600px]">
+            ${showFeedback && html`
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
+                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
+                    <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'F'})</span>
                 </div>
-                <div className="p-0 overflow-y-auto custom-scrollbar flex-1 bg-white">
-                     <${TrialBalanceForm} 
-                        data=${data} 
-                        onChange=${handleChange} 
-                        showFeedback=${showFeedback} 
-                        isReadOnly=${isReadOnly} 
-                        validationResult=${validationResult}
-                    />
+            `}
+
+            <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+                <div className="flex-1 lg:w-1/2 h-full min-h-0">
+                     <${LedgerSourceView} transactions=${transactions} validAccounts=${validAccounts} beginningBalances=${beginningBalances} isSubsequentYear=${isSubsequentYear} /> 
+                </div>
+                <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
+                    <div className="bg-green-100 p-2 font-bold text-green-900 flex justify-between items-center">
+                        <span><${Table} size=${16} className="inline mr-2"/>Trial Balance</span>
+                    </div>
+                    <div className="p-0 overflow-y-auto custom-scrollbar flex-1 bg-white">
+                         <${TrialBalanceForm} 
+                            data=${data} 
+                            onChange=${handleChange} 
+                            showFeedback=${showFeedback} 
+                            isReadOnly=${isReadOnly} 
+                            validationResult=${validationResult}
+                        />
+                    </div>
                 </div>
             </div>
         </div>
