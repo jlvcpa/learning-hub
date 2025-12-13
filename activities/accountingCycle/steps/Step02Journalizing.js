@@ -180,7 +180,8 @@ export const validateStep02 = (transactions, currentAns = {}) => {
         });
 
         // Penalize for missing rows (User hasn't added enough rows yet)
-        const contentRows = rows.filter(r => !r.isDescription && !((r.id === 'year' || rIdx === 0) && tIdx === 0 && r.id==='year')); 
+        // ✅ CORRECTED 
+        const contentRows = rows.filter((r, rIdx) => !r.isDescription && !((r.id === 'year' || rIdx === 0) && tIdx === 0)); 
         // Note: Counting content rows accurately is tricky with the year row mixed in.
         // Simplified check: If score < max, it's not perfect.
         
