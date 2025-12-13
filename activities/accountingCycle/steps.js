@@ -1,11 +1,12 @@
+// --- steps.js ---
 import React from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Lock, Check, Printer } from 'https://esm.sh/lucide-react@0.263.1';
 import { ActivityHelper } from './utils.js';
 
-// Import all modular steps
-import Step01Analysis from './steps/Step01Analysis.js';
-import Step02Journalizing from './steps/Step02Journalizing.js'; // CHANGED
+// Import all modular steps with their validation functions
+import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
+import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js';
 import Step3Posting from './steps/Step3Posting.js';
 import Step4TrialBalance from './steps/Step4TrialBalance.js';
 import Step5Worksheet from './steps/Step5Worksheet.js';
@@ -13,7 +14,7 @@ import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
-import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
+import Step10ReversingEntries, { validateReversingEntry } from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
@@ -66,12 +67,24 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
 
     const handleGenericChange = (k, v) => updateAnswerFns.updateAnswer(stepId, { ...(answers[stepId] || {}), [k]: v });
 
+    // --- SCORE DISPLAY LOGIC (Step 2 Only) ---
+    // Note: Step 1 and 10 have valid imports now, but we only calculate visual score for Step 2 as requested.
+    let scoreDisplay = null;
+    if (stepId === 2 && answers[2] && (status.completed || status.attempts < 3)) {
+        // Safe check to ensure validateStep02 is available
+        if (typeof validateStep02 === 'function') {
+            const res = validateStep02(activityData.transactions, answers[2]);
+            scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+        }
+    }
+
     const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
         const showFeedback = status.attempts < 3;
 
         if (stepId === 1) return html`<${Step01Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep01Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 2) return html`<${Step02Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep02Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`; // CHANGED NAME        if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
+        if (stepId === 2) return html`<${Step02Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep02Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
+        if (stepId === 3) return html`<${Step3Posting} data=${answers[3] || {}} onChange=${handleStep3Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep3TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
         if (stepId === 4) return html`<${Step4TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
         if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
@@ -93,7 +106,11 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
                             ? html`<span className=${`text-sm font-bold flex items-center bg-green-50 px-3 py-1 rounded border ${status.correct ? 'text-green-600 border-green-200' : 'text-red-600 border-red-200'}`}><${Check} size=${16} className="mr-1"/> ${status.correct ? 'Completed' : 'Completed (3 Attempts Used)'}</span>`
                             : isLocked 
                                 ? html`<span className="text-gray-500 font-bold flex items-center bg-gray-100 px-3 py-1 rounded border border-gray-300"><${Lock} size=${16} className="mr-1"/> Locked</span>`
-                                : html`<div className="text-right"><div className="text-xs font-semibold text-gray-500">Attempts: <span className=${status.attempts <= 1 ? 'text-red-500' : 'text-gray-700'}>${status.attempts}</span></div><button onClick=${() => onValidate(stepId)()} disabled=${status.attempts <= 0} className=${`px-4 py-2 mt-1 rounded font-bold text-white flex items-center gap-2 ${status.attempts > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400'}`}><${Check} size=${18} /> Validate</button></div>`
+                                : html`<div className="text-right flex items-center">
+                                    <div className="mr-3 text-xs font-semibold text-gray-500">Attempts: <span className=${status.attempts <= 1 ? 'text-red-500' : 'text-gray-700'}>${status.attempts}</span></div>
+                                    <button onClick=${() => onValidate(stepId)()} disabled=${status.attempts <= 0} className=${`px-4 py-2 rounded font-bold text-white flex items-center gap-2 ${status.attempts > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400'}`}><${Check} size=${18} /> Validate</button>
+                                    ${scoreDisplay}
+                                </div>`
                         }
                         <button onClick=${handlePrint} className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 hidden sm:block"><${Printer} size=${18} /></button>
                     </div>
