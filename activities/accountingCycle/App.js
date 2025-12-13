@@ -265,11 +265,10 @@ const App = () => {
             // Instead of writing the loop logic here, we call the function from the step file
             isCorrect = validateStep01(activityData.transactions, currentAns);
         
-        // Suggested Fix for Step 2 in App.js
         } else if (stepId === 2) {
-            // DRY IMPLEMENTATION:
-            // Use the exported validator from Step02Journalizing.js
-            isCorrect = validateStep02(activityData.transactions, currentAns);
+            // FIX: Handle the object return type from validateStep02
+            const result = validateStep02(activityData.transactions, currentAns);
+            isCorrect = result.isCorrect;
             
         // Suggested Fix for Step 3 in App.js
 } else if (stepId === 3) {
