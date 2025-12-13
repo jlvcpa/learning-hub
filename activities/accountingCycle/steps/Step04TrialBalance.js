@@ -1,7 +1,7 @@
 // --- Step04TrialBalance.js ---
 import React, { useState } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, X, Table, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
+import { Book, Check, X, Table, Trash2, Plus, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts } from '../utils.js';
 
 const html = htm.bind(React.createElement);
@@ -13,21 +13,16 @@ const getLastDayOfMonth = (dateStr) => {
     const date = new Date(dateStr);
     const year = date.getFullYear();
     const month = date.getMonth();
-    // Get last day of the month
     const lastDay = new Date(year, month + 1, 0);
     return lastDay.toLocaleString('default', { month: 'long', day: 'numeric', year: 'numeric' });
 };
 
-// --- VALIDATION LOGIC ---
+// --- VALIDATION LOGIC (DRY) ---
 export const validateStep04 = (transactions, data, expectedLedger) => {
-    // --- SAFETY GUARD ---
-    // If expectedLedger is missing (e.g. during loading), return a default empty result
+    // Safety guard
     if (!expectedLedger || !data) {
         return { 
-            score: 0, 
-            maxScore: 0, 
-            isCorrect: false, 
-            letterGrade: 'F', 
+            score: 0, maxScore: 0, isCorrect: false, letterGrade: 'F', 
             feedback: { header: {}, rows: [], totals: {} } 
         };
     }
@@ -40,19 +35,19 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     maxScore += 3;
     const header = data.header || {};
     
-    // A. Company Name (1pt)
+    // A. Company Name
     const companyName = (header.company || '').trim();
     const isCompanyValid = companyName.length > 3; 
     if (isCompanyValid) score += 1;
     feedback.header.company = isCompanyValid;
 
-    // B. Document Name (1pt) - Must be "Trial Balance"
+    // B. Document Name
     const docName = (header.doc || '').trim().toLowerCase();
     const isDocValid = docName === 'trial balance';
     if (isDocValid) score += 1;
     feedback.header.doc = isDocValid;
 
-    // C. Date (1pt) - Must match the last day of the transaction month
+    // C. Date
     const targetDate = getLastDayOfMonth(transactions ? transactions[0]?.date : '');
     const inputDate = (header.date || '').trim();
     const isDateValid = targetDate && inputDate.toLowerCase() === targetDate.toLowerCase();
@@ -63,29 +58,23 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     const rows = data.rows || [];
     const expectedAccounts = Object.keys(expectedLedger);
     
-    // Calculate Expected Totals
+    // Calculate Expected Totals & Map for Lookup
     let expTotalDr = 0;
     let expTotalCr = 0;
-
-    // Pre-calculate expected balances
     const expBalances = {};
+
     expectedAccounts.forEach(acc => {
         const net = expectedLedger[acc].debit - expectedLedger[acc].credit;
         const absNet = Math.abs(net);
         if (absNet > 0) { 
-            expBalances[acc] = {
-                amount: absNet,
-                side: net >= 0 ? 'dr' : 'cr'
-            };
+            expBalances[acc] = { amount: absNet, side: net >= 0 ? 'dr' : 'cr' };
             if (net >= 0) expTotalDr += net;
             else expTotalCr += Math.abs(net);
-            
-            // Max Score: 1 for Account Name, 1 for Amount/Side
-            maxScore += 2;
+            maxScore += 2; // 1 for Acc Name, 1 for Amount
         }
     });
 
-    // Max Score for Totals (1 for Dr Total, 1 for Cr Total)
+    // Max Score for Totals
     maxScore += 2;
 
     let userTotalDr = 0;
@@ -106,12 +95,12 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
             const matchedKey = Object.keys(expBalances).find(k => k.toLowerCase() === userAcc.toLowerCase());
             
             if (matchedKey && !processedAccounts.has(matchedKey)) {
-                // 1 Point for Correct Account Name
+                // Point 1: Account Name Match
                 score += 1;
                 rowFeedback.acc = true;
                 processedAccounts.add(matchedKey);
 
-                // 1 Point for Correct Amount AND Correct Column
+                // Point 2: Correct Amount AND Side
                 const exp = expBalances[matchedKey];
                 const isDrCorrect = exp.side === 'dr' && Math.abs(userDr - exp.amount) <= 1 && userCr === 0;
                 const isCrCorrect = exp.side === 'cr' && Math.abs(userCr - exp.amount) <= 1 && userDr === 0;
@@ -125,7 +114,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
         feedback.rows[idx] = rowFeedback;
     });
 
-    // 3. TOTALS VALIDATION (2 Points)
+    // 3. TOTALS VALIDATION
     const isTotalDrCorrect = Math.abs(userTotalDr - expTotalDr) <= 1;
     const isTotalCrCorrect = Math.abs(userTotalCr - expTotalCr) <= 1;
 
@@ -142,16 +131,17 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     else if (percent >= 70) letterGrade = 'C';
     else if (percent >= 60) letterGrade = 'D';
 
-    return {
-        score,
-        maxScore,
-        isCorrect: score === maxScore, 
-        letterGrade,
-        feedback
-    };
+    return { score, maxScore, isCorrect: score === maxScore, letterGrade, feedback };
 };
 
 // --- INTERNAL COMPONENTS ---
+
+const StatusIcon = ({ correct, show }) => {
+    if (!show) return null;
+    return correct 
+        ? html`<${Check} size=${16} className="text-green-600 inline ml-1 flex-shrink-0" />` 
+        : html`<${X} size=${16} className="text-red-600 inline ml-1 flex-shrink-0" />`;
+};
 
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear }) => {
     const [expanded, setExpanded] = useState(true);
@@ -235,7 +225,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                     </div>
                                 </div>
                                 <div className="bg-yellow-50 p-2 text-center border-t border-gray-300 text-sm font-bold text-gray-700">
-                                    Balance: <span className="text-blue-700 ml-2 text-base">${balance.toLocaleString()} ${net>=0 ? 'Dr' : 'Cr'}</span>
+                                    Balance: <span className="text-blue-700 ml-2 text-base">${balance.toLocaleString()}</span>
                                 </div>
                             </div>
                         `;
@@ -250,6 +240,7 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
     const rows = data.rows || Array(15).fill({ account: '', dr: '', cr: '' });
     const header = data.header || { company: '', doc: '', date: '' };
     const fb = validationResult?.feedback || { header: {}, rows: [], totals: {} };
+    const result = validationResult || {};
 
     const updateHeader = (field, val) => {
         onChange('header', { ...header, [field]: val });
@@ -279,44 +270,33 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
         return isValid ? 'border-green-600 bg-green-50 text-green-700' : 'border-red-600 bg-red-50';
     };
 
-    const getRowStyle = (idx, type) => {
-        if (!showFeedback || !fb.rows[idx]) return '';
-        if (type === 'acc') return fb.rows[idx].acc ? 'text-green-700 font-bold' : (rows[idx].account ? 'text-red-600' : '');
-        if (type === 'amt') return fb.rows[idx].amt ? 'text-green-700 font-bold' : (rows[idx].dr || rows[idx].cr ? 'text-red-600' : '');
-        return '';
-    };
-
     return html`
         <div className="flex flex-col h-full">
-            <div className="flex flex-col gap-2 mb-6 items-center px-8">
-                <input 
-                    type="text" 
-                    placeholder="[StudentLastName] Accounting Services" 
-                    className=${`text-center font-bold text-lg border-b-2 outline-none w-3/4 transition-colors ${getHeaderStyle(fb.header.company)}`}
-                    value=${header.company} 
-                    onChange=${(e) => updateHeader('company', e.target.value)} 
-                    disabled=${isReadOnly}
-                />
-                <input 
-                    type="text" 
-                    placeholder="Trial Balance" 
-                    className=${`text-center font-bold text-md border-b-2 outline-none w-1/2 transition-colors ${getHeaderStyle(fb.header.doc)}`}
-                    value=${header.doc} 
-                    onChange=${(e) => updateHeader('doc', e.target.value)} 
-                    disabled=${isReadOnly}
-                />
-                <input 
-                    type="text" 
-                    placeholder="Month DD, YYYY" 
-                    className=${`text-center text-sm border-b-2 outline-none w-1/3 transition-colors ${getHeaderStyle(fb.header.date)}`}
-                    value=${header.date} 
-                    onChange=${(e) => updateHeader('date', e.target.value)} 
-                    disabled=${isReadOnly}
-                />
+            ${showFeedback && html`
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm mx-4 mt-2">
+                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
+                    <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'F'})</span>
+                </div>
+            `}
+
+            <div className="flex flex-col gap-2 mb-6 items-center px-8 mt-2">
+                <div className="w-3/4 flex items-center">
+                    <input type="text" placeholder="[StudentLastName] Accounting Services" className=${`text-center font-bold text-lg border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.company)}`} value=${header.company} onChange=${(e) => updateHeader('company', e.target.value)} disabled=${isReadOnly}/>
+                    <${StatusIcon} show=${showFeedback} correct=${fb.header.company} />
+                </div>
+                <div className="w-1/2 flex items-center">
+                    <input type="text" placeholder="Trial Balance" className=${`text-center font-bold text-md border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.doc)}`} value=${header.doc} onChange=${(e) => updateHeader('doc', e.target.value)} disabled=${isReadOnly}/>
+                    <${StatusIcon} show=${showFeedback} correct=${fb.header.doc} />
+                </div>
+                <div className="w-1/3 flex items-center">
+                    <input type="text" placeholder="Month DD, YYYY" className=${`text-center text-sm border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.date)}`} value=${header.date} onChange=${(e) => updateHeader('date', e.target.value)} disabled=${isReadOnly}/>
+                    <${StatusIcon} show=${showFeedback} correct=${fb.header.date} />
+                </div>
             </div>
-            <div className="flex-1 overflow-auto">
+
+            <div className="flex-1 overflow-auto px-2">
                 <table className="w-full text-sm border-collapse">
-                    <thead className="bg-gray-100 sticky top-0 z-10">
+                    <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
                         <tr>
                             <th className="p-2 border text-left">Account Title</th>
                             <th className="p-2 border w-28 text-right">Debit</th>
@@ -325,49 +305,49 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
                         </tr>
                     </thead>
                     <tbody>
-                        ${rows.map((row, idx) => html`
+                        ${rows.map((row, idx) => {
+                            const rowFB = fb.rows[idx] || {};
+                            const hasInput = row.account || row.dr || row.cr;
+                            return html`
                             <tr key=${idx} className="border-b hover:bg-gray-50">
-                                <td className="p-1 border">
-                                    <input 
-                                        type="text" 
-                                        className=${`w-full outline-none bg-transparent ${getRowStyle(idx, 'acc')}`} 
-                                        value=${row.account} 
-                                        onChange=${(e)=>updateRow(idx, 'account', e.target.value)} 
-                                        disabled=${isReadOnly} 
-                                    />
+                                <td className="p-1 border relative">
+                                    <div className="flex items-center">
+                                        <input type="text" className="w-full outline-none bg-transparent" value=${row.account} onChange=${(e)=>updateRow(idx, 'account', e.target.value)} disabled=${isReadOnly} />
+                                        ${hasInput && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.acc} />`}
+                                    </div>
                                 </td>
-                                <td className="p-1 border">
-                                    <input 
-                                        type="number" 
-                                        className=${`w-full text-right outline-none bg-transparent ${getRowStyle(idx, 'amt')}`} 
-                                        value=${row.dr} 
-                                        onChange=${(e)=>updateRow(idx, 'dr', e.target.value)} 
-                                        disabled=${isReadOnly} 
-                                    />
+                                <td className="p-1 border relative">
+                                    <div className="flex items-center">
+                                        <input type="number" className="w-full text-right outline-none bg-transparent" value=${row.dr} onChange=${(e)=>updateRow(idx, 'dr', e.target.value)} disabled=${isReadOnly} />
+                                        ${Number(row.dr) > 0 && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.amt} />`}
+                                    </div>
                                 </td>
-                                <td className="p-1 border">
-                                    <input 
-                                        type="number" 
-                                        className=${`w-full text-right outline-none bg-transparent ${getRowStyle(idx, 'amt')}`} 
-                                        value=${row.cr} 
-                                        onChange=${(e)=>updateRow(idx, 'cr', e.target.value)} 
-                                        disabled=${isReadOnly} 
-                                    />
+                                <td className="p-1 border relative">
+                                    <div className="flex items-center">
+                                        <input type="number" className="w-full text-right outline-none bg-transparent" value=${row.cr} onChange=${(e)=>updateRow(idx, 'cr', e.target.value)} disabled=${isReadOnly} />
+                                        ${Number(row.cr) > 0 && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.amt} />`}
+                                    </div>
                                 </td>
                                 <td className="p-1 border text-center">
                                     ${!isReadOnly && html`<button onClick=${() => deleteRow(idx)} className="text-gray-400 hover:text-red-600"><${Trash2} size=${14}/></button>`}
                                 </td>
                             </tr>
-                        `)}
+                        `})} 
                     </tbody>
-                    <tfoot className="bg-gray-100 font-bold sticky bottom-0">
+                    <tfoot className="bg-gray-100 font-bold sticky bottom-0 border-t-2 border-gray-300">
                         <tr>
                             <td className="p-2 text-right uppercase text-xs text-gray-600">Total</td>
-                            <td className=${`p-2 text-right border-t-2 border-double border-gray-400 ${showFeedback ? (fb.totals.dr ? 'text-green-700' : 'text-red-600') : ''}`}>
-                                ${totalDr.toLocaleString()}
+                            <td className="p-2 text-right border-double border-gray-400 relative">
+                                <div className="flex items-center justify-end gap-2">
+                                    <span>${totalDr.toLocaleString()}</span>
+                                    <${StatusIcon} show=${showFeedback} correct=${fb.totals.dr} />
+                                </div>
                             </td>
-                            <td className=${`p-2 text-right border-t-2 border-double border-gray-400 ${showFeedback ? (fb.totals.cr ? 'text-green-700' : 'text-red-600') : ''}`}>
-                                ${totalCr.toLocaleString()}
+                            <td className="p-2 text-right border-double border-gray-400 relative">
+                                <div className="flex items-center justify-end gap-2">
+                                    <span>${totalCr.toLocaleString()}</span>
+                                    <${StatusIcon} show=${showFeedback} correct=${fb.totals.cr} />
+                                </div>
                             </td>
                             <td></td>
                         </tr>
@@ -396,13 +376,8 @@ export default function Step04TrialBalance({ transactions, validAccounts, beginn
             <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
                 <div className="bg-green-100 p-2 font-bold text-green-900 flex justify-between items-center">
                     <span><${Table} size=${16} className="inline mr-2"/>Trial Balance</span>
-                    ${validationResult && html`
-                        <span className="text-xs bg-white px-2 py-1 rounded border border-green-200 text-green-800">
-                            Points: ${validationResult.score}/${validationResult.maxScore} (Grade: ${validationResult.letterGrade})
-                        </span>
-                    `}
                 </div>
-                <div className="p-4 overflow-y-auto custom-scrollbar flex-1 bg-white">
+                <div className="p-0 overflow-y-auto custom-scrollbar flex-1 bg-white">
                      <${TrialBalanceForm} 
                         data=${data} 
                         onChange=${handleChange} 
