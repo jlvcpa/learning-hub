@@ -277,9 +277,12 @@ const App = () => {
             isCorrect = result.isCorrect;
             
         } else if (stepId === 4) {
-             // --- FIXED STEP 4 VALIDATION (App.js) ---
-             const result = validateStep04(activityData, currentAns);
-             isCorrect = result.isCorrect;
+            // --- UPDATED STEP 4 VALIDATION ---
+            const result = validateStep04(activityData.transactions, currentAns, activityData.ledger);
+            isCorrect = result.isCorrect;
+
+    // Optional: You can console log score here if needed
+    // console.log("Step 4 Score:", result.score, "/", result.maxScore);
 
         } else if (stepId === 5) {
              const userFinal = currentAns.footers?.final || {};
