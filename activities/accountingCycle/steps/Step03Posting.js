@@ -1,24 +1,28 @@
 // --- Step03Posting.js ---
-import React, { useState } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Plus, Check, X, Trash2, Book, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
 import { getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
-// --- HELPER: LOGIC & VALIDATION ---
+// --- HELPER: NORMALIZE STRING ---
+const norm = (str) => (str || '').toString().toLowerCase().trim();
 
+// --- HELPER: GENERATE EXPECTED DATA (THE ANSWER KEY) ---
 const getExpectedLedgerData = (transactions, beginningBalances, validAccounts) => {
     const expected = {};
 
     // 1. Initialize all valid accounts
     validAccounts.forEach(acc => {
         expected[acc] = {
-            rows: [], // Mixed list of { date, part, pr, amount, type: 'dr'|'cr', isBegBal: bool }
+            rows: [], 
             begBalDr: 0,
             begBalCr: 0,
             totalDr: 0,
-            totalCr: 0
+            totalCr: 0,
+            hasDrEntries: false,
+            hasCrEntries: false
         };
     });
 
@@ -30,17 +34,17 @@ const getExpectedLedgerData = (transactions, beginningBalances, validAccounts) =
             if (net !== 0) {
                 const isDr = net > 0;
                 const entry = {
-                    date: 'Jan 1', // Assuming Jan 1 for BB
+                    date: 'Jan 1', 
                     part: 'BB',
-                    pr: '',
+                    pr: '', // Blank for BB
                     amount: Math.abs(net),
                     type: isDr ? 'dr' : 'cr',
                     isBegBal: true,
-                    txnDateObj: new Date('2023-01-01') // For sorting
+                    txnDateObj: new Date('2023-01-01')
                 };
                 expected[acc].rows.push(entry);
-                if (isDr) expected[acc].begBalDr = Math.abs(net);
-                else expected[acc].begBalCr = Math.abs(net);
+                if (isDr) { expected[acc].begBalDr = Math.abs(net); expected[acc].hasDrEntries = true; }
+                else { expected[acc].begBalCr = Math.abs(net); expected[acc].hasCrEntries = true; }
             }
         });
     }
@@ -52,7 +56,6 @@ const getExpectedLedgerData = (transactions, beginningBalances, validAccounts) =
         const dd = dateObj.getDate().toString();
         const fullDate = `${mm} ${dd}`;
         
-        // Debits
         t.debits.forEach(d => {
             if (expected[d.account]) {
                 expected[d.account].rows.push({
@@ -63,14 +66,13 @@ const getExpectedLedgerData = (transactions, beginningBalances, validAccounts) =
                     amount: d.amount,
                     type: 'dr',
                     isBegBal: false,
-                    txnDateObj: dateObj,
-                    tId: t.id
+                    txnDateObj: dateObj
                 });
                 expected[d.account].totalDr += d.amount;
+                expected[d.account].hasDrEntries = true;
             }
         });
 
-        // Credits
         t.credits.forEach(c => {
             if (expected[c.account]) {
                 expected[c.account].rows.push({
@@ -81,10 +83,10 @@ const getExpectedLedgerData = (transactions, beginningBalances, validAccounts) =
                     amount: c.amount,
                     type: 'cr',
                     isBegBal: false,
-                    txnDateObj: dateObj,
-                    tId: t.id
+                    txnDateObj: dateObj
                 });
                 expected[c.account].totalCr += c.amount;
+                expected[c.account].hasCrEntries = true;
             }
         });
     });
@@ -94,290 +96,250 @@ const getExpectedLedgerData = (transactions, beginningBalances, validAccounts) =
 
 // --- VALIDATION FUNCTION ---
 export const validateStep03 = (activityData, studentAnswer) => {
-    const { transactions, beginningBalances, validAccounts, ledger: expectedLedgerAgg } = activityData;
+    const { transactions, beginningBalances, validAccounts } = activityData;
     const studentLedgers = studentAnswer.ledgers || [];
+    const journalPRs = studentAnswer.journalPRs || {};
     
-    // Build expected structure
+    // 1. Generate Answer Key
     const expectedData = getExpectedLedgerData(transactions, beginningBalances, validAccounts);
     
     let totalScore = 0;
     let maxScore = 0;
+    const validationResults = {}; // To store field-level true/false for UI
+
+    // --- A. CALCULATE MAX SCORE & VALIDATE LEDGERS ---
     
-    // Store validation results per ledger ID to pass back to UI
-    const validationResults = {}; 
-
-    // Helper: Normalize strings for flexible comparison
-    const norm = (str) => (str || '').toString().toLowerCase().trim();
-
-    studentLedgers.forEach((l, idx) => {
-        const accName = l.account;
-        const expected = expectedData[accName];
+    // Iterate through EXPECTED accounts to build the Perfect Score
+    Object.keys(expectedData).forEach(accName => {
+        const exp = expectedData[accName];
         
-        const ledgerResult = {
-            acc: false,
-            balance: false,
-            leftRows: [],
-            rightRows: []
-        };
+        // 1. Account Title (1pt)
+        maxScore += 1;
 
-        // 1. Validate Account Title
-        if (expected) {
-            ledgerResult.acc = true;
-            // Note: Prompt didn't specify points for Account Title itself, 
-            // but implied "1 point each account... for combination of balance". 
-            // We'll score the Balance line separately.
-        } else {
-            // Deduct? Prompt says "no point... input boxes that does not need answer... marked X and deducted"
-            // If the whole ledger is for a wrong account, we might penalize. 
-            // For now, we just won't give points for the content.
-        }
+        // 2. Ending Balance (1pt) - if any entries exist
+        const hasActivity = exp.hasDrEntries || exp.hasCrEntries;
+        if (hasActivity) maxScore += 1;
 
-        if (!expected) {
-            validationResults[l.id] = ledgerResult;
-            return; 
-        }
-
-        // Split expected rows into Dr and Cr
-        const expDrRows = expected.rows.filter(r => r.type === 'dr');
-        const expCrRows = expected.rows.filter(r => r.type === 'cr');
-
-        // --- VALIDATE DEBIT SIDE (Left) ---
-        const userLeft = l.leftRows || [];
-        const maxLeftIndex = Math.max(userLeft.length, expDrRows.length + 1); // +1 for Year row
-
-        // Check Year Row (Row 0)
-        // Expected: Year "2023" or "(2023)" or "2023"
-        // Prompt says: "formatted as (YYYY)" -> 1 point.
-        const userYearLeft = userLeft[0] || {};
-        const yearVal = norm(userYearLeft.date);
-        
-        let leftHasEntries = expDrRows.length > 0;
-        
-        if (leftHasEntries) {
-            maxScore += 1; // Year point
-            const yearMatches = yearVal === '(2023)' || yearVal === '2023';
-            if (yearMatches) {
-                totalScore += 1;
-                ledgerResult.leftRows[0] = { date: true };
-            } else if (yearVal !== '') {
-                ledgerResult.leftRows[0] = { date: false }; // Wrong year format
-            } else {
-                 // Missing year
-            }
-        } else {
-            // Should be empty
-            if (yearVal !== '') { totalScore -= 1; ledgerResult.leftRows[0] = { date: false }; }
-        }
-
-        // Check Transaction Rows (Starting index 1 if we assume Row 0 is Year)
-        // Wait, UI puts year in the same column. 
-        // Let's assume User Row 0 = Year, User Row 1 = First Entry.
-        // However, standard ledger often puts Year AND First Date in same box or Year above.
-        // Looking at the UI code below, it's a list of rows. 
-        // We will assume the Student puts the Year in the first Date box, or separate?
-        // The UI has `displayRows`. Typically Year is put in the first row date box, or a header.
-        // The instruction says "1 point... formatted as (YYYY) in the first row of the Date column".
-        // So Row 0 Date = "(2023)". Row 0 Particulars/Amount = First Transaction? 
-        // OR Row 0 is purely a header row?
-        // Based on typical HTML ledgers, Row 0 is often reserved for Year, or Year is prefixed.
-        // Let's assume Row 0 Date is JUST Year. And content starts Row 1.
-        // OR: Row 0 Date = "(2023) Jan 1".
-        // Let's stick to the prompt: "1 point... (YYYY) in the first row".
-        // Implies Row 0 is dedicated or part of header.
-        // Let's align with the UI: The UI renders `displayRows`. 
-        // We will treat `userLeft[0].date` as the place for Year. 
-        // And actual transactions start at `userLeft[1]`.
-        
-        // Actually, in many manual ledgers, the Year is written at the top of the date column, 
-        // and the first transaction is on the same line or next.
-        // Let's allow flexible parsing.
-        
-        // REVISED STRATEGY: 
-        // Row 0: Expect Year. Content should be empty? 
-        // If the user puts transaction data in Row 0, it shifts everything.
-        // Let's assume strict structure:
-        // Row 0: Date="(2023)", Part="", PR="", Amt="" (Score: 1pt for Date, Deduct for others)
-        // Row 1..N: Transaction Data.
-
-        // Check Row 0 (Year Line)
-        const uRow0 = userLeft[0] || {};
-        if (leftHasEntries) {
-            // Already scored Year Date above.
-            // Check Part, PR, Amt - should be empty?
-            if (uRow0.part || uRow0.pr || uRow0.amount) {
-                // Deduct if filled
-               if(uRow0.part) { totalScore -= 1; ledgerResult.leftRows[0] = { ...ledgerResult.leftRows[0], part: false }; }
-               if(uRow0.pr) { totalScore -= 1; ledgerResult.leftRows[0] = { ...ledgerResult.leftRows[0], pr: false }; }
-               if(uRow0.amount) { totalScore -= 1; ledgerResult.leftRows[0] = { ...ledgerResult.leftRows[0], amount: false }; }
-            }
-        }
-
-        // Check Content Rows (1 to N)
-        expDrRows.forEach((row, i) => {
-            const uRow = userLeft[i + 1] || {}; // Shift down by 1 for Year row
-            const res = { date: null, part: null, pr: null, amount: null };
+        // 3. Sides (Dr & Cr)
+        ['dr', 'cr'].forEach(type => {
+            const hasEntries = type === 'dr' ? exp.hasDrEntries : exp.hasCrEntries;
+            const expRows = exp.rows.filter(r => r.type === type);
             
-            // Expected Date format:
-            // If i==0 (first data row), "Mmm d". Else "d".
-            const expDate = i === 0 ? row.date : row.day; 
-            
-            // SCORES
-            if (row.isBegBal) {
-                maxScore += 3; // Date, Part(BB), Amt
-                // PR is blank
-            } else {
-                maxScore += 4; // Date, Part(GJ), PR(1), Amt
+            if (hasEntries) {
+                maxScore += 1; // Year Entry (1pt)
+                maxScore += 1; // Total Box (1pt)
+                
+                // Rows
+                expRows.forEach(row => {
+                    if (row.isBegBal) maxScore += 3; // Date, Part, Amt (PR is blank)
+                    else maxScore += 4; // Date, Part, PR, Amt
+                });
             }
-
-            // CHECK DATE
-            const uDate = norm(uRow.date);
-            const isDateCorrect = uDate === norm(expDate) || uDate === norm(row.date) || uDate === norm(row.day.padStart(2,'0')); 
-            // Allow "Jan 1" even if "1" is expected for robustness, but prioritize exactness.
-            if (isDateCorrect) { totalScore += 1; res.date = true; } 
-            else { res.date = false; }
-
-            // CHECK PART
-            const uPart = norm(uRow.part);
-            const expPart = norm(row.part); // BB or GJ
-            if (uPart === expPart) { totalScore += 1; res.part = true; }
-            else { res.part = false; }
-
-            // CHECK PR
-            const uPr = norm(uRow.pr);
-            const expPr = norm(row.pr); // "" or "1"
-            if (!row.isBegBal) {
-                // Transaction
-                if (uPr === expPr) { totalScore += 1; res.pr = true; }
-                else { res.pr = false; }
-            } else {
-                // Beg Bal (PR Blank) - Deduct if filled
-                if (uPr !== '') { totalScore -= 1; res.pr = false; }
-            }
-
-            // CHECK AMOUNT
-            const uAmt = Number(uRow.amount) || 0;
-            if (Math.abs(uAmt - row.amount) < 1) { totalScore += 1; res.amount = true; }
-            else { res.amount = false; }
-
-            ledgerResult.leftRows[i + 1] = res;
         });
-
-        // DEDUCTIONS for Extra Rows (Left)
-        for (let i = expDrRows.length + 1; i < userLeft.length; i++) {
-            const uRow = userLeft[i];
-            const res = {};
-            if (uRow.date || uRow.part || uRow.pr || uRow.amount) {
-                // Determine penalty. Prompt: "marked X and deducted from correct answers"
-                // Assuming -1 per field or -1 per row? Let's do -1 per field to be precise.
-                if(uRow.date) { totalScore -= 1; res.date = false; }
-                if(uRow.part) { totalScore -= 1; res.part = false; }
-                if(uRow.pr) { totalScore -= 1; res.pr = false; }
-                if(uRow.amount) { totalScore -= 1; res.amount = false; }
-            }
-            ledgerResult.leftRows[i] = res;
-        }
-
-
-        // --- VALIDATE CREDIT SIDE (Right) ---
-        // Duplicate logic from Left side
-        const userRight = l.rightRows || [];
-        
-        const userYearRight = userRight[0] || {};
-        const yearValR = norm(userYearRight.date);
-        let rightHasEntries = expCrRows.length > 0;
-
-        if (rightHasEntries) {
-            maxScore += 1; 
-            const yearMatches = yearValR === '(2023)' || yearValR === '2023';
-            if (yearMatches) { totalScore += 1; ledgerResult.rightRows[0] = { date: true }; } 
-            else if (yearValR !== '') { ledgerResult.rightRows[0] = { date: false }; }
-        } else {
-             if (yearValR !== '') { totalScore -= 1; ledgerResult.rightRows[0] = { date: false }; }
-        }
-
-        const uRow0R = userRight[0] || {};
-        if (rightHasEntries) {
-            if (uRow0R.part || uRow0R.pr || uRow0R.amount) {
-               if(uRow0R.part) { totalScore -= 1; ledgerResult.rightRows[0] = { ...ledgerResult.rightRows[0], part: false }; }
-               if(uRow0R.pr) { totalScore -= 1; ledgerResult.rightRows[0] = { ...ledgerResult.rightRows[0], pr: false }; }
-               if(uRow0R.amount) { totalScore -= 1; ledgerResult.rightRows[0] = { ...ledgerResult.rightRows[0], amount: false }; }
-            }
-        }
-
-        expCrRows.forEach((row, i) => {
-            const uRow = userRight[i + 1] || {}; 
-            const res = { date: null, part: null, pr: null, amount: null };
-            const expDate = i === 0 ? row.date : row.day; 
-            
-            if (row.isBegBal) maxScore += 3; 
-            else maxScore += 4; 
-
-            const uDate = norm(uRow.date);
-            if (uDate === norm(expDate) || uDate === norm(row.date) || uDate === norm(row.day.padStart(2,'0'))) { 
-                totalScore += 1; res.date = true; 
-            } else { res.date = false; }
-
-            const uPart = norm(uRow.part);
-            if (uPart === norm(row.part)) { totalScore += 1; res.part = true; }
-            else { res.part = false; }
-
-            const uPr = norm(uRow.pr);
-            if (!row.isBegBal) {
-                if (uPr === norm(row.pr)) { totalScore += 1; res.pr = true; }
-                else { res.pr = false; }
-            } else {
-                if (uPr !== '') { totalScore -= 1; res.pr = false; }
-            }
-
-            const uAmt = Number(uRow.amount) || 0;
-            if (Math.abs(uAmt - row.amount) < 1) { totalScore += 1; res.amount = true; }
-            else { res.amount = false; }
-
-            ledgerResult.rightRows[i + 1] = res;
-        });
-
-        for (let i = expCrRows.length + 1; i < userRight.length; i++) {
-            const uRow = userRight[i];
-            const res = {};
-            if (uRow.date || uRow.part || uRow.pr || uRow.amount) {
-                if(uRow.date) { totalScore -= 1; res.date = false; }
-                if(uRow.part) { totalScore -= 1; res.part = false; }
-                if(uRow.pr) { totalScore -= 1; res.pr = false; }
-                if(uRow.amount) { totalScore -= 1; res.amount = false; }
-            }
-            ledgerResult.rightRows[i] = res;
-        }
-
-        // 4. Validate Balance
-        // 1 point for combination of balance amount and type
-        const totalExpDr = expected.begBalDr + expected.totalDr;
-        const totalExpCr = expected.begBalCr + expected.totalCr;
-        const netExp = totalExpDr - totalExpCr;
-        const expBalAmt = Math.abs(netExp);
-        const expType = netExp >= 0 ? 'Dr' : 'Cr';
-
-        // Add 1 to Max Score if there was ANY activity
-        if (leftHasEntries || rightHasEntries) {
-            maxScore += 1;
-            
-            const uBal = Number(l.balance) || 0;
-            const uType = l.balanceType;
-            
-            const isBalAmtCorrect = Math.abs(uBal - expBalAmt) <= 1;
-            const isTypeCorrect = uType === expType;
-            
-            if (isBalAmtCorrect && isTypeCorrect) {
-                totalScore += 1;
-                ledgerResult.balance = true;
-            } else {
-                ledgerResult.balance = false;
-            }
-        }
-        
-        validationResults[l.id] = ledgerResult;
     });
 
-    if (totalScore < 0) totalScore = 0; // Prevent negative total score
+    // --- B. CALCULATE CHECKBOX MAX SCORE ---
+    // Count total debits and credits in transactions
+    let totalCheckboxes = 0;
+    transactions.forEach(t => {
+        totalCheckboxes += t.debits.length + t.credits.length;
+    });
+    maxScore += totalCheckboxes; // 1pt per checkbox
+
+    // --- C. SCORE THE STUDENT (LOGIC) ---
+
+    // 1. Score Checkboxes
+    transactions.forEach(t => {
+        t.debits.forEach((d, i) => {
+            const key = `dr-${t.id}-${i}`;
+            if (journalPRs[key]) totalScore += 1; // Simple check: if checked +1 (assuming student only checks what they post)
+        });
+        t.credits.forEach((c, i) => {
+            const key = `cr-${t.id}-${i}`;
+            if (journalPRs[key]) totalScore += 1;
+        });
+    });
+
+    // 2. Score Ledgers
+    studentLedgers.forEach(l => {
+        const accName = l.account;
+        const exp = expectedData[accName]; // Get matching expected data
+        const ledgerRes = { acc: false, balance: false, leftRows: [], rightRows: [], drTotal: null, crTotal: null };
+
+        if (exp) {
+            // Account Title Correct
+            if (norm(l.account) === norm(accName)) {
+                totalScore += 1;
+                ledgerRes.acc = true;
+            }
+
+            // --- DEBIT SIDE VALIDATION ---
+            const uLeft = l.leftRows || [];
+            const eDrRows = exp.rows.filter(r => r.type === 'dr');
+            
+            // Year (Row 0)
+            const uYearL = uLeft[0] || {};
+            if (exp.hasDrEntries) {
+                const yValid = norm(uYearL.date) === '(2023)' || norm(uYearL.date) === '2023';
+                if (yValid) { totalScore += 1; ledgerRes.leftRows[0] = { date: true }; }
+                else { ledgerRes.leftRows[0] = { date: false }; }
+            } else if (uYearL.date) {
+                totalScore -= 1; // Deduction
+                ledgerRes.leftRows[0] = { date: false };
+            }
+            
+            // Deduct for filled unused fields in Year Row
+            if (uYearL.part) { totalScore -= 1; ledgerRes.leftRows[0] = { ...ledgerRes.leftRows[0], part: false }; }
+            if (uYearL.pr) { totalScore -= 1; ledgerRes.leftRows[0] = { ...ledgerRes.leftRows[0], pr: false }; }
+            if (uYearL.amount) { totalScore -= 1; ledgerRes.leftRows[0] = { ...ledgerRes.leftRows[0], amount: false }; }
+
+            // Dr Rows (Row 1+)
+            eDrRows.forEach((row, i) => {
+                const uRow = uLeft[i + 1] || {};
+                const res = {};
+                
+                // Date (1pt)
+                const expDate = i === 0 ? row.date : row.day; // "Jan 1" vs "1"
+                // Allow fuzzy match for date
+                const dValid = norm(uRow.date) === norm(expDate) || norm(uRow.date) === norm(row.date) || norm(uRow.date) === norm(row.day.padStart(2,'0'));
+                if (dValid) { totalScore += 1; res.date = true; } else res.date = false;
+
+                // Particulars (1pt)
+                const pValid = norm(uRow.part) === norm(row.part);
+                if (pValid) { totalScore += 1; res.part = true; } else res.part = false;
+
+                // PR (1pt, only for GJ)
+                if (!row.isBegBal) {
+                    const prValid = norm(uRow.pr) === norm(row.pr);
+                    if (prValid) { totalScore += 1; res.pr = true; } else res.pr = false;
+                } else if (uRow.pr) {
+                    totalScore -= 1; res.pr = false; // Deduct if BB has PR
+                }
+
+                // Amount (1pt)
+                if (Math.abs((Number(uRow.amount) || 0) - row.amount) < 1) { totalScore += 1; res.amount = true; } else res.amount = false;
+
+                ledgerRes.leftRows[i + 1] = res;
+            });
+
+            // Dr Totals
+            if (exp.hasDrEntries) {
+                const expTot = exp.begBalDr + exp.totalDr;
+                if (Math.abs((Number(l.drTotal) || 0) - expTot) < 1) { totalScore += 1; ledgerRes.drTotal = true; }
+                else ledgerRes.drTotal = false;
+            } else if (l.drTotal) {
+                totalScore -= 1; ledgerRes.drTotal = false;
+            }
+
+            // Deductions for extra Dr rows
+            for(let i = eDrRows.length + 1; i < uLeft.length; i++) {
+                const r = uLeft[i];
+                const res = {};
+                if(r.date){ totalScore-=1; res.date=false; }
+                if(r.part){ totalScore-=1; res.part=false; }
+                if(r.pr){ totalScore-=1; res.pr=false; }
+                if(r.amount){ totalScore-=1; res.amount=false; }
+                ledgerRes.leftRows[i] = res;
+            }
+
+
+            // --- CREDIT SIDE VALIDATION ---
+            const uRight = l.rightRows || [];
+            const eCrRows = exp.rows.filter(r => r.type === 'cr');
+
+            // Year (Row 0)
+            const uYearR = uRight[0] || {};
+            if (exp.hasCrEntries) {
+                const yValid = norm(uYearR.date) === '(2023)' || norm(uYearR.date) === '2023';
+                if (yValid) { totalScore += 1; ledgerRes.rightRows[0] = { date: true }; }
+                else { ledgerRes.rightRows[0] = { date: false }; }
+            } else if (uYearR.date) {
+                totalScore -= 1; 
+                ledgerRes.rightRows[0] = { date: false };
+            }
+            if (uYearR.part) { totalScore -= 1; ledgerRes.rightRows[0] = { ...ledgerRes.rightRows[0], part: false }; }
+            if (uYearR.pr) { totalScore -= 1; ledgerRes.rightRows[0] = { ...ledgerRes.rightRows[0], pr: false }; }
+            if (uYearR.amount) { totalScore -= 1; ledgerRes.rightRows[0] = { ...ledgerRes.rightRows[0], amount: false }; }
+
+            // Cr Rows (Row 1+)
+            eCrRows.forEach((row, i) => {
+                const uRow = uRight[i + 1] || {};
+                const res = {};
+                
+                const expDate = i === 0 ? row.date : row.day; 
+                const dValid = norm(uRow.date) === norm(expDate) || norm(uRow.date) === norm(row.date) || norm(uRow.date) === norm(row.day.padStart(2,'0'));
+                if (dValid) { totalScore += 1; res.date = true; } else res.date = false;
+
+                const pValid = norm(uRow.part) === norm(row.part);
+                if (pValid) { totalScore += 1; res.part = true; } else res.part = false;
+
+                if (!row.isBegBal) {
+                    const prValid = norm(uRow.pr) === norm(row.pr);
+                    if (prValid) { totalScore += 1; res.pr = true; } else res.pr = false;
+                } else if (uRow.pr) {
+                    totalScore -= 1; res.pr = false; 
+                }
+
+                if (Math.abs((Number(uRow.amount) || 0) - row.amount) < 1) { totalScore += 1; res.amount = true; } else res.amount = false;
+
+                ledgerRes.rightRows[i + 1] = res;
+            });
+
+            // Cr Totals
+            if (exp.hasCrEntries) {
+                const expTot = exp.begBalCr + exp.totalCr;
+                if (Math.abs((Number(l.crTotal) || 0) - expTot) < 1) { totalScore += 1; ledgerRes.crTotal = true; }
+                else ledgerRes.crTotal = false;
+            } else if (l.crTotal) {
+                totalScore -= 1; ledgerRes.crTotal = false;
+            }
+
+            // Deductions for extra Cr rows
+            for(let i = eCrRows.length + 1; i < uRight.length; i++) {
+                const r = uRight[i];
+                const res = {};
+                if(r.date){ totalScore-=1; res.date=false; }
+                if(r.part){ totalScore-=1; res.part=false; }
+                if(r.pr){ totalScore-=1; res.pr=false; }
+                if(r.amount){ totalScore-=1; res.amount=false; }
+                ledgerRes.rightRows[i] = res;
+            }
+
+            // --- BALANCE VALIDATION ---
+            const hasActivity = exp.hasDrEntries || exp.hasCrEntries;
+            if (hasActivity) {
+                const totalDr = exp.begBalDr + exp.totalDr;
+                const totalCr = exp.begBalCr + exp.totalCr;
+                const net = totalDr - totalCr;
+                const expBal = Math.abs(net);
+                const expType = net >= 0 ? 'Dr' : 'Cr';
+                
+                const uBal = Number(l.balance) || 0;
+                const uType = l.balanceType;
+                
+                if (Math.abs(uBal - expBal) <= 1 && uType === expType) {
+                    totalScore += 1;
+                    ledgerRes.balance = true;
+                } else {
+                    ledgerRes.balance = false;
+                }
+            } else if (l.balance || l.balanceType) {
+                // Deduct if student filled balance for an empty account?
+                // Optional, but consistent with rules.
+                totalScore -= 1;
+                ledgerRes.balance = false;
+            }
+
+        } else {
+            // Ledger exists but doesn't match any expected account (Wrong Account Title)
+            // Deduct for every filled field? Or just mark account as wrong.
+            ledgerRes.acc = false;
+        }
+
+        validationResults[l.id] = ledgerRes;
+    });
+
+    if (totalScore < 0) totalScore = 0;
 
     return {
         isCorrect: totalScore === maxScore && maxScore > 0,
@@ -391,11 +353,17 @@ export const validateStep03 = (activityData, studentAnswer) => {
 
 // --- INTERNAL COMPONENTS ---
 
-const StatusIcon = ({ status, show }) => {
+// Updated StatusIcon: absolute positioning helper, no layout shift
+const ValidationIcon = ({ status, show }) => {
     if (!show || status === undefined || status === null) return null;
-    return status === true
-        ? html`<${Check} size=${14} className="text-green-600 inline ml-1" />`
-        : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
+    return html`
+        <div className="absolute top-1 right-1 pointer-events-none z-10">
+            ${status === true 
+                ? html`<${Check} size=${12} className="text-green-600 bg-white rounded-full opacity-80" />` 
+                : html`<${X} size=${12} className="text-red-600 bg-white rounded-full opacity-80" />`
+            }
+        </div>
+    `;
 };
 
 const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback, matchedJournalEntries, isReadOnly }) => {
@@ -443,22 +411,12 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                     ${t.debits.map((d, i) => {
                                         const key = `dr-${t.id}-${i}`;
                                         const isChecked = !!journalPRs[key];
-                                        const isPosted = matchedJournalEntries && matchedJournalEntries.has(key);
-                                        let checkColor = "";
-                                        if (showFeedback || isReadOnly) { 
-                                            if (isChecked && isPosted) checkColor = "bg-green-200"; 
-                                            else if (isChecked && !isPosted) checkColor = "bg-red-200"; 
-                                            else if (!isChecked && isPosted) checkColor = "bg-red-200"; 
-                                            else if (!isChecked && !isPosted) checkColor = "bg-red-50"; 
-                                            if (!isPosted) checkColor = "bg-red-100"; 
-                                        }
-
                                         return html`
                                             <div key=${key} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
                                                 <div className="w-16 border-r text-right pr-1 flex-shrink-0">${i === 0 ? dateDisplay : ''}</div>
                                                 <div className="flex-1 border-r pl-1 font-medium text-gray-800 truncate" title=${d.account}>${d.account}</div>
-                                                <div className=${`w-16 border-r text-center flex justify-center items-center flex-shrink-0 ${checkColor}`}>
-                                                    <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" /> 
+                                                <div className="w-16 border-r text-center flex justify-center items-center flex-shrink-0">
+                                                    <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer accent-blue-600" /> 
                                                 </div>
                                                 <div className="w-24 border-r text-right pr-1 flex-shrink-0">${d.amount.toLocaleString()}</div>
                                                 <div className="w-24 text-right pr-1 flex-shrink-0"></div>
@@ -468,21 +426,12 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
                                     ${t.credits.map((c, i) => {
                                         const key = `cr-${t.id}-${i}`;
                                         const isChecked = !!journalPRs[key];
-                                        const isPosted = matchedJournalEntries && matchedJournalEntries.has(key);
-                                        let checkColor = "";
-                                        if (showFeedback || isReadOnly) {
-                                            if (isChecked && isPosted) checkColor = "bg-green-200";
-                                            else if (isChecked && !isPosted) checkColor = "bg-red-200"; 
-                                            else if (!isChecked && isPosted) checkColor = "bg-red-200";
-                                            else if (!isPosted) checkColor = "bg-red-100";
-                                        }
-
                                         return html`
                                             <div key=${key} className="flex border-b border-gray-100 text-xs h-8 items-center hover:bg-gray-50">
                                                 <div className="w-16 border-r flex-shrink-0"></div>
                                                 <div className="flex-1 border-r pl-6 text-gray-800 truncate" title=${c.account}>${c.account}</div>
-                                                <div className=${`w-16 border-r text-center flex justify-center items-center flex-shrink-0 ${checkColor}`}>
-                                                     <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer" />
+                                                <div className="w-16 border-r text-center flex justify-center items-center flex-shrink-0">
+                                                     <input type="checkbox" checked=${isChecked} onChange=${() => onTogglePR(key)} disabled=${isReadOnly} className="cursor-pointer accent-blue-600" />
                                                 </div>
                                                 <div className="w-24 border-r flex-shrink-0"></div>
                                                 <div className="w-24 text-right pr-1 flex-shrink-0">${c.amount.toLocaleString()}</div>
@@ -507,7 +456,7 @@ const JournalSourceView = ({ transactions, journalPRs, onTogglePR, showFeedback,
     `;
 };
 
-const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow, deleteLedger, isReadOnly, showFeedback, validationDetails }) => {
+const LedgerAccount = ({ l, idx, updateLedger, updateSideRow, addRow, deleteLedger, isReadOnly, showFeedback, validationDetails }) => {
     const leftRows = l.leftRows && l.leftRows.length > 0 ? l.leftRows : [{}, {}, {}, {}]; 
     const rightRows = l.rightRows && l.rightRows.length > 0 ? l.rightRows : [{}, {}, {}, {}];
     const maxRows = Math.max(leftRows.length, rightRows.length);
@@ -515,22 +464,21 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
     
     const vResult = validationDetails && validationDetails[l.id] ? validationDetails[l.id] : null;
 
-    // Helper to get bg color based on validation
-    const getBg = (status) => {
-        if (!showFeedback || status === undefined || status === null) return '';
-        return status === true ? 'bg-green-100' : 'bg-red-100';
-    };
-
     return html`
         <div className="border-2 border-gray-800 bg-white shadow-md">
             <div className="border-b-2 border-gray-800 p-2 flex justify-between bg-gray-100 relative">
-                <div className="absolute left-2 top-2"><${StatusIcon} show=${showFeedback} status=${vResult?.acc} /></div>
-                <div className="w-full text-center mx-8">
-                    <input list="step3-accs" className=${`w-full border-b border-gray-400 text-center bg-transparent font-bold text-lg outline-none ${getBg(vResult?.acc)}`} placeholder="Account Title" value=${l.account} onChange=${(e)=>updateLedger(idx,'account',e.target.value)} disabled=${isReadOnly} />
+                <div className="absolute left-2 top-2">
+                    ${showFeedback && (vResult?.acc === true 
+                        ? html`<${Check} size=${16} className="text-green-600"/>` 
+                        : vResult?.acc === false ? html`<${X} size=${16} className="text-red-600"/>` : null)}
+                </div>
+                <div className="w-full text-center mx-8 relative">
+                    <input list="step3-accs" className="w-full border-b border-gray-400 text-center bg-transparent font-bold text-lg outline-none" placeholder="Account Title" value=${l.account} onChange=${(e)=>updateLedger(idx,'account',e.target.value)} disabled=${isReadOnly} />
                 </div>
                 ${!isReadOnly && html`<button onClick=${() => deleteLedger(idx)} className="absolute right-2 top-2 text-red-500 hover:text-red-700"><${Trash2} size=${16}/></button>`}
             </div>
             <div className="flex">
+                ${/* DEBIT SIDE */''}
                 <div className="flex-1 border-r-2 border-gray-800">
                     <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
                     <div className="flex text-xs font-bold border-b border-gray-400"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center">Amount</div></div>
@@ -540,26 +488,34 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
                         return html`
                             <div key=${`l-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-8 relative">
                                 <div className="w-16 border-r relative group">
-                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${getBg(rVal.date)}`} value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'date',e.target.value)} disabled=${isReadOnly} placeholder=${rowIdx===0 ? "(YYYY)" : ""}/>
-                                    ${showFeedback && rVal.date === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'date',e.target.value)} disabled=${isReadOnly} placeholder=${rowIdx===0 ? "(YYYY)" : ""}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.date} />
                                 </div>
                                 <div className="flex-1 border-r relative group">
-                                    <input type="text" className=${`w-full h-full text-left px-1 outline-none bg-transparent ${getBg(rVal.part)}`} value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/>
-                                    ${showFeedback && rVal.part === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.part} />
                                 </div>
                                 <div className="w-10 border-r relative group">
-                                    <input type="text" className=${`w-full h-full text-center outline-none bg-transparent ${getBg(rVal.pr)}`} value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/>
-                                    ${showFeedback && rVal.pr === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.pr} />
                                 </div>
                                 <div className="w-20 relative group">
-                                    <input type="number" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${getBg(rVal.amount)}`} value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/>
-                                    ${showFeedback && rVal.amount === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'left',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.amount} />
                                 </div>
                             </div>
                         `;
                     })}
-                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Debit</span><input type="number" className="w-24 text-right border border-gray-300" value=${l.drTotal||''} onChange=${(e)=>updateLedger(idx,'drTotal',e.target.value)} disabled=${isReadOnly} /></div>
+                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50 relative">
+                        <span className="text-xs font-bold">Total Debit</span>
+                        <div className="relative">
+                            <input type="number" className="w-24 text-right border border-gray-300" value=${l.drTotal||''} onChange=${(e)=>updateLedger(idx,'drTotal',e.target.value)} disabled=${isReadOnly} />
+                            <${ValidationIcon} show=${showFeedback} status=${vResult?.drTotal} />
+                        </div>
+                    </div>
                 </div>
+                
+                ${/* CREDIT SIDE */''}
                 <div className="flex-1">
                     <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
                     <div className="flex text-xs font-bold border-b border-gray-400 bg-white"><div className="w-16 border-r p-1 text-center">Date</div><div className="flex-1 border-r p-1 text-center">Particulars</div><div className="w-10 border-r p-1 text-center">PR</div><div className="w-20 p-1 text-center border-r">Amount</div><div className="w-6"></div></div>
@@ -569,32 +525,40 @@ const LedgerAccount = ({ l, idx, ledgerKey, updateLedger, updateSideRow, addRow,
                         return html`
                             <div key=${`r-${rowIdx}`} className="flex text-xs border-b border-gray-200 h-8 relative">
                                 <div className="w-16 border-r relative group">
-                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${getBg(rVal.date)}`} value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'date',e.target.value)} disabled=${isReadOnly} placeholder=${rowIdx===0 ? "(YYYY)" : ""}/>
-                                    ${showFeedback && rVal.date === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="text" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.date||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'date',e.target.value)} disabled=${isReadOnly} placeholder=${rowIdx===0 ? "(YYYY)" : ""}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.date} />
                                 </div>
                                 <div className="flex-1 border-r relative group">
-                                    <input type="text" className=${`w-full h-full text-left px-1 outline-none bg-transparent ${getBg(rVal.part)}`} value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/>
-                                    ${showFeedback && rVal.part === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${row.part||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'part',e.target.value)} disabled=${isReadOnly}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.part} />
                                 </div>
                                 <div className="w-10 border-r relative group">
-                                    <input type="text" className=${`w-full h-full text-center outline-none bg-transparent ${getBg(rVal.pr)}`} value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/>
-                                    ${showFeedback && rVal.pr === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'pr',e.target.value)} disabled=${isReadOnly}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.pr} />
                                 </div>
                                 <div className="w-20 border-r relative group">
-                                    <input type="number" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${getBg(rVal.amount)}`} value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/>
-                                    ${showFeedback && rVal.amount === false && html`<div className="absolute top-1 left-1"><${X} size=${10} className="text-red-500"/></div>`}
+                                    <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${row.amount||''} onChange=${(e)=>updateSideRow(idx,'right',rowIdx,'amount',e.target.value)} disabled=${isReadOnly}/>
+                                    <${ValidationIcon} show=${showFeedback} status=${rVal.amount} />
                                 </div>
                             </div>
                         `;
                     })}
-                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Credit</span><input type="number" className="w-24 text-right border border-gray-300" value=${l.crTotal||''} onChange=${(e)=>updateLedger(idx,'crTotal',e.target.value)} disabled=${isReadOnly} /></div>
+                    <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50 relative">
+                        <span className="text-xs font-bold">Total Credit</span>
+                        <div className="relative">
+                            <input type="number" className="w-24 text-right border border-gray-300" value=${l.crTotal||''} onChange=${(e)=>updateLedger(idx,'crTotal',e.target.value)} disabled=${isReadOnly} />
+                            <${ValidationIcon} show=${showFeedback} status=${vResult?.crTotal} />
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div className=${`border-t border-gray-300 p-2 flex justify-center items-center gap-2 ${getBg(vResult?.balance)}`}>
+            <div className="border-t border-gray-300 p-2 flex justify-center items-center gap-2 relative">
                 <span className="text-xs font-bold uppercase text-gray-600">Balance:</span>
                 <select className="border border-gray-300 rounded text-xs p-1 outline-none bg-white" value=${l.balanceType || ''} onChange=${(e)=>updateLedger(idx, 'balanceType', e.target.value)} disabled=${isReadOnly}><option value="" disabled>Debit or Credit?</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
-                <input type="number" className="w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none" placeholder="0" value=${l.balance||''} onChange=${(e)=>updateLedger(idx,'balance',e.target.value)} disabled=${isReadOnly} />
-                <div className="ml-2"><${StatusIcon} show=${showFeedback} status=${vResult?.balance} /></div>
+                <div className="relative">
+                    <input type="number" className="w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none" placeholder="0" value=${l.balance||''} onChange=${(e)=>updateLedger(idx,'balance',e.target.value)} disabled=${isReadOnly} />
+                    <${ValidationIcon} show=${showFeedback} status=${vResult?.balance} />
+                </div>
             </div>
             ${!isReadOnly && html`<div className="p-2 text-center bg-gray-50 border-t border-gray-300"><button onClick=${()=>addRow(idx)} className="text-xs border border-dashed border-gray-400 rounded px-3 py-1 text-gray-600 hover:bg-white hover:text-blue-600 flex items-center gap-1 mx-auto"><${Plus} size=${12}/> Add Row</button></div>`}
         </div>
