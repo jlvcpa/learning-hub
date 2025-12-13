@@ -510,4 +510,79 @@ const App = () => {
 
              if (validUserRows < expectedCount) allCorrect = false;
 
-             isCorrect = allCorrect && rows
+             isCorrect = allCorrect && rows.length > 0;
+
+        } else if (stepId === 10) {
+            // --- STEP 10 VALIDATION (Reversing Entries) ---
+            const { adjustments, config } = activityData;
+            const currentAns = answers[10] || {};
+            
+            let allCorrect = true;
+            adjustments.forEach((adj, idx) => {
+                const entry = currentAns[adj.id] || {};
+                const isFirst = idx === 0;
+                
+                // Use the helper function exported from the Step 10 file
+                // This checks Accounts, Amounts, Dates, Year, AND Description
+                const result = validateReversingEntry(entry, adj, config, isFirst);
+                
+                if (!result.isEntryCorrect) {
+                    allCorrect = false;
+                }
+            });
+            
+            isCorrect = allCorrect;
+
+        } else {
+             isCorrect = true;
+        }
+
+        setStepStatus(prev => {
+            const newStatus = { ...prev };
+            const currentStatus = prev[stepId];
+            let nextStepShouldBeCompleted = false;
+            if (isCorrect) {
+                newStatus[stepId] = { ...currentStatus, completed: true, correct: true, attempts: currentStatus.attempts };
+                nextStepShouldBeCompleted = true;
+            } else {
+                const remainingAttempts = currentStatus.attempts - 1;
+                if (remainingAttempts <= 0) {
+                    newStatus[stepId] = { ...currentStatus, completed: true, correct: false, attempts: 0 };
+                    nextStepShouldBeCompleted = true;
+                } else {
+                    newStatus[stepId] = { ...currentStatus, attempts: remainingAttempts, completed: false, correct: false };
+                }
+            }
+            if (nextStepShouldBeCompleted) {
+                const nextActiveIndex = activityData.steps.findIndex((s, idx) => s.id === stepId) + 1;
+                if (nextActiveIndex < activityData.steps.length) {
+                    setCurrentStepIndex(nextActiveIndex); 
+                    setTimeout(() => document.getElementById(`task-${activityData.steps[nextActiveIndex].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100); 
+                } else { 
+                    setCurrentStepIndex(activityData.steps.length); 
+                }
+            }
+            return newStatus;
+        });
+    };
+
+    if (mode === 'config') return html`<div className="min-h-screen bg-gray-50 p-8"><div className="max-w-4xl mx-auto mb-8 text-center"><h1 className="text-4xl font-extrabold text-blue-900 flex justify-center items-center gap-3"><${Book} size=${40} /> Accounting Cycle Simulator</h1><p className="text-gray-600 mt-2">Generate unique accounting scenarios and practice every step of the cycle.</p></div><${TeacherDashboard} onGenerate=${handleGenerate} /></div>`;
+
+    return html`
+        <div className="min-h-screen flex flex-col bg-gray-50">
+            <header id="main-header" className="bg-white border-b shadow-md p-4 flex justify-between items-center sticky top-0 z-50 no-print">
+                <div className="flex items-center gap-4"><button onClick=${() => setMode('config')} className="p-2 hover:bg-gray-100 rounded-full text-gray-600"><${ArrowLeft} size=${20} /></button><div><h1 id="company-name" className="font-bold text-xl text-blue-900">${activityData.config.businessType} - ${activityData.config.ownership}</h1><p className="text-xs text-gray-500">Inventory: ${activityData.config.inventorySystem} • ${activityData.config.isSubsequentYear ? 'Subsequent Year' : 'New Business'}</p></div></div>
+                <div className="text-right"><div className="text-xs font-bold text-gray-500 uppercase">First Uncompleted Task</div><div className="font-semibold text-blue-700">${activityData.steps[currentStepIndex] ? `Task #${activityData.steps[currentStepIndex].id}: ${activityData.steps[currentStepIndex].title}` : 'All Tasks Complete'}</div></div>
+            </header>
+            <div className="bg-white border-b overflow-x-auto shadow-sm sticky top-[73px] z-40 no-print"><div className="flex min-w-max px-4">${activityData.steps.map((s, idx) => html`<div key=${s.id} className=${`p-3 flex items-center gap-2 text-sm border-b-2 transition-colors ${idx === currentStepIndex ? 'border-blue-600 text-blue-700 font-bold' : 'border-transparent text-gray-500'} ${stepStatus[s.id].completed ? 'text-green-600' : ''} cursor-pointer hover:bg-gray-50`} onClick=${() => setCurrentStepIndex(idx)}><div className=${`w-6 h-6 rounded-full flex items-center justify-center text-xs border ${stepStatus[s.id].completed ? 'bg-green-100 border-green-300 text-green-700' : idx === currentStepIndex ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200'}`}><${stepStatus[s.id].completed ? Check : 'span'} size=${14}>${stepStatus[s.id].completed ? '' : s.id}</${stepStatus[s.id].completed ? Check : 'span'}></div><span>${s.title}</span></div>`)}</div></div>
+            <main className="flex-1 p-6"><div className="max-w-7xl mx-auto">${activityData.steps.map((step, idx) => html`<${TaskSection} key=${step.id} step=${step} activityData=${activityData} answers=${answers} stepStatus=${stepStatus} onValidate=${handleValidateStepById} updateAnswerFns=${{ updateNestedAnswer, updateTrialBalanceAnswer, updateAnswer }} isCurrentActiveTask=${idx === currentStepIndex} isPrevStepCompleted=${idx === 0 || stepStatus[activityData.steps[idx - 1].id]?.completed} />`)}</div></main>
+            <footer className="bg-gray-100 border-t p-2 text-center text-sm text-gray-500 no-print flex justify-between items-center px-6">
+                <span className="text-xs text-gray-400">${APP_VERSION}</span>
+                ${activityData.steps.every(s => stepStatus[s.id]?.completed) ? html`<span className="font-bold text-green-700">Accounting Cycle Activity Fully Completed! 🎉</span>` : html`<span>Scroll up to continue the exercise.</span>`}
+                <span className="w-20"></span>
+            </footer>
+        </div>
+    `;
+};
+
+export default App;
