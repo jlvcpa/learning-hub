@@ -583,3 +583,14 @@ export const generateAdjustments = (ledgerData, businessType, deferredExpenseMet
 
     return adjustments;
 };
+
+// --- NEW HELPER ---
+export const getLetterGrade = (score, maxScore) => {
+    if (maxScore === 0) return 'IR';
+    const percentage = (score / maxScore) * 100;
+    
+    if (percentage >= 95) return 'A';    // Advanced
+    if (percentage >= 85) return 'P';    // Proficient
+    if (percentage >= 75) return 'D';    // Developing
+    return 'IR';                         // Intervention Required
+};
