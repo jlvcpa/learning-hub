@@ -6,34 +6,55 @@ import { getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
-// --- HELPER: GET EXPECTED ROW CONFIG ---
-const getExpectedConfig = (t, rowIdx) => {
+// --- HELPER: DETERMINE LOGICAL LINE INDEX ---
+// Maps the Grid Row Index (idx) to the Transaction Line Index (0, 1, 2...)
+const getLogicalIndex = (tIdx, idx) => {
+    if (tIdx === 0) {
+        if (idx === 0) return -1; // Year Row (Special)
+        return idx - 1; // Grid Row 1 -> Line 0
+    }
+    return idx; // Grid Row 0 -> Line 0
+};
+
+// --- HELPER: GET EXPECTED CONFIGURATION ---
+// Determines if a specific line SHOULD be a Debit or Credit based on the Answer Key
+const getExpectedConfig = (t, logicalIdx) => {
+    if (logicalIdx < 0) return null; // Year row
+    
     const numDebits = t.debits.length;
-    const numCredits = t.credits.length;
-    const totalLines = numDebits + numCredits;
+    const totalLines = numDebits + t.credits.length;
+    
+    if (logicalIdx >= totalLines) return null; // Out of bounds (extra row)
 
-    if (rowIdx >= totalLines) return null;
-
-    if (rowIdx < numDebits) {
-        return { type: 'debit', data: t.debits[rowIdx] };
+    if (logicalIdx < numDebits) {
+        return { type: 'debit', data: t.debits[logicalIdx] };
     } else {
-        return { type: 'credit', data: t.credits[rowIdx - numDebits] };
+        return { type: 'credit', data: t.credits[logicalIdx - numDebits] };
     }
 };
 
 // --- HELPER: ROW VALIDATION ---
 const validateRow = (row, t, tIdx, idx) => {
     const result = { date: null, acc: null, drAmt: null, crAmt: null, score: 0, maxScore: 0 };
-    
-    // 1. DATE VALIDATION
+    const logicalIdx = getLogicalIndex(tIdx, idx);
+
+    // 1. Date Validation
     if (tIdx === 0 && idx === 0) {
+        // First row of first transaction: Needs Year
         const txnDate = new Date(t.date);
         const yyyy = txnDate.getFullYear().toString();
-        const val = row.date?.trim() || "";
+        const val = row.date?.trim() || ""; 
+        const isEmptyOthers = !row.acc && !row.pr && !row.dr && !row.cr;
+        
         result.maxScore += 1;
-        if (val === yyyy) { result.date = true; result.score += 1; } 
-        else { result.date = false; }
+        if (val === yyyy && isEmptyOthers) {
+            result.date = true;
+            result.score += 1;
+        } else {
+            result.date = false;
+        }
     } else if ((tIdx === 0 && idx === 1) || (tIdx > 0 && idx === 0)) {
+        // Date row (Month/Day)
         const txnDate = new Date(t.date);
         const mm = txnDate.toLocaleString('default', { month: 'short' });
         const dd = txnDate.getDate().toString();
@@ -45,78 +66,93 @@ const validateRow = (row, t, tIdx, idx) => {
         if (tIdx === 0 && idx === 1) dateValid = val === `${mm} ${dd}` || val === `${mm} ${dd0}`;
         else dateValid = val === dd || val === dd0;
         
-        if (dateValid) { result.date = true; result.score += 1; }
-        else { result.date = false; }
+        if (dateValid) {
+            result.date = true;
+            result.score += 1;
+        } else {
+            result.date = false;
+        }
     } else {
-        result.date = true;
+        // Rows that shouldn't have dates
+        result.date = true; 
     }
 
-    // 2. ACCOUNT & AMOUNT VALIDATION
+    // 2. Account & Amount Validation
     if (!row.isDescription) {
-        const expected = getExpectedConfig(t, idx);
+        const expected = getExpectedConfig(t, logicalIdx);
         
-        if (!expected) {
-            result.acc = false; result.drAmt = false; result.crAmt = false;
-        } else {
-            result.maxScore += 2; 
+        if (expected) {
+            result.maxScore += 2; // 1 for Account, 1 for Amount
 
             const acc = row.acc || "";
             const dr = Number(row.dr) || 0;
             const cr = Number(row.cr) || 0;
 
-            // CHECK 1: ACCOUNT NAME & INDENTATION
-            let accValid = false;
+            // --- DEBIT EXPECTATION ---
             if (expected.type === 'debit') {
-                if (acc && !acc.startsWith(' ') && acc.trim() === expected.data.account) {
-                    accValid = true;
-                }
-            } else {
+                result.crAmt = null; // Should not be in credit column
+
+                // Account Name Check (Must not start with space)
+                const accValid = acc.length > 0 && !acc.startsWith(' ') && acc.trim() === expected.data.account;
+                
+                if (!accValid) result.acc = false;
+                else { result.acc = true; result.score += 1; }
+
+                // Amount Check
+                // Must be in Debit column, matches amount, Credit column is empty
+                const amtValid = Math.abs(dr - expected.data.amount) <= 1 && cr === 0;
+                
+                if (!amtValid) result.drAmt = false;
+                else { result.drAmt = true; result.score += 1; }
+            }
+            
+            // --- CREDIT EXPECTATION ---
+            else if (expected.type === 'credit') {
+                result.drAmt = null; // Should not be in debit column
+
+                // Account Name Check (Must have 3 spaces)
                 const threeSpaces = '   ';
-                if (acc && acc.startsWith(threeSpaces) && acc[3] !== ' ' && acc.substring(3) === expected.data.account) {
-                    accValid = true;
-                }
-            }
-            result.acc = accValid;
-            if (accValid) result.score += 1;
+                const startsWith3 = acc.startsWith(threeSpaces);
+                const fourthCharNotSpace = acc.length > 3 && acc[3] !== ' '; 
+                const cleanName = acc.substring(3);
+                
+                const accValid = startsWith3 && fourthCharNotSpace && cleanName === expected.data.account;
 
-            // CHECK 2: AMOUNT & COLUMN
-            let amtValid = false;
-            if (expected.type === 'debit') {
-                result.crAmt = null; 
-                if (Math.abs(dr - expected.data.amount) <= 1 && cr === 0) {
-                    amtValid = true;
-                    result.drAmt = true;
-                } else {
-                    result.drAmt = false; 
-                }
-            } else {
-                result.drAmt = null;
-                if (Math.abs(cr - expected.data.amount) <= 1 && dr === 0) {
-                    amtValid = true;
-                    result.crAmt = true;
-                } else {
-                    result.crAmt = false;
-                }
-            }
+                if (!accValid) result.acc = false;
+                else { result.acc = true; result.score += 1; }
 
-            if (amtValid) result.score += 1;
+                // Amount Check
+                // Must be in Credit column, matches amount, Debit column is empty
+                const amtValid = Math.abs(cr - expected.data.amount) <= 1 && dr === 0;
+
+                if (!amtValid) result.crAmt = false;
+                else { result.crAmt = true; result.score += 1; }
+            }
+        } else if (logicalIdx >= 0) {
+            // Extra row that shouldn't exist (but isn't description/year)
+            // If user filled it, mark wrong
+            if (row.acc || row.dr || row.cr) {
+                result.acc = false;
+                result.drAmt = false;
+                result.crAmt = false;
+            }
         }
     }
 
     return result;
 };
 
-// --- GLOBAL VALIDATION / SCORING FUNCTION ---
+// --- GLOBAL VALIDATION FUNCTION (DRY) ---
 export const validateStep02 = (transactions, currentAns = {}) => {
     let totalScore = 0;
     let maxScore = 0;
     let correctTx = 0;
     
-    // Safety check if transactions are empty
+    // Safety check
     if (!transactions || transactions.length === 0) {
         return { isCorrect: false, score: 0, maxScore: 0, letterGrade: 'IR' };
     }
-
+    
     transactions.forEach((t, tIdx) => {
         const entry = currentAns[t.id] || {};
         const rows = entry.rows || [];
@@ -125,50 +161,29 @@ export const validateStep02 = (transactions, currentAns = {}) => {
         let txMax = 0;
         let isTxPerfect = true;
 
-        const contentRows = rows.filter(r => !r.isDescription);
+        // Calculate Max Score for this transaction structure
+        // Date pts: 2 for first Tx, 1 for others
+        if (tIdx === 0) txMax += 2; else txMax += 1;
+        // Line pts: 2 per line (Account + Amount)
         const expectedCount = t.debits.length + t.credits.length;
-
-        // Iterate based on EXPECTED lines to ensure we count score for missing lines
-        // We calculate max score based on what SHOULD be there.
-        
-        // Calculate Max Score for this transaction first
-        // Date/Year pts
-        if (tIdx === 0) txMax += 2; // Year + Date
-        else txMax += 1; // Date only
-        
-        // Account/Amount pts (2 pts per line)
         txMax += (expectedCount * 2);
 
-        // Calculate Actual Score by iterating rows
+        // Validate existing rows
         rows.forEach((row, rIdx) => {
-            if (row.isDescription) return;
-
-            let logicalLineIdx = -1;
-            if (tIdx === 0) {
-                if (rIdx === 0) logicalLineIdx = -1; 
-                else logicalLineIdx = rIdx - 1;
-            } else {
-                logicalLineIdx = rIdx;
-            }
-
-            // We only validate rows that map to actual expected lines (or date rows)
-            // If user added 100 extra rows, we don't score them (they are just wrong)
-            
-            const res = validateRow(row, t, tIdx, logicalLineIdx);
+            const res = validateRow(row, t, tIdx, rIdx);
             txScore += res.score;
             
-            // If any specific field is wrong, the transaction is not perfect
+            // Check for failure flags
             if (res.date === false || res.acc === false || res.drAmt === false || res.crAmt === false) {
                 isTxPerfect = false;
             }
         });
 
-        // Penalize for missing rows (score won't increase, so implies penalty against max)
-        if (contentRows.length < expectedCount) isTxPerfect = false;
-        // Penalize for extra rows
-        if (contentRows.length > expectedCount) isTxPerfect = false;
+        // Penalize for missing rows (User hasn't added enough rows yet)
+        const contentRows = rows.filter(r => !r.isDescription && !((r.id === 'year' || rIdx === 0) && tIdx === 0 && r.id==='year')); 
+        // Note: Counting content rows accurately is tricky with the year row mixed in.
+        // Simplified check: If score < max, it's not perfect.
         
-        // Double check perfect status against score
         if (txScore < txMax) isTxPerfect = false;
 
         totalScore += txScore;
@@ -184,114 +199,107 @@ export const validateStep02 = (transactions, currentAns = {}) => {
     };
 };
 
+
 // --- INTERNAL COMPONENTS ---
 
 const StatusIcon = ({ status, show }) => {
     if (!show) return null;
     if (status === true) return html`<${Check} size=${14} className="text-green-600" />`;
     if (status === false) return html`<${X} size=${14} className="text-red-600" />`;
-    return null; 
+    return null; // status is null/undefined
 };
 
 const JournalRow = ({ row, idx, tIdx, updateRow, deleteRow, showFeedback, isReadOnly, t }) => {
     const isDesc = row.isDescription;
+    const isYearRow = tIdx === 0 && idx === 0;
     
-    let logicalLineIdx = idx;
-    if (tIdx === 0) {
-        if (idx === 0) logicalLineIdx = -1; 
-        else logicalLineIdx = idx - 1;
+    // Run validation logic
+    const valResult = validateRow(row, t, tIdx, idx);
+    
+    // Determine placeholders
+    let datePlaceholder = "";
+    if (tIdx === 0) { 
+        if (idx === 0) datePlaceholder = "YYYY"; 
+        else if (idx === 1) datePlaceholder = "Mmm dd"; 
+    } else { 
+        if (idx === 0) datePlaceholder = "dd"; 
     }
 
-    const validateForRender = () => {
-        const res = { date: null, acc: null, drAmt: null, crAmt: null };
-        
-        if (tIdx === 0 && idx === 0) {
-            const txnDate = new Date(t.date);
-            const val = row.date?.trim() || "";
-            res.date = (val === txnDate.getFullYear().toString());
-        } else if ((tIdx === 0 && idx === 1) || (tIdx > 0 && idx === 0)) {
-            const txnDate = new Date(t.date);
-            const mm = txnDate.toLocaleString('default', { month: 'short' });
-            const dd = txnDate.getDate().toString(); // Fixed: check raw string match logic in helper
-            const dd0 = dd.padStart(2, '0');
-            const val = row.date?.trim() || "";
-            let valid = false;
-            if (tIdx === 0 && idx === 1) valid = val === `${mm} ${dd}` || val === `${mm} ${dd0}`;
-            else valid = val === dd || val === dd0;
-            res.date = valid;
-        } else {
-            res.date = true;
-        }
-
-        if (!isDesc && logicalLineIdx >= 0) {
-            const expected = getExpectedConfig(t, logicalLineIdx);
-            const acc = row.acc || "";
-            const dr = Number(row.dr) || 0;
-            const cr = Number(row.cr) || 0;
-
-            if (!expected) {
-                 res.acc = false; res.drAmt = false; res.crAmt = false;
-            } else {
-                 if (expected.type === 'debit') {
-                     res.acc = (acc && !acc.startsWith(' ') && acc.trim() === expected.data.account);
-                     res.crAmt = null; 
-                     res.drAmt = (Math.abs(dr - expected.data.amount) <= 1 && cr === 0);
-                     if (!res.drAmt) res.drAmt = false; 
-                 } else {
-                     const threeSpaces = '   ';
-                     res.acc = (acc && acc.startsWith(threeSpaces) && acc[3] !== ' ' && acc.substring(3) === expected.data.account);
-                     res.drAmt = null;
-                     res.crAmt = (Math.abs(cr - expected.data.amount) <= 1 && dr === 0);
-                     if (!res.crAmt) res.crAmt = false; 
-                 }
-            }
-        } else if (logicalLineIdx === -1) {
-             res.acc = null; res.drAmt = null; res.crAmt = null;
-        }
-
-        return res;
-    };
-
-    const valResult = validateForRender();
+    // Input background helper
     const bgClass = (status) => showFeedback && status === false ? 'bg-red-50' : '';
-
-    let datePlaceholder = "";
-    if (tIdx === 0) { if (idx === 0) datePlaceholder = "YYYY"; else if (idx === 1) datePlaceholder = "Mmm dd"; } else { if (idx === 0) datePlaceholder = "dd"; }
 
     return html`
         <div className=${`flex h-8 items-center border-t border-gray-100 ${isDesc ? 'bg-white text-gray-600' : ''}`}>
-            <div className="w-16 h-full border-r relative">
+            
+            <div className="w-16 h-full border-r relative group">
                 ${!isDesc && html`
-                    <input type="text" className=${`w-full h-full px-1 text-xs outline-none bg-transparent text-right ${bgClass(valResult?.date)}`} value=${row.date || ''} onChange=${(e)=>updateRow(idx, 'date', e.target.value)} placeholder=${datePlaceholder} disabled=${isReadOnly}/>
-                    ${(idx === 0 || (tIdx===0 && idx===1)) && html`<div className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none"><${StatusIcon} show=${showFeedback} status=${valResult?.date} /></div>`}
+                    <input type="text" 
+                        className=${`w-full h-full px-1 text-xs outline-none bg-transparent text-right ${bgClass(valResult?.date)}`} 
+                        value=${row.date || ''} 
+                        onChange=${(e)=>updateRow(idx, 'date', e.target.value)} 
+                        placeholder=${datePlaceholder} 
+                        disabled=${isReadOnly}
+                    />
+                    ${(idx === 0 || (tIdx===0 && idx===1)) && html`
+                        <div className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none">
+                            <${StatusIcon} show=${showFeedback} status=${valResult?.date} />
+                        </div>
+                    `}
                 `}
             </div>
+
             <div className="flex-1 h-full border-r relative">
                 ${isDesc 
                     ? html`<div className="px-2 w-full h-full flex items-center overflow-hidden whitespace-pre-wrap text-xs font-mono absolute top-0 left-0 z-10 bg-white border-r" style=${{width: 'calc(100% + 16rem)'}}>${row.acc}</div>`
-                    : (logicalLineIdx >= 0 && html`
-                        <input type="text" className=${`w-full h-full px-2 pr-6 outline-none font-mono text-xs ${bgClass(valResult?.acc)}`} value=${row.acc || ''} onChange=${(e)=>updateRow(idx, 'acc', e.target.value)} placeholder="Account Title" disabled=${isReadOnly}/>
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none"><${StatusIcon} show=${showFeedback} status=${valResult?.acc} /></div>
+                    : (!isYearRow && html`
+                        <input type="text" 
+                            className=${`w-full h-full px-2 pr-6 outline-none font-mono text-xs ${bgClass(valResult?.acc)}`} 
+                            value=${row.acc || ''} 
+                            onChange=${(e)=>updateRow(idx, 'acc', e.target.value)} 
+                            placeholder="Account Title" 
+                            disabled=${isReadOnly}
+                        />
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none">
+                            <${StatusIcon} show=${showFeedback} status=${valResult?.acc} />
+                        </div>
                     `)
                 }
             </div>
+
             <div className="w-16 h-full border-r">
-                ${!isDesc && logicalLineIdx >= 0 && html`<input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr || ''} onChange=${(e)=>updateRow(idx, 'pr', e.target.value)} disabled=${isReadOnly} />`}
+                ${!isDesc && !isYearRow && html`<input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${row.pr || ''} onChange=${(e)=>updateRow(idx, 'pr', e.target.value)} disabled=${isReadOnly} />`}
             </div>
+
             <div className="w-24 h-full border-r relative">
-                ${!isDesc && logicalLineIdx >= 0 && html`
-                    <input type="number" className=${`w-full h-full px-2 pr-6 text-right outline-none bg-transparent ${bgClass(valResult?.drAmt)}`} value=${row.dr||''} onChange=${(e)=>updateRow(idx,'dr',e.target.value)} disabled=${isReadOnly} />
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none"><${StatusIcon} show=${showFeedback} status=${valResult?.drAmt} /></div>
+                ${!isDesc && !isYearRow && html`
+                    <input type="number" 
+                        className=${`w-full h-full px-2 pr-6 text-right outline-none bg-transparent ${bgClass(valResult?.drAmt)}`} 
+                        value=${row.dr||''} 
+                        onChange=${(e)=>updateRow(idx,'dr',e.target.value)} 
+                        disabled=${isReadOnly} 
+                    />
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <${StatusIcon} show=${showFeedback} status=${valResult?.drAmt} />
+                    </div>
                 `}
             </div>
+
             <div className="w-24 h-full border-r relative">
-                ${!isDesc && logicalLineIdx >= 0 && html`
-                    <input type="number" className=${`w-full h-full px-2 pr-6 text-right outline-none bg-transparent ${bgClass(valResult?.crAmt)}`} value=${row.cr||''} onChange=${(e)=>updateRow(idx,'cr',e.target.value)} disabled=${isReadOnly} />
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none"><${StatusIcon} show=${showFeedback} status=${valResult?.crAmt} /></div>
+                ${!isDesc && !isYearRow && html`
+                    <input type="number" 
+                        className=${`w-full h-full px-2 pr-6 text-right outline-none bg-transparent ${bgClass(valResult?.crAmt)}`} 
+                        value=${row.cr||''} 
+                        onChange=${(e)=>updateRow(idx,'cr',e.target.value)} 
+                        disabled=${isReadOnly} 
+                    />
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <${StatusIcon} show=${showFeedback} status=${valResult?.crAmt} />
+                    </div>
                 `}
             </div>
+
             <div className="w-8 flex justify-center items-center">
-                ${!isDesc && logicalLineIdx >= 0 && !isReadOnly && html`<button onClick=${() => deleteRow(idx)} className="text-red-400 hover:text-red-600"><${Trash2} size=${14}/></button>`}
+                ${!isDesc && !isYearRow && !isReadOnly && html`<button onClick=${() => deleteRow(idx)} className="text-red-400 hover:text-red-600"><${Trash2} size=${14}/></button>`}
             </div>
         </div>
     `;
@@ -304,30 +312,30 @@ export default function Step02Journalizing({ transactions = [], data, onChange, 
     // --- AUTOMATIC ROW ADDITION EFFECT ---
     useEffect(() => {
         if (showFeedback && !isReadOnly) {
-            let changesMade = false;
-            
             transactions.forEach((t, tIdx) => {
                 const entry = data[t.id] || {};
                 const currentRows = entry.rows || [];
                 
+                // Calculate Required Rows
+                // T1: 1 (Year) + Debits + Credits + 1 (Desc)
+                // Tn: Debits + Credits + 1 (Desc)
                 const lineItems = t.debits.length + t.credits.length;
-                const requiredCount = (tIdx === 0 ? 1 : 0) + lineItems + 1; // +1 for desc
+                const requiredCount = (tIdx === 0 ? 1 : 0) + lineItems + 1;
 
                 if (currentRows.length < requiredCount) {
-                    changesMade = true;
                     const newRows = [...currentRows];
                     
+                    // Temporarily remove desc row if exists
                     const descIndex = newRows.findIndex(r => r.isDescription);
                     const descRow = descIndex >= 0 ? newRows.splice(descIndex, 1)[0] : { id: 'desc', date: '', acc: `      ${t.description}`, dr: '', cr: '', pr: '', isDescription: true };
                     
-                    // Add rows until we have enough for Lines + Year (if needed)
-                    // The description is added last.
-                    const neededContentRows = requiredCount - 1; // remove desc from count
-                    
-                    while (newRows.length < neededContentRows) {
+                    // Fill lines
+                    const needed = requiredCount - 1; // target count excluding desc
+                    while (newRows.length < needed) {
                         newRows.push({ id: Date.now() + Math.random(), date: '', acc: '', dr: '', cr: '', pr: '' });
                     }
                     
+                    // Put desc back
                     newRows.push(descRow);
                     onChange(t.id, newRows);
                 }
@@ -361,10 +369,20 @@ export default function Step02Journalizing({ transactions = [], data, onChange, 
                     const entry = data[t.id] || {};
                     let initialRows = entry.rows;
                     if (!initialRows) {
-                        const lines = [{ id: 1, date: '', acc: '', dr: '', cr: '', pr: '' }, { id: 2, date: '', acc: '', dr: '', cr: '', pr: '' }];
-                        if (tIdx === 0) lines.unshift({ id: 'year', date: '', acc: '', dr: '', cr: '', pr: '' });
-                        lines.push({ id: 'desc', date: '', acc: `      ${t.description}`, dr: '', cr: '', pr: '', isDescription: true });
-                        initialRows = lines;
+                        if (tIdx === 0) { 
+                            initialRows = [
+                                { id: 'year', date: '', acc: '', dr: '', cr: '', pr: '' }, 
+                                { id: 1, date: '', acc: '', dr: '', cr: '', pr: '' }, 
+                                { id: 2, date: '', acc: '', dr: '', cr: '', pr: '' }, 
+                                { id: 'desc', date: '', acc: `      ${t.description}`, dr: '', cr: '', pr: '', isDescription: true }
+                            ]; 
+                        } else { 
+                            initialRows = [
+                                { id: 1, date: '', acc: '', dr: '', cr: '', pr: '' }, 
+                                { id: 2, date: '', acc: '', dr: '', cr: '', pr: '' }, 
+                                { id: 'desc', date: '', acc: `      ${t.description}`, dr: '', cr: '', pr: '', isDescription: true }
+                            ]; 
+                        }
                     }
                     const rows = initialRows;
                     const updateRow = (idx, field, val) => { const newRows = [...rows]; if(!newRows[idx]) newRows[idx] = {}; newRows[idx] = { ...newRows[idx], [field]: val }; onChange(t.id, newRows); };
