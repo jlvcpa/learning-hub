@@ -2,7 +2,7 @@
 import React, { useState } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, X, Table, Trash2, Plus, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts } from '../utils.js';
+import { sortAccounts, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
@@ -22,7 +22,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     // Safety guard
     if (!expectedLedger || !data) {
         return { 
-            score: 0, maxScore: 0, isCorrect: false, letterGrade: 'F', 
+            score: 0, maxScore: 0, isCorrect: false, letterGrade: 'IR', 
             feedback: { header: {}, rows: [], totals: {} } 
         };
     }
@@ -56,7 +56,7 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
 
     // 2. BODY VALIDATION
     const rows = data.rows || [];
-    const totals = data.totals || { dr: '', cr: '' }; // Get manual totals
+    const totals = data.totals || { dr: '', cr: '' };
     const expectedAccounts = Object.keys(expectedLedger);
     
     // Calculate Expected Totals & Map for Lookup
@@ -122,13 +122,8 @@ export const validateStep04 = (transactions, data, expectedLedger) => {
     
     feedback.totals = { dr: isTotalDrCorrect, cr: isTotalCrCorrect };
 
-    // Grade Calculation
-    const percent = maxScore > 0 ? (score / maxScore) * 100 : 0;
-    let letterGrade = 'F';
-    if (percent >= 90) letterGrade = 'A';
-    else if (percent >= 80) letterGrade = 'B';
-    else if (percent >= 70) letterGrade = 'C';
-    else if (percent >= 60) letterGrade = 'D';
+    // Grade Calculation using Utility
+    const letterGrade = getLetterGrade(score, maxScore);
 
     return { score, maxScore, isCorrect: score === maxScore, letterGrade, feedback };
 };
@@ -385,7 +380,7 @@ export default function Step04TrialBalance({ transactions, validAccounts, beginn
             ${showFeedback && html`
                 <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
                     <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
-                    <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'F'})</span>
+                    <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'IR'})</span>
                 </div>
             `}
 
