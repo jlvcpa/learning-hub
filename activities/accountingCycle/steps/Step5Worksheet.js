@@ -1,6 +1,4 @@
-// -------------------------
 // --- Step5Worksheet.js ---
-// -------------------------
 import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Table, Trash2, Plus, List, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
@@ -43,14 +41,12 @@ const SimpleLedgerView = ({ ledgerData }) => {
 
 export default function Step5Worksheet({ ledgerData, adjustments, data, onChange, showFeedback, isReadOnly }) {
     // 1. Expected Data for Validation Coloring
-    // Merged accounts derived from ledger + adjustments (Read-Only reference)
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
         adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); }); 
         return sortAccounts(Array.from(s)); 
     }, [ledgerData, adjustments]);
 
-    // Build map for easy validation lookup: { "Cash": { tbDr: 100, tbCr: 0, ... }, ... }
     const expectedValuesMap = useMemo(() => {
         const map = {};
         mergedAccounts.forEach(acc => {
@@ -71,15 +67,17 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
     const initialRows = useMemo(() => Array.from({ length: 10 }).map((_, i) => ({ id: i, account: '', tbDr: '', tbCr: '', adjDr: '', adjCr: '', atbDr: '', atbCr: '', isDr: '', isCr: '', bsDr: '', bsCr: '' })), []);
     const rows = data.rows || initialRows;
 
-    // --- FIX STARTS HERE ---
-    // Safely decompose footers so keys always exist, even if data.footers is {}
-    const rawFooters = data.footers || {};
-    const footers = {
-        totals: rawFooters.totals || {},
-        net: rawFooters.net || {},
-        final: rawFooters.final || {}
-    };
-    // --- FIX ENDS HERE ---
+    // FIX 1: Robust Footers Initialization with useMemo
+    // This ensures 'footers' always has the correct structure (totals, net, final) 
+    // and doesn't change reference unnecessarily, keeping inputs stable.
+    const footers = useMemo(() => {
+        const raw = data.footers || {};
+        return {
+            totals: raw.totals || {},
+            net: raw.net || {},
+            final: raw.final || {}
+        };
+    }, [data.footers]);
 
     // 3. Handlers
     const updateRow = (idx, field, val) => {
@@ -98,15 +96,23 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
         onChange('rows', newRows);
     };
 
+    // FIX 2: Robust Update Logic
+    // We explicitly rebuild the entire footer structure from data (or defaults)
+    // before modifying the specific field. This guarantees no data loss.
     const updateFooter = (section, field, val) => {
-        // Deep copy to prevent mutating props/state directly
+        const currentTotals = data.footers?.totals || {};
+        const currentNet = data.footers?.net || {};
+        const currentFinal = data.footers?.final || {};
+
         const newFooters = {
-            totals: { ...footers.totals },
-            net: { ...footers.net },
-            final: { ...footers.final }
+            totals: { ...currentTotals },
+            net: { ...currentNet },
+            final: { ...currentFinal }
         };
-        
+
+        // Update the specific value
         newFooters[section][field] = val;
+        
         onChange('footers', newFooters);
     };
 
