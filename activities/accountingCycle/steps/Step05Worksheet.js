@@ -1,9 +1,6 @@
-// ---------------------------------
-// --- Step05Worksheet.js --------
-// ------------------------------
 import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Table, Trash2, Plus, AlertCircle, List, ChevronDown, ChevronRight, Check, X } from 'https://esm.sh/lucide-react@0.263.1';
+import { Table, Trash2, Plus, AlertCircle, List, ChevronDown, ChevronRight, Check, X, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts, getAccountType, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
@@ -39,7 +36,7 @@ export const validateStep05 = (ledgerData, adjustments, userAnswers) => {
 
         // IS / BS
         const type = getAccountType(acc);
-        const isIS = ['Revenue', 'Expense'].includes(type); // simplified check based on utils
+        const isIS = ['Revenue', 'Expense'].includes(type); 
         
         const isDr = isIS ? atbDr : 0;
         const isCr = isIS ? atbCr : 0;
@@ -59,10 +56,10 @@ export const validateStep05 = (ledgerData, adjustments, userAnswers) => {
     // Calculate Net Income
     const netIncome = columnTotals.isCr - columnTotals.isDr;
     const netRow = {
-        isDr: netIncome > 0 ? netIncome : 0, // Debited to IS to close
-        isCr: netIncome < 0 ? Math.abs(netIncome) : 0, // Credited if loss
-        bsDr: netIncome < 0 ? Math.abs(netIncome) : 0, // Debit to capital (loss)
-        bsCr: netIncome > 0 ? netIncome : 0 // Credit to capital (gain)
+        isDr: netIncome > 0 ? netIncome : 0, 
+        isCr: netIncome < 0 ? Math.abs(netIncome) : 0,
+        bsDr: netIncome < 0 ? Math.abs(netIncome) : 0,
+        bsCr: netIncome > 0 ? netIncome : 0
     };
 
     // Calculate Final Totals
@@ -86,7 +83,6 @@ export const validateStep05 = (ledgerData, adjustments, userAnswers) => {
         maxScore++;
         const u = Number(userVal || 0);
         const e = Math.round(Number(expectedVal || 0));
-        // Strict match for accounting (tolerance of 1 for rounding)
         const isCorrect = Math.abs(u - e) <= 1;
         if (isCorrect) score++;
         return isCorrect;
@@ -101,16 +97,15 @@ export const validateStep05 = (ledgerData, adjustments, userAnswers) => {
                 rowRes[col] = checkVal(row[col], expectedMap[acc][col]);
             });
         } else if (acc) {
-            // User entered account not in list -> all wrong
             ['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].forEach(col => {
-                checkVal(row[col], 0); // Expect 0
+                checkVal(row[col], 0);
                 rowRes[col] = false;
             });
         }
         validationResults.rows[row.id] = rowRes;
     });
     
-    // Add max score for missing rows if any (strict scoring: user must add all rows)
+    // Add max score for missing rows if any
     const missingCount = sortedAccounts.length - rows.filter(r => r.account && expectedMap[r.account]).length;
     if (missingCount > 0) maxScore += (missingCount * 10);
 
@@ -133,9 +128,21 @@ export const validateStep05 = (ledgerData, adjustments, userAnswers) => {
 
 // --- INTERNAL COMPONENTS ---
 
-const SimpleLedgerView = ({ ledgerData }) => {
+// Updated to accept 'adjustments' prop to include zero-balance accounts
+const SimpleLedgerView = ({ ledgerData, adjustments }) => {
     const [expanded, setExpanded] = useState(true);
-    const sortedKeys = sortAccounts(Object.keys(ledgerData));
+    
+    // MERGE LOGIC: Get all accounts from Ledger + Adjustments
+    const allAccounts = useMemo(() => {
+        const accounts = new Set(Object.keys(ledgerData));
+        if (adjustments) {
+            adjustments.forEach(adj => {
+                if(adj.drAcc) accounts.add(adj.drAcc);
+                if(adj.crAcc) accounts.add(adj.crAcc);
+            });
+        }
+        return sortAccounts(Array.from(accounts));
+    }, [ledgerData, adjustments]);
     
     return html`
         <div className="mb-4 border rounded-lg shadow-sm bg-blue-50 overflow-hidden no-print">
@@ -145,8 +152,10 @@ const SimpleLedgerView = ({ ledgerData }) => {
             </div>
             ${expanded && html`
                 <div className="p-2 max-h-40 overflow-y-auto flex flex-wrap gap-2">
-                    ${sortedKeys.map(acc => { 
-                        const bal = ledgerData[acc].debit - ledgerData[acc].credit; 
+                    ${allAccounts.map(acc => { 
+                        // Safe access: ledgerData[acc] might be undefined if it's purely an adjustment account
+                        const accData = ledgerData[acc] || { debit: 0, credit: 0 };
+                        const bal = accData.debit - accData.credit; 
                         return html`
                             <div key=${acc} className="bg-white border px-2 py-1 text-xs rounded shadow-sm">
                                 <span className="font-semibold">${acc}:</span> 
@@ -259,11 +268,10 @@ export default function Step05Worksheet({ ledgerData, adjustments, data, onChang
         `;
     };
 
-    // 5. Banner (UPDATED PER REQUEST)
+    // 5. Banner
     const renderBanner = () => {
         if (!showFeedback && !isReadOnly) return null;
         
-        // Use 'result' to match your requested variable name style, mapped from 'validation'
         const result = validation;
 
         return html`
@@ -280,7 +288,7 @@ export default function Step05Worksheet({ ledgerData, adjustments, data, onChang
             ${renderBanner()}
 
             <div className="flex flex-col lg:flex-row gap-4 mb-4">
-                <div className="flex-1"><${SimpleLedgerView} ledgerData=${ledgerData} /></div>
+                <div className="flex-1"><${SimpleLedgerView} ledgerData=${ledgerData} adjustments=${adjustments} /></div>
                 <div className="flex-1 border rounded-lg shadow-sm bg-yellow-50 overflow-hidden">
                     <div className="bg-yellow-100 p-2 font-bold text-yellow-900 flex items-center gap-2"><${List} size=${16}/> Adjustments Data</div>
                     <div className="p-2 max-h-40 overflow-y-auto"><ul className="list-decimal list-inside text-xs space-y-1">${adjustments.map(adj => html`<li key=${adj.id}>${adj.desc}</li>`)}</ul></div>
