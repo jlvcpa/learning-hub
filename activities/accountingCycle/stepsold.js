@@ -7,8 +7,8 @@ import { ActivityHelper } from './utils.js';
 // Import all modular steps with their validation functions
 import Step01Analysis from './steps/Step01Analysis.js';
 import Step02Journalizing from './steps/Step02Journalizing.js';
-import Step03Posting, { validateStep03 } from './steps/Step03Posting.js'; // RENAMED & ADDED EXPORT
-import Step4TrialBalance from './steps/Step4TrialBalance.js';
+import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
+import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js'; // RENAMED & IMPORT VALIDATOR
 import Step5Worksheet from './steps/Step5Worksheet.js';
 import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
@@ -48,7 +48,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         const cur = answers[3]?.journalPRs || {};
         updateAnswerFns.updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}});
     };
-    const handleStep4Change = (key, val) => updateAnswerFns.updateAnswer(4, { ...(answers[4] || {}), [key]: val });
+    const handleStep04Change = (key, val) => updateAnswerFns.updateAnswer(4, { ...(answers[4] || {}), [key]: val });
     const handleStep5Change = (type, payload) => {
         const stepAnswer = answers[stepId] || {};
         const currentFooters = stepAnswer.footers || {};
@@ -71,7 +71,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
     // --- SCORE DISPLAY LOGIC ---
     let scoreDisplay = null;
     
-    // Logic for Step 2
+    // Step 2
     if (stepId === 2 && answers[2] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep02 === 'function') {
             const res = validateStep02(activityData.transactions, answers[2]);
@@ -80,10 +80,19 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
-    // Logic for Step 3
+    // Step 3
     else if (stepId === 3 && answers[3] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep03 === 'function') {
             const res = validateStep03(activityData, answers[3]);
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
+        }
+    }
+    // Step 4 (NEW)
+    else if (stepId === 4 && answers[4] && (status.completed || status.attempts < 3)) {
+        if (typeof validateStep04 === 'function') {
+            const res = validateStep04(activityData, answers[4]);
             if (res.maxScore > 0) {
                 scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
             }
@@ -97,11 +106,11 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         
         if (stepId === 1) return html`<${Step01Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep01Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 2) return html`<${Step02Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep02Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
-        
-        // --- UPDATED STEP 3 RENDER ---
         if (stepId === 3) return html`<${Step03Posting} activityData=${activityData} data=${answers[3] || {}} onChange=${handleStep03Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep03TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
         
-        if (stepId === 4) return html`<${Step4TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep4Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
+        // --- UPDATED STEP 4 RENDER ---
+        if (stepId === 4) return html`<${Step04TrialBalance} activityData=${activityData} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep04Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
+        
         if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 7) return html`<${Step7AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep7Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
