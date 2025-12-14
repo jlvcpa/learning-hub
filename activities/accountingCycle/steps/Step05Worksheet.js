@@ -128,11 +128,9 @@ export const validateStep05 = (ledgerData, adjustments, userAnswers) => {
 
 // --- INTERNAL COMPONENTS ---
 
-// Updated to accept 'adjustments' prop to include zero-balance accounts
 const SimpleLedgerView = ({ ledgerData, adjustments }) => {
     const [expanded, setExpanded] = useState(true);
     
-    // MERGE LOGIC: Get all accounts from Ledger + Adjustments
     const allAccounts = useMemo(() => {
         const accounts = new Set(Object.keys(ledgerData));
         if (adjustments) {
@@ -153,13 +151,12 @@ const SimpleLedgerView = ({ ledgerData, adjustments }) => {
             ${expanded && html`
                 <div className="p-2 max-h-40 overflow-y-auto flex flex-wrap gap-2">
                     ${allAccounts.map(acc => { 
-                        // Safe access: ledgerData[acc] might be undefined if it's purely an adjustment account
                         const accData = ledgerData[acc] || { debit: 0, credit: 0 };
                         const bal = accData.debit - accData.credit; 
                         return html`
                             <div key=${acc} className="bg-white border px-2 py-1 text-xs rounded shadow-sm">
                                 <span className="font-semibold">${acc}:</span> 
-                                <span className=${bal >= 0 ? "text-blue-600 ml-1" : "text-green-600 ml-1"}>
+                                <span className="text-gray-800 ml-1 font-mono font-medium">
                                     ${Math.abs(bal).toLocaleString()}
                                 </span>
                             </div>
@@ -175,7 +172,6 @@ const SimpleLedgerView = ({ ledgerData, adjustments }) => {
 
 export default function Step05Worksheet({ ledgerData, adjustments, data, onChange, showFeedback, isReadOnly }) {
     
-    // 1. Local State for Instant Feedback
     const initialRows = useMemo(() => Array.from({ length: 10 }).map((_, i) => ({ id: i, account: '', tbDr: '', tbCr: '', adjDr: '', adjCr: '', atbDr: '', atbCr: '', isDr: '', isCr: '', bsDr: '', bsCr: '' })), []);
     const rows = data.rows || initialRows;
 
@@ -191,12 +187,10 @@ export default function Step05Worksheet({ ledgerData, adjustments, data, onChang
         }
     }, [data.footers]);
 
-    // 2. Run Validation Logic
     const validation = useMemo(() => {
         return validateStep05(ledgerData, adjustments, { rows, footers: localFooters });
     }, [ledgerData, adjustments, rows, localFooters]);
 
-    // 3. Handlers
     const updateRow = (idx, field, val) => {
         const newRows = [...rows];
         newRows[idx] = { ...newRows[idx], [field]: val };
@@ -220,18 +214,15 @@ export default function Step05Worksheet({ ledgerData, adjustments, data, onChang
         onChange('footers', newFooters);
     };
 
-    // 4. Render Helpers
     const renderInput = (val, handler, validResult, disabled = false, placeholder = "") => {
         let bgClass = "bg-transparent hover:bg-gray-50 focus:bg-white";
         let icon = null;
 
         if (showFeedback && validResult !== undefined) {
             if (validResult) {
-                // Correct
                 bgClass = "bg-green-50 text-green-900 font-medium";
                 icon = html`<span className="absolute left-1 top-1/2 transform -translate-y-1/2 text-green-600 pointer-events-none"><${Check} size=${12}/></span>`;
             } else {
-                // Incorrect
                 bgClass = "bg-red-50 text-red-900 font-medium";
                 icon = html`<span className="absolute left-1 top-1/2 transform -translate-y-1/2 text-red-500 pointer-events-none"><${X} size=${12}/></span>`;
             }
@@ -268,10 +259,8 @@ export default function Step05Worksheet({ ledgerData, adjustments, data, onChang
         `;
     };
 
-    // 5. Banner
     const renderBanner = () => {
         if (!showFeedback && !isReadOnly) return null;
-        
         const result = validation;
 
         return html`
