@@ -22,19 +22,20 @@ const parseUserValue = (val) => {
     return isNegative ? -num : num;
 };
 
+// ENHANCED checkField Logic
 const checkField = (userVal, expectedVal, isDeduction = false) => {
-    // Round expected value to nearest integer for comparison
     const expRounded = Math.round(expectedVal);
     
-    // Case 1: Expected is 0 (e.g. Income Tax, Beg Cap for new business)
-    // Allowed to be blank or '0'
+    // Case 1: Expected is 0 (or very close)
+    // Allowed to be blank or '0'. This covers Income Tax, Beg Cap for new business, etc.
     if (Math.abs(expRounded) < 0.01) {
         return !userVal || parseUserValue(userVal) === 0;
     }
 
     // Case 2: Expected is NON-ZERO
-    // Must NOT be blank. If blank, return FALSE (X mark).
-    if (!userVal && userVal !== 0) return false;
+    // Per request: "To make things easier, just treat all empty boxes as X at the beginning."
+    // If userVal is empty/null/undefined, return false immediately.
+    if (userVal === undefined || userVal === null || userVal === '') return false;
 
     const parsedUser = parseUserValue(userVal);
     const matchesNumber = Math.abs(parsedUser - expRounded) <= 1 || Math.abs(parsedUser - (-expRounded)) <= 1;
@@ -43,10 +44,6 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
     
     // Sign check for deductions
     if (expRounded < 0 || isDeduction) {
-        // If deduction, user usually types positive number in a "Less:" row, or negative.
-        // We accept (100) or -100 or 100 (if logic handles it as abs comparison).
-        // Here we enforce explicit sign if user didn't type parens/negative but expected negative? 
-        // Actually, previous logic enforced sign:
         if (!userVal.toString().includes('(') && !userVal.toString().includes('-') && parsedUser > 0) return false;
     }
     return true;
@@ -107,7 +104,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         liabilities: [],
         currentLiabilities: [],
         nonCurrentLiabilities: [],
-        equity: {}, // BegCap, Investments, Drawings
+        equity: {}, 
         totals: { 
             ni: 0, 
             rev: 0,
@@ -153,7 +150,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
                 expected.totals.curAssets += val;
             } else if (isContra) {
                 expected.contraAssets.push({ name: acc, amount: val }); 
-                expected.totals.nonCurAssets -= val; // Contra reduces assets
+                expected.totals.nonCurAssets -= val; // Contra reduces non-current assets
             } else {
                 // Non-current (PPE, Land)
                 expected.nonCurrentAssets.push({ name: acc, amount: val });
@@ -182,7 +179,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         }
     });
 
-    // Special handling for Investments (Credits to Capital during period)
+    // Special handling for Investments
     let investments = 0;
     activityData.transactions.forEach(t => {
         t.credits.forEach(c => {
@@ -193,7 +190,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     });
     expected.equity.investments = investments;
 
-    // Recalculate End Cap strictly
+    // Recalculate End Cap strictly (Assets - Liabilities = Equity)
     expected.totals.endCap = expected.totals.assets - expected.totals.liabs;
     expected.totals.liabEquity = expected.totals.liabs + expected.totals.endCap;
 
@@ -232,7 +229,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     scoreSection(allUserISRows, expected.revenues);
     scoreSection(allUserISRows, expected.expenses);
     
-    // Score Totals in IS (Explicitly added as requested)
+    // Score Totals in IS
     scoreField(isData.totalRevenues || isData.totalOpRevenues, expected.totals.rev);
     scoreField(isData.totalExpenses || isData.totalOpExpenses, expected.totals.exp);
     scoreField(isData.netIncomeBeforeTax, expected.totals.ni);
@@ -433,8 +430,6 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
         if (!data?.depAssets || data.depAssets.length === 0) {
             // Only update if not readonly to avoid loops or state conflicts during review
             if (!isReadOnly && onChange) {
-                // We use a functional update pattern if possible, but here we call parent onChange
-                // Merge current data with new depAssets row
                 onChange({ ...data, depAssets: [{ asset: '', cost: '', contra: '', accum: '', net: '' }] });
             }
         }
@@ -452,9 +447,10 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
     const nonCurLiabs = data?.nonCurLiabs || [{ label: '', amount: '' }];
 
     // --- Helpers ---
+    // FIXED: Made handleArrChange robust to ensure array and index exist before assignment
     const handleArrChange = (arrKey, idx, field, val) => {
         const arr = [...(data?.[arrKey] || [])];
-        if (!arr[idx]) arr[idx] = {}; // Safety check to prevent crash
+        if (!arr[idx]) arr[idx] = {}; // Initialize object if missing to prevent crash
         arr[idx] = { ...arr[idx], [field]: val };
         updateData({ [arrKey]: arr });
     };
