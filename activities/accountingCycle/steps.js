@@ -11,7 +11,7 @@ import Step01Analysis from './steps/Step01Analysis.js';
 import Step02Journalizing from './steps/Step02Journalizing.js';
 import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
 import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js'; // RENAMED & IMPORT VALIDATOR
-import Step5Worksheet from './steps/Step5Worksheet.js';
+import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js'; // RENAMED & IMPORT VALIDATOR
 import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
@@ -101,6 +101,16 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         }
     }
 
+    // ADDED STEP 5 SCORE DISPLAY
+    else if (stepId === 5 && answers[5] && (status.completed || status.attempts < 3)) {
+    if (typeof validateStep05 === 'function') {
+        const res = validateStep05(activityData.ledger, activityData.adjustments, answers[5]);
+        if (res.maxScore > 0) {
+            scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+        }
+    }
+}
+
     const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
         // Show feedback if attempts are used OR if the task is marked completed (perfect score)
@@ -112,8 +122,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         
         // --- UPDATED STEP 4 RENDER ---
         if (stepId === 4) return html`<${Step04TrialBalance} activityData=${activityData} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep04Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
-        
-        if (stepId === 5) return html`<${Step5Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep5Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        if (stepId === 5) return html`<${Step05Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep05Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step6FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep6Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 7) return html`<${Step7AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep7Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 8) return html`<${Step8ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep8Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
