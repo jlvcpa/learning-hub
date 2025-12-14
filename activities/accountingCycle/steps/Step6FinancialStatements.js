@@ -1,8 +1,8 @@
-// --- Step6FinancialStatements.js ---
+// --- Step06FinancialStatements.js ---
 import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Table, Trash2, Plus, List, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts, getAccountType } from '../utils.js';
+import { Table, Trash2, Plus, List, ChevronDown, ChevronRight, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
+import { sortAccounts, getAccountType, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
@@ -41,6 +41,191 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
 
 const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border-b border-gray-300 bg-transparent focus:border-blue-500 font-mono ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 const btnStyle = "mt-2 text-xs text-blue-900 font-medium hover:underline flex items-center gap-1 cursor-pointer";
+
+// --- DRY VALIDATION LOGIC ---
+export const validateStep06 = (ledgerData, adjustments, activityData, userAnswers) => {
+    let score = 0;
+    let maxScore = 0;
+    
+    // 1. Calculate Expected Data (The Truth)
+    const s = new Set(Object.keys(ledgerData));
+    adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); });
+    
+    // Buckets for expected accounts
+    const expected = {
+        revenues: [],
+        expenses: [],
+        assets: [],
+        liabilities: [],
+        equity: {}, // BegCap, Investments, Drawings
+        totals: { ni: 0, assets: 0, liabs: 0, endCap: 0 }
+    };
+
+    // Process Ledger + Adjustments to get Final Adjusted Balances
+    Array.from(s).forEach(acc => {
+        const lBal = (ledgerData[acc]?.debit || 0) - (ledgerData[acc]?.credit || 0);
+        let aDr = 0; let aCr = 0;
+        adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
+        const atbNet = lBal + (aDr - aCr); // Positive = Dr, Negative = Cr
+        
+        if (Math.abs(atbNet) < 0.01) return; // Skip zero balance accounts
+
+        const type = getAccountType(acc);
+        const val = Math.abs(atbNet);
+
+        if (type === 'Revenue') {
+            expected.revenues.push({ name: acc, amount: val });
+            expected.totals.ni += val; // Credit increases income
+        } else if (type === 'Expense') {
+            expected.expenses.push({ name: acc, amount: val });
+            expected.totals.ni -= val; // Debit decreases income
+        } else if (type === 'Asset') {
+            expected.assets.push({ name: acc, amount: val }); // Dr is positive asset
+            expected.totals.assets += val;
+        } else if (type === 'Liability') {
+            expected.liabilities.push({ name: acc, amount: val }); // Cr is positive liability
+            expected.totals.liabs += val;
+        } else if (acc.includes('Drawings') || acc.includes('Dividends')) {
+            expected.equity.drawings = (expected.equity.drawings || 0) + val;
+        } else if (type === 'Equity' && !acc.includes('Income Summary')) {
+            // Capital / Retained Earnings
+            expected.equity.capitalAccount = acc;
+            expected.equity.begBal = Math.abs(activityData.beginningBalances?.balances?.[acc]?.cr || 0); 
+            // If no beginning balance object, approximate from ledger (assuming no investments yet, which is tricky, 
+            // but for this simplified validation we compare end results mostly).
+            // Better strategy: Use the raw ATB balance as the "Capital before closing"
+            expected.equity.atbCapital = val; 
+        }
+    });
+
+    // Special handling for Investments (Credits to Capital during period)
+    let investments = 0;
+    activityData.transactions.forEach(t => {
+        t.credits.forEach(c => {
+             // Simply check if capital account was credited in a transaction (not closing/adjusting)
+             if (getAccountType(c.account) === 'Equity' && !c.account.includes('Drawings') && !c.account.includes('Retained')) {
+                 investments += c.amount;
+             }
+        });
+    });
+    expected.equity.investments = investments;
+
+    // Recalculate End Cap strictly
+    // Beg Cap + Investments + NI - Drawings
+    // Note: If it's a new business, BegCap is 0, Investments is the ATB Capital balance.
+    // If subsequent, BegCap is from file, Investments is 0 usually unless specified.
+    // Simplified: End Capital = (Assets - Liabilities). Accounting Equation must balance.
+    expected.totals.endCap = expected.totals.assets - expected.totals.liabilities;
+
+
+    // --- SCORING HELPER ---
+    const scoreSection = (userRows, expectedItems) => {
+        // Expected Items: Array of { name, amount }
+        // Each expected item is worth 2 points (1 for Name, 1 for Amount)
+        
+        expectedItems.forEach(exp => {
+            maxScore += 2; 
+            
+            // Find match in user rows
+            const match = userRows.find(r => r.label && r.label.toLowerCase().trim() === exp.name.toLowerCase().trim());
+            
+            if (match) {
+                score += 1; // Found the account
+                if (checkField(match.amount, exp.amount)) {
+                    score += 1; // Amount is correct
+                }
+            }
+        });
+    };
+
+    const scoreField = (userVal, expectedVal) => {
+        maxScore += 1;
+        if (checkField(userVal, expectedVal)) score += 1;
+    };
+
+
+    // 2. Score Income Statement
+    const isData = userAnswers.is || {};
+    // Combine all user IS rows for search (handling single/multi step structures)
+    const allUserISRows = [
+        ...(isData.revenues || []), 
+        ...(isData.opRevenues || []), 
+        ...(isData.otherIncome || []),
+        ...(isData.expenses || []),
+        ...(isData.opExpenses || []),
+        ...(isData.nonOpItems || [])
+    ];
+
+    scoreSection(allUserISRows, expected.revenues);
+    scoreSection(allUserISRows, expected.expenses);
+    scoreField(isData.netIncomeAfterTax || isData.netIncomeBeforeTax, expected.totals.ni); // Score the final line
+
+    // 3. Score SCE
+    const sceData = userAnswers.sce || {};
+    // Beg Cap
+    const begCapVal = activityData.config.isSubsequentYear ? expected.equity.begBal : 0; 
+    scoreField(sceData.begCapital, begCapVal);
+    
+    // Additions (Investments + NI if positive)
+    // We expect user to add rows for these.
+    const sceAdditions = sceData.additions || [];
+    if (expected.equity.investments > 0) {
+        maxScore += 2;
+        const invMatch = sceAdditions.find(r => r.label.toLowerCase().includes('investment') || r.label.toLowerCase().includes('capital'));
+        if (invMatch) {
+            score += 1;
+            if (checkField(invMatch.amount, expected.equity.investments)) score += 1;
+        }
+    }
+    if (expected.totals.ni > 0) {
+        maxScore += 2;
+        const niMatch = sceAdditions.find(r => r.label.toLowerCase().includes('income'));
+        if (niMatch) {
+            score += 1;
+            if (checkField(niMatch.amount, expected.totals.ni)) score += 1;
+        }
+    }
+
+    // Deductions (Drawings + NI if negative)
+    const sceDeductions = sceData.deductions || [];
+    if (expected.equity.drawings > 0) {
+        maxScore += 2;
+        const drwMatch = sceDeductions.find(r => r.label.toLowerCase().includes('drawing'));
+        if (drwMatch) {
+            score += 1;
+            if (checkField(drwMatch.amount, expected.equity.drawings)) score += 1;
+        }
+    }
+    if (expected.totals.ni < 0) {
+        maxScore += 2;
+        const lossMatch = sceDeductions.find(r => r.label.toLowerCase().includes('loss'));
+        if (lossMatch) {
+            score += 1;
+            if (checkField(lossMatch.amount, Math.abs(expected.totals.ni))) score += 1;
+        }
+    }
+
+    scoreField(sceData.endCapital, expected.totals.endCap);
+
+    // 4. Score Balance Sheet
+    const bsData = userAnswers.bs || {};
+    const allUserAssetRows = [...(bsData.curAssets || []), ...(bsData.otherAssets || []), ...(bsData.depAssets || []).map(d => ({label: d.asset, amount: d.net}))];
+    const allUserLiabRows = [...(bsData.curLiabs || []), ...(bsData.nonCurLiabs || [])];
+
+    scoreSection(allUserAssetRows, expected.assets);
+    scoreSection(allUserLiabRows, expected.liabilities);
+    
+    // Totals
+    scoreField(bsData.totalAssets, expected.totals.assets);
+    scoreField(bsData.totalLiabs, expected.totals.liabs);
+    scoreField(bsData.totalLiabEquity, expected.totals.assets); // Should equal assets
+
+    const isCorrect = score === maxScore && maxScore > 0;
+    const letterGrade = getLetterGrade(score, maxScore);
+    
+    return { score, maxScore, letterGrade, isCorrect };
+};
+
 
 // --- INTERNAL COMPONENT: Worksheet Source View (Read-Only) ---
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
@@ -514,7 +699,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
                     <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating / Non-operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('expenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Expenses', 'totalExpenses', expOpExp, false, 'pl-0 font-bold')}
                 ` : html`
-                    <div className="mt-4 font-bold text-gray-800">Operating Expenses</div>
+                    <div className="mt-4 font-bold text-gray-800">Less: Operating Expenses</div>
                     <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('opExpenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Operating Expenses', 'totalOpExpenses', expOpExp, false, 'pl-4 font-semibold')}
                     ${renderRow('Net Operating Income (Loss)', 'netOpInc', expOpIncome, false, 'pl-0 font-bold')}
@@ -606,7 +791,7 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
                     <table className="w-full mb-1"><tbody>${expenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating / Non-operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('expenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('expenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Expenses', 'totalExpenses', expOpExp, false, 'pl-0 font-bold')}
                 ` : html`
-                    <div className="mt-4 font-bold text-gray-800">Less: Operating Expenses</div>
+                    <div className="mt-4 font-bold text-gray-800">Operating Expenses</div>
                     <table className="w-full mb-1"><tbody>${opExpenseRows.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full bg-transparent" placeholder="[Operating Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('opExpenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="w-24"><input type="text" className="w-full text-right bg-transparent border-b" value=${r.amount} onChange=${(e)=>handleArrAmountChange('opExpenses',i,e.target.value)} disabled=${isReadOnly}/></td><td><button onClick=${()=>deleteRow('opExpenses',i)}><${Trash2} size=${12}/></button></td></tr>`)}</tbody></table><button onClick=${()=>addRow('opExpenses')} class=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>
                     ${renderRow('Total Operating Expenses', 'totalOpExpenses', expOpExp, false, 'pl-4 font-semibold')}
                     ${renderRow('Net Operating Income (Loss)', 'netOpInc', expOpIncome, false, 'pl-0 font-bold')}
@@ -629,7 +814,7 @@ const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculated
 
 // --- MAIN EXPORT ---
 
-export default function Step6FinancialStatements({ ledgerData, adjustments, activityData, data, onChange, showFeedback, isReadOnly }) {
+export default function Step06FinancialStatements({ ledgerData, adjustments, activityData, data, onChange, showFeedback, isReadOnly }) {
     const { fsFormat, includeCashFlows, businessType, inventorySystem } = activityData.config;
     const isMerch = businessType === 'Merchandising' || businessType === 'Manufacturing';
     const isPerpetual = inventorySystem === 'Perpetual';
@@ -673,8 +858,20 @@ export default function Step6FinancialStatements({ ledgerData, adjustments, acti
     // Derive ending capital from SCE data to pass to Balance Sheet for validation
     const sceEndingCapital = parseUserValue(data.sce?.endCapital);
 
+    // Calculate Banner Results
+    const validationResult = useMemo(() => {
+        if (!showFeedback && !isReadOnly) return null;
+        return validateStep06(ledgerData, adjustments, activityData, data);
+    }, [ledgerData, adjustments, activityData, data, showFeedback, isReadOnly]);
+
     return html`
         <div className="flex flex-col h-[calc(100vh-140px)]">
+            ${(showFeedback || isReadOnly) && validationResult && html`
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
+                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
+                    <span className="font-mono font-bold text-lg">Score: ${validationResult.score || 0} of ${validationResult.maxScore || 0} - (${validationResult.letterGrade || 'IR'})</span>
+                </div>
+            `}
             <div className="h-1/2 overflow-hidden border-b-4 border-gray-300 pb-2 bg-white relative">
                 <${WorksheetSourceView} ledgerData=${ledgerData} adjustments=${adjustments} />
             </div>
