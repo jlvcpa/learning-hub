@@ -34,6 +34,7 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
 
     // Case 2: Expected is NON-ZERO
     // Must NOT be blank. If blank, return FALSE (X mark).
+    // This fixes the "Confusing Checkmarks" issue on empty total boxes.
     if (!userVal && userVal !== 0) return false;
 
     const parsedUser = parseUserValue(userVal);
@@ -43,6 +44,7 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
     
     // Sign check for deductions
     if (expRounded < 0 || isDeduction) {
+        // Enforce explicit sign if needed, though mostly we just check magnitude above
         if (!userVal.toString().includes('(') && !userVal.toString().includes('-') && parsedUser > 0) return false;
     }
     return true;
@@ -172,14 +174,13 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         } else if (acc.includes('Drawings') || acc.includes('Dividends')) {
             expected.equity.drawings = (expected.equity.drawings || 0) + val;
         } else if (type === 'Equity' && !acc.includes('Income Summary')) {
-            // Capital / Retained Earnings
             expected.equity.capitalAccount = acc;
             expected.equity.begBal = Math.abs(activityData.beginningBalances?.balances?.[acc]?.cr || 0); 
             expected.equity.atbCapital = val; 
         }
     });
 
-    // Special handling for Investments (Credits to Capital during period)
+    // Special handling for Investments
     let investments = 0;
     activityData.transactions.forEach(t => {
         t.credits.forEach(c => {
@@ -190,7 +191,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     });
     expected.equity.investments = investments;
 
-    // Recalculate End Cap strictly
+    // Recalculate End Cap strictly (Assets - Liabilities = Equity)
     expected.totals.endCap = expected.totals.assets - expected.totals.liabs;
     expected.totals.liabEquity = expected.totals.liabs + expected.totals.endCap;
 
@@ -198,7 +199,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     // --- SCORING HELPER ---
     const scoreSection = (userRows, expectedItems) => {
         expectedItems.forEach(exp => {
-            maxScore += 2; 
+            maxScore += 2; // 1 for Name, 1 for Amount
             const match = userRows.find(r => r.label && r.label.toLowerCase().trim() === exp.name.toLowerCase().trim());
             if (match) {
                 score += 1; // Found the account
@@ -229,11 +230,11 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     scoreSection(allUserISRows, expected.revenues);
     scoreSection(allUserISRows, expected.expenses);
     
-    // Score Totals in IS (Explicitly added scoring for Totals as requested)
+    // Score Totals in IS
     scoreField(isData.totalRevenues || isData.totalOpRevenues, expected.totals.rev);
     scoreField(isData.totalExpenses || isData.totalOpExpenses, expected.totals.exp);
     scoreField(isData.netIncomeBeforeTax, expected.totals.ni);
-    scoreField(isData.incomeTax, 0); // Income Tax is 0 in this simplified simulator
+    scoreField(isData.incomeTax, 0); // Income Tax is 0
     scoreField(isData.netIncomeAfterTax, expected.totals.ni); 
 
     // 3. Score SCE
@@ -261,7 +262,6 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         }
         additionsTotal += expected.totals.ni;
     }
-    // Score Total Additions
     scoreField(sceData.totalAdditions, additionsTotal);
 
     // Capital During
@@ -287,7 +287,6 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         }
         deductionsTotal += Math.abs(expected.totals.ni);
     }
-    // Score Total Deductions
     scoreField(sceData.totalDeductions, deductionsTotal);
 
     scoreField(sceData.endCapital, expected.totals.endCap);
@@ -312,7 +311,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             // Check Cost
             if (checkField(userRow.cost, ppe.amount)) score += 1;
             
-            // Check Accum
+            // Check Accum (Contra)
             const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); 
             const contraAmt = contra ? contra.amount : 0;
             if (checkField(userRow.accum, contraAmt, true)) score += 1; 
@@ -345,7 +344,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     const isCorrect = score === maxScore && maxScore > 0;
     const letterGrade = getLetterGrade(score, maxScore);
     
-    return { score, maxScore, letterGrade, isCorrect, expected }; // Exporting expected for UI use
+    return { score, maxScore, letterGrade, isCorrect, expected }; 
 };
 
 
@@ -421,7 +420,7 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
     `;
 };
 
-// --- BALANCE SHEET COMPONENT (NEW DEC 9 VERSION) ---
+// --- BALANCE SHEET COMPONENT ---
 
 const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapital, expectedTotals }) => {
     const [showNonCurrentAssets, setShowNonCurrentAssets] = useState(false);
@@ -493,11 +492,15 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                             <div key=${i} className="mb-2 bg-gray-50 p-2 rounded relative group">
                                 <div className="flex justify-between mb-1">
                                     <input type="text" className="bg-transparent w-full outline-none" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
-                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={parseUserValue(block.cost)} showFeedback={false} isReadOnly={isReadOnly} placeholder="0" /></div>
+                                    <div className="w-24 relative">
+                                        <input type="text" className=${inputClass(false)} value=${block.cost || ''} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} disabled=${isReadOnly} placeholder="0" />
+                                    </div>
                                 </div>
                                 <div className="flex justify-between mb-1 text-gray-600">
                                     <span className="pl-4">Less: <input type="text" className="inline-block bg-transparent outline-none w-32" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
-                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={parseUserValue(block.accum)} showFeedback={false} isReadOnly={isReadOnly} placeholder="(0)" /></div>
+                                    <div className="w-24 relative">
+                                        <input type="text" className=${inputClass(false)} value=${block.accum || ''} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} disabled=${isReadOnly} placeholder="(0)" />
+                                    </div>
                                 </div>
                                 <div className="flex justify-between font-bold">
                                     <span className="pl-8">Net Book Value</span>
