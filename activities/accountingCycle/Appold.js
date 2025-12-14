@@ -10,8 +10,8 @@ import { TaskSection } from './steps.js';
 // Import all modular steps
 import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
 import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js';
-import Step03Posting, { validateStep03 } from './steps/Step03Posting.js'; // CHANGED & RENAMED
-import Step4TrialBalance from './steps/Step4TrialBalance.js';
+import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
+import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js'; // CHANGED & RENAMED
 import Step5Worksheet from './steps/Step5Worksheet.js';
 import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
@@ -22,6 +22,7 @@ import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
 
+// ... (TeacherDashboard remains unchanged) ...
 const TeacherDashboard = ({ onGenerate }) => {
     // PERSISTENCE: Initialize state from localStorage if available, otherwise default
     const [businessType, setBusinessType] = useState(() => localStorage.getItem('ac_businessType') || 'Service');
@@ -271,40 +272,17 @@ const App = () => {
             isCorrect = result.isCorrect;
             
         } else if (stepId === 3) {
-            // --- FIXED STEP 3 VALIDATION (App.js) ---
-            // Use the DRY validation logic from Step03Posting
+            // Step 3 Validation
             const result = validateStep03(activityData, currentAns);
             isCorrect = result.isCorrect;
             
         } else if (stepId === 4) {
-             const rows = currentAns.rows || [];
-             const expectedAccounts = Object.keys(activityData.ledger);
-             let allRowsCorrect = true;
-             
-             const populatedRows = rows.filter(r => r.account && r.account.trim() !== '');
-             if (populatedRows.length !== expectedAccounts.length) {
-                 allRowsCorrect = false;
-             }
+            // --- UPDATED STEP 4 VALIDATION ---
+            const result = validateStep04(activityData.transactions, currentAns, activityData.ledger);
+            isCorrect = result.isCorrect;
 
-             populatedRows.forEach(r => {
-                 const acc = r.account.trim();
-                 const key = expectedAccounts.find(k => k.toLowerCase() === acc.toLowerCase());
-                 if (!key) { 
-                     allRowsCorrect = false; 
-                     return; 
-                 }
-                 const expNet = (activityData.ledger[key].debit || 0) - (activityData.ledger[key].credit || 0);
-                 const expDr = expNet > 0 ? expNet : 0;
-                 const expCr = expNet < 0 ? Math.abs(expNet) : 0;
-                 const usrDr = Number(r.dr) || 0;
-                 const usrCr = Number(r.cr) || 0;
-
-                 if (Math.abs(usrDr - expDr) > 1 || Math.abs(usrCr - expCr) > 1) {
-                     allRowsCorrect = false; 
-                 }
-             });
-
-             isCorrect = allRowsCorrect;
+    // Optional: You can console log score here if needed
+    // console.log("Step 4 Score:", result.score, "/", result.maxScore);
 
         } else if (stepId === 5) {
              const userFinal = currentAns.footers?.final || {};
@@ -345,7 +323,7 @@ const App = () => {
              
              isCorrect = matchFound;
         } else if (stepId === 7) {
-             // --- STEP 7 VALIDATION (Adjusting Entries) ---
+             // ... (Step 7 validation remains unchanged)
              const journalData = currentAns.journal || {};
              const ledgerData = currentAns.ledger || {};
              const { adjustments, ledger } = activityData;
@@ -353,7 +331,6 @@ const App = () => {
              let allJournalCorrect = true;
              let allLedgerCorrect = true;
 
-             // 1. Validate Journal
              adjustments.forEach(adj => {
                  const entry = journalData[adj.id] || {};
                  const drMatch = entry.drAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
@@ -361,7 +338,6 @@ const App = () => {
                  if (!drMatch || !crMatch) allJournalCorrect = false;
              });
 
-             // 2. Validate Ledger
              const affectedAccounts = new Set();
              adjustments.forEach(a => { affectedAccounts.add(a.drAcc); affectedAccounts.add(a.crAcc); });
              
@@ -386,12 +362,11 @@ const App = () => {
              isCorrect = allJournalCorrect && allLedgerCorrect;
 
         } else if (stepId === 8) {
-             // --- STEP 8 VALIDATION (Closing Entries) ---
+             // ... (Step 8 validation remains unchanged)
              const ledgers = currentAns.ledgers || [];
              const journalData = currentAns.journal || {};
              const { ledger, adjustments, validAccounts, config, beginningBalances } = activityData;
 
-             // 1. Nominal Accounts Check (Must be 0)
              let allNominalClosed = true;
              ledgers.forEach(l => {
                  const type = getAccountType(l.account);
@@ -401,19 +376,16 @@ const App = () => {
                  }
              });
 
-             // 2. Journal Validation (Totals)
              const getBlockTotal = (blockId) => {
                  const rows = journalData[blockId]?.rows || [];
-                 // Averages Dr and Cr to get the transaction amount
                  return rows.reduce((sum, r) => sum + (Number(r.dr) || 0) + (Number(r.cr) || 0), 0) / 2;
              };
 
-             // Calculate targets
              let totalRev = 0, totalExp = 0, totalDraw = 0;
              validAccounts.forEach(acc => {
                  const rawDr = ledger[acc]?.debit || 0;
                  const rawCr = ledger[acc]?.credit || 0;
-                 let val = rawDr - rawCr; // +Dr, -Cr
+                 let val = rawDr - rawCr; 
                  adjustments.forEach(a => { if (a.drAcc === acc) val += a.amount; if (a.crAcc === acc) val -= a.amount; });
                  const type = getAccountType(acc);
                  if (type === 'Revenue') totalRev += Math.abs(val);
@@ -429,17 +401,15 @@ const App = () => {
              
              const journalValid = revCorrect && expCorrect && incSumCorrect && drawCorrect;
 
-             // 3. Capital Account Check
              let begCap = 0;
              if (config.isSubsequentYear && beginningBalances) {
                  const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
                  if (capAcc && beginningBalances.balances[capAcc]) begCap = beginningBalances.balances[capAcc].cr;
              } else {
                  const capAccName = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
-                 // For first year, calculate adjusted capital before closing
                  const rawDr = ledger[capAccName]?.debit || 0;
                  const rawCr = ledger[capAccName]?.credit || 0;
-                 begCap = Math.abs(rawDr - rawCr); // Net credits
+                 begCap = Math.abs(rawDr - rawCr); 
              }
              
              const endCap = begCap + netIncome - totalDraw;
@@ -450,17 +420,15 @@ const App = () => {
              isCorrect = allNominalClosed && journalValid && capitalValid;
 
         } else if (stepId === 9) {
-             // --- STEP 9 VALIDATION (Post-Closing Trial Balance) ---
+             // ... (Step 9 validation remains unchanged)
              const rows = currentAns.rows || [];
              const { ledger, adjustments, validAccounts } = activityData;
              
-             // 1. Calculate Expected Post-Closing Balances
              const finalBalances = {};
              let capitalAcc = '';
              let ni = 0;
              let draw = 0;
 
-             // Calculate Adjusted Balances & Identify Components
              validAccounts.forEach(acc => {
                  const rawDr = ledger[acc]?.debit || 0;
                  const rawCr = ledger[acc]?.credit || 0;
@@ -474,19 +442,15 @@ const App = () => {
                  else if (acc.includes('Drawing')) draw += net;
                  else if (type === 'Equity') capitalAcc = acc;
                  
-                 // Store for Real Accounts
                  if (['Asset','Liability'].includes(type)) finalBalances[acc] = net;
              });
 
-             // Calculate Final Capital
              const rawCapDr = ledger[capitalAcc]?.debit || 0;
              const rawCapCr = ledger[capitalAcc]?.credit || 0;
-             const startCap = Math.abs(rawCapDr - rawCapCr); // Credit Normal
+             const startCap = Math.abs(rawCapDr - rawCapCr); 
              const endCap = startCap + ni - draw;
-             finalBalances[capitalAcc] = -endCap; // Store as credit (negative)
+             finalBalances[capitalAcc] = -endCap; 
 
-             // 2. Validate User Rows
-             // Must have rows for all non-zero real accounts. No nominals.
              let allCorrect = true;
              const expectedCount = Object.keys(finalBalances).filter(k => Math.abs(finalBalances[k]) > 0).length;
              let validUserRows = 0;
@@ -497,7 +461,6 @@ const App = () => {
                  const expVal = finalBalances[Object.keys(finalBalances).find(k=>k.toLowerCase()===acc.toLowerCase())];
                  
                  if (expVal === undefined) { 
-                     // Entered a nominal account or invalid account
                      allCorrect = false; 
                  } else {
                      const uDr = Number(r.dr)||0;
@@ -513,7 +476,7 @@ const App = () => {
              isCorrect = allCorrect && rows.length > 0;
 
         } else if (stepId === 10) {
-            // --- STEP 10 VALIDATION (Reversing Entries) ---
+            // ... (Step 10 validation remains unchanged)
             const { adjustments, config } = activityData;
             const currentAns = answers[10] || {};
             
@@ -522,8 +485,6 @@ const App = () => {
                 const entry = currentAns[adj.id] || {};
                 const isFirst = idx === 0;
                 
-                // Use the helper function exported from the Step 10 file
-                // This checks Accounts, Amounts, Dates, Year, AND Description
                 const result = validateReversingEntry(entry, adj, config, isFirst);
                 
                 if (!result.isEntryCorrect) {
