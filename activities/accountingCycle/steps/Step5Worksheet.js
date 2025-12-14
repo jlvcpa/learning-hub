@@ -1,5 +1,5 @@
 // --- Step5Worksheet.js ---
-import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Table, Trash2, Plus, List, ChevronDown, ChevronRight } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts } from '../utils.js';
@@ -40,7 +40,8 @@ const SimpleLedgerView = ({ ledgerData }) => {
 // --- MAIN EXPORT ---
 
 export default function Step5Worksheet({ ledgerData, adjustments, data, onChange, showFeedback, isReadOnly }) {
-    // 1. Expected Data for Validation Coloring
+    
+    // 1. Validation Logic
     const mergedAccounts = useMemo(() => { 
         const s = new Set(Object.keys(ledgerData)); 
         adjustments.forEach(adj => { s.add(adj.drAcc); s.add(adj.crAcc); }); 
@@ -63,23 +64,30 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
         return map;
     }, [mergedAccounts, ledgerData, adjustments]);
 
-    // 2. State Initialization
+    // 2. Rows State
     const initialRows = useMemo(() => Array.from({ length: 10 }).map((_, i) => ({ id: i, account: '', tbDr: '', tbCr: '', adjDr: '', adjCr: '', atbDr: '', atbCr: '', isDr: '', isCr: '', bsDr: '', bsCr: '' })), []);
     const rows = data.rows || initialRows;
 
-    // FIX 1: Robust Footers Initialization with useMemo
-    // This ensures 'footers' always has the correct structure (totals, net, final) 
-    // and doesn't change reference unnecessarily, keeping inputs stable.
-    const footers = useMemo(() => {
-        const raw = data.footers || {};
-        return {
-            totals: raw.totals || {},
-            net: raw.net || {},
-            final: raw.final || {}
-        };
+    // 3. Footers State (LOCAL STATE FIX)
+    // We initialize local state so inputs respond instantly, then sync to parent.
+    const [localFooters, setLocalFooters] = useState({
+        totals: {}, 
+        net: {}, 
+        final: {} 
+    });
+
+    // Sync local state with props on load (or if props change externally)
+    useEffect(() => {
+        if (data.footers) {
+            setLocalFooters(prev => ({
+                totals: { ...prev.totals, ...data.footers.totals },
+                net: { ...prev.net, ...data.footers.net },
+                final: { ...prev.final, ...data.footers.final }
+            }));
+        }
     }, [data.footers]);
 
-    // 3. Handlers
+    // 4. Handlers
     const updateRow = (idx, field, val) => {
         const newRows = [...rows];
         newRows[idx] = { ...newRows[idx], [field]: val };
@@ -96,27 +104,17 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
         onChange('rows', newRows);
     };
 
-    // FIX 2: Robust Update Logic
-    // We explicitly rebuild the entire footer structure from data (or defaults)
-    // before modifying the specific field. This guarantees no data loss.
     const updateFooter = (section, field, val) => {
-        const currentTotals = data.footers?.totals || {};
-        const currentNet = data.footers?.net || {};
-        const currentFinal = data.footers?.final || {};
+        // 1. Update Local State (Instant Feedback)
+        const newSection = { ...localFooters[section], [field]: val };
+        const newFooters = { ...localFooters, [section]: newSection };
+        setLocalFooters(newFooters);
 
-        const newFooters = {
-            totals: { ...currentTotals },
-            net: { ...currentNet },
-            final: { ...currentFinal }
-        };
-
-        // Update the specific value
-        newFooters[section][field] = val;
-        
+        // 2. Update Parent State (Data Persistence)
         onChange('footers', newFooters);
     };
 
-    // 4. Render Helpers
+    // 5. Render Helpers
     const inputClass = (isError) => `w-full text-right p-1 text-xs outline-none border border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent ${isError ? 'bg-red-50 text-red-600 font-bold' : ''}`;
 
     const getRowFeedback = (row) => {
@@ -181,28 +179,41 @@ export default function Step5Worksheet({ ledgerData, adjustments, data, onChange
                                 </tr>
                             `;
                         })}
-                        <tr className="bg-gray-100 font-bold border-t-2 border-gray-400">
-                            <td className="p-1 border-r text-right sticky left-0 bg-gray-100">Column Totals</td>
+                        
+                        <tr className="bg-purple-100 font-bold border-t-2 border-purple-500 text-purple-900">
+                            <td className="p-1 border-r text-left pl-2 sticky left-0 bg-purple-100">COLUMN TOTALS</td>
                             ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map(col => html`
                                 <td key=${col} className="border-r p-0">
-                                    <input type="number" className=${inputClass(false)} value=${footers.totals[col] || ''} onChange=${(e) => updateFooter('totals', col, e.target.value)} disabled=${isReadOnly} />
+                                    <input type="number" className="w-full text-right p-1 text-xs outline-none bg-transparent hover:bg-purple-200 focus:bg-white" 
+                                           value=${localFooters.totals?.[col] ?? ''} 
+                                           onChange=${(e) => updateFooter('totals', col, e.target.value)} 
+                                           disabled=${isReadOnly} />
                                 </td>
                             `)}
-                            <td></td>
+                            <td className="bg-purple-100"></td>
                         </tr>
-                        <tr className="bg-white border-t border-gray-200">
-                            <td className="p-1 border-r text-right sticky left-0 bg-white font-medium">Net Income (Loss)</td>
-                            <td colSpan="6" className="border-r bg-gray-50 text-center text-xs text-gray-400 italic"></td>
-                            <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.isDr || ''} onChange=${(e) => updateFooter('net', 'isDr', e.target.value)} disabled=${isReadOnly} placeholder="NI" /></td>
-                            <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.isCr || ''} onChange=${(e) => updateFooter('net', 'isCr', e.target.value)} disabled=${isReadOnly} placeholder="NL" /></td>
-                            <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.bsDr || ''} onChange=${(e) => updateFooter('net', 'bsDr', e.target.value)} disabled=${isReadOnly} placeholder="NL" /></td>
-                            <td className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.net.bsCr || ''} onChange=${(e) => updateFooter('net', 'bsCr', e.target.value)} disabled=${isReadOnly} placeholder="NI" /></td>
-                            <td></td>
+
+                        <tr className="bg-green-50 font-bold text-green-800 border-t border-green-200">
+                            <td className="p-1 border-r text-left pl-2 sticky left-0 bg-green-50">Net Income (Loss)</td>
+                            <td colSpan="6" className="border-r bg-gray-50"></td>
+                            <td className="border-r p-0"><input type="number" className="w-full text-right p-1 text-xs outline-none bg-transparent hover:bg-green-100 focus:bg-white" value=${localFooters.net?.isDr ?? ''} onChange=${(e) => updateFooter('net', 'isDr', e.target.value)} disabled=${isReadOnly} /></td>
+                            <td className="border-r p-0"><input type="number" className="w-full text-right p-1 text-xs outline-none bg-transparent hover:bg-green-100 focus:bg-white" value=${localFooters.net?.isCr ?? ''} onChange=${(e) => updateFooter('net', 'isCr', e.target.value)} disabled=${isReadOnly} /></td>
+                            <td className="border-r p-0"><input type="number" className="w-full text-right p-1 text-xs outline-none bg-transparent hover:bg-green-100 focus:bg-white" value=${localFooters.net?.bsDr ?? ''} onChange=${(e) => updateFooter('net', 'bsDr', e.target.value)} disabled=${isReadOnly} /></td>
+                            <td className="border-r p-0"><input type="number" className="w-full text-right p-1 text-xs outline-none bg-transparent hover:bg-green-100 focus:bg-white" value=${localFooters.net?.bsCr ?? ''} onChange=${(e) => updateFooter('net', 'bsCr', e.target.value)} disabled=${isReadOnly} /></td>
+                            <td className="bg-green-50"></td>
                         </tr>
-                        <tr className="bg-gray-200 font-extrabold border-t-2 border-black border-b-2">
-                            <td className="p-1 border-r text-right sticky left-0 bg-gray-200">Final Total</td>
-                            ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map(col => html`<td key=${col} className="border-r p-0"><input type="number" className=${inputClass(false)} value=${footers.final[col] || ''} onChange=${(e) => updateFooter('final', col, e.target.value)} disabled=${isReadOnly} /></td>`)}
-                            <td></td>
+
+                        <tr className="bg-indigo-100 font-extrabold text-indigo-900 border-t-2 border-indigo-700">
+                            <td className="p-1 border-r text-center sticky left-0 bg-indigo-100">FINAL TOTALS</td>
+                            ${['tbDr', 'tbCr', 'adjDr', 'adjCr', 'atbDr', 'atbCr', 'isDr', 'isCr', 'bsDr', 'bsCr'].map(col => html`
+                                <td key=${col} className="border-r p-0">
+                                    <input type="number" className="w-full text-right p-1 text-xs outline-none bg-transparent hover:bg-indigo-200 focus:bg-white" 
+                                           value=${localFooters.final?.[col] ?? ''} 
+                                           onChange=${(e) => updateFooter('final', col, e.target.value)} 
+                                           disabled=${isReadOnly} />
+                                </td>`
+                            )}
+                            <td className="bg-indigo-100"></td>
                         </tr>
                     </tbody>
                 </table>
