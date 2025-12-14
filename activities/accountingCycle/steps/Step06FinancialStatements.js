@@ -23,16 +23,35 @@ const parseUserValue = (val) => {
 };
 
 const checkField = (userVal, expectedVal, isDeduction = false) => {
-    // Round expected value to nearest integer for comparison
+    // If user hasn't input anything, it's wrong (unless we strictly want to allow blank for 0, 
+    // but the request asks for explicit X if no entries yet for totals).
+    // However, for standard inputs, blank usually equals 0. 
+    // To solve the "confusing checkmark" issue: we treat blank as 0 numerically, 
+    // BUT we can enforce that the user must type '0' to get a check if it's a critical field.
+    // For simplicity and standard behavior: 
+    // A blank field matches expected 0. A blank field does NOT match expected > 0.
+    
     const expRounded = Math.round(expectedVal);
     
+    // Case 1: Expected is 0
     if (Math.abs(expRounded) < 0.01) {
+        // If expected is 0, blank is technically correct in math terms, 
+        // but if we want to force input, we could require userVal !== ''. 
+        // The prompt says "Income Tax amount... expecting zero balance... can be retained".
+        // So blank or '0' is fine for 0.
         return !userVal || parseUserValue(userVal) === 0;
     }
+
+    // Case 2: Expected is NOT 0
+    // If userVal is empty/null, it is 0. 0 != expRounded. So it returns false (Error/X).
+    if (!userVal && userVal !== 0) return false;
+
     const parsedUser = parseUserValue(userVal);
     const matchesNumber = Math.abs(parsedUser - expRounded) <= 1 || Math.abs(parsedUser - (-expRounded)) <= 1;
     
     if (!matchesNumber) return false;
+    
+    // Sign check for deductions
     if (expRounded < 0 || isDeduction) {
         if (!userVal.toString().includes('(') && !userVal.toString().includes('-') && parsedUser > 0) return false;
     }
@@ -45,8 +64,16 @@ const btnStyle = "mt-2 text-xs text-blue-900 font-medium hover:underline flex it
 
 // --- NEW INTERNAL COMPONENT: Input with Feedback Icon ---
 const FeedbackInput = ({ value, onChange, expected, isDeduction, showFeedback, isReadOnly, placeholder }) => {
-    const isError = showFeedback && !checkField(value, expected, isDeduction);
-    const isValid = showFeedback && checkField(value, expected, isDeduction);
+    // Determine validation status
+    const isCorrect = checkField(value, expected, isDeduction);
+    
+    // Logic for showing X marks on empty totals that expect non-zero:
+    // checkField returns false if expected != 0 and value is empty.
+    // So isCorrect is false. 
+    
+    // We show styling if feedback is enabled.
+    const isError = showFeedback && !isCorrect;
+    const isValid = showFeedback && isCorrect;
 
     return html`
         <div className="relative w-full">
@@ -135,8 +162,8 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
                 expected.currentAssets.push({ name: acc, amount: val });
                 expected.totals.curAssets += val;
             } else if (isContra) {
-                expected.contraAssets.push({ name: acc, amount: val }); // Stored as positive magnitude
-                expected.totals.nonCurAssets -= val; // Contra reduces assets
+                expected.contraAssets.push({ name: acc, amount: val }); 
+                expected.totals.nonCurAssets -= val; // Contra reduces non-current assets
             } else {
                 // Non-current (PPE, Land)
                 expected.nonCurrentAssets.push({ name: acc, amount: val });
@@ -145,9 +172,6 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             expected.totals.assets += (isContra ? -val : val); // Net Asset Total
             
         } else if (type === 'Liability') {
-            // Simplified classification: Payable/Unearned usually current, Mortgage/Bonds non-current
-            // For this simulation, assuming most are current unless specified otherwise.
-            // Let's assume all standard generated ones are current for simplicity unless 'Mortgage' or 'Bond'.
             const isNonCurrent = acc.toLowerCase().includes('mortgage') || acc.toLowerCase().includes('bond') || acc.toLowerCase().includes('loan');
             
             if (isNonCurrent) {
@@ -221,7 +245,9 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     // Score Totals in IS
     scoreField(isData.totalRevenues || isData.totalOpRevenues, expected.totals.rev);
     scoreField(isData.totalExpenses || isData.totalOpExpenses, expected.totals.exp);
-    scoreField(isData.netIncomeAfterTax || isData.netIncomeBeforeTax, expected.totals.ni);
+    scoreField(isData.netIncomeBeforeTax, expected.totals.ni);
+    scoreField(isData.incomeTax, 0); // Income Tax is 0 in this simplified simulator
+    scoreField(isData.netIncomeAfterTax, expected.totals.ni); // After Tax Score
 
     // 3. Score SCE
     const sceData = userAnswers.sce || {};
@@ -286,30 +312,21 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
 
     // Score Depreciable Assets (Cost, Accum, Net)
     const userDepAssets = bsData.depAssets || [];
-    // We expect every Non-Current Asset (excluding Land if logic separates it, but here all non-current assets except contras are candidates)
-    // to be represented if the user puts them here.
-    
-    // For each expected PPE asset (found in expected.nonCurrentAssets):
-    // 1. Find matched row in userDepAssets
-    // 2. Score Cost
-    // 3. Score Accum (Find matching Contra)
-    // 4. Score Net
     const ppeAssets = expected.nonCurrentAssets.filter(a => !a.name.toLowerCase().includes('land')); 
     const landAssets = expected.nonCurrentAssets.filter(a => a.name.toLowerCase().includes('land'));
 
     ppeAssets.forEach(ppe => {
         maxScore += 3; // Cost + Accum + Net
-        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); // Simple partial match
+        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0]));
         
         if (userRow) {
             // Check Cost
             if (checkField(userRow.cost, ppe.amount)) score += 1;
             
             // Check Accum
-            // Find contra in expected
-            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); // Heuristic match by name (e.g. Equipment -> Accum Dep - Equipment)
+            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); 
             const contraAmt = contra ? contra.amount : 0;
-            if (checkField(userRow.accum, contraAmt, true)) score += 1; // Accum is typically entered as negative or just number in deduction column
+            if (checkField(userRow.accum, contraAmt, true)) score += 1; 
 
             // Check Net
             const netAmt = ppe.amount - contraAmt;
@@ -486,11 +503,11 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                             <div key=${i} className="mb-2 bg-gray-50 p-2 rounded relative group">
                                 <div className="flex justify-between mb-1">
                                     <input type="text" className="bg-transparent w-full outline-none" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
-                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={0} showFeedback={false} isReadOnly={isReadOnly} placeholder="0" /></div>
+                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={parseUserValue(block.cost)} showFeedback={showFeedback} isReadOnly={isReadOnly} placeholder="0" /></div>
                                 </div>
                                 <div className="flex justify-between mb-1 text-gray-600">
                                     <span className="pl-4">Less: <input type="text" className="inline-block bg-transparent outline-none w-32" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
-                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={0} showFeedback={false} isReadOnly={isReadOnly} placeholder="(0)" /></div>
+                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={parseUserValue(block.accum)} showFeedback={showFeedback} isReadOnly={isReadOnly} placeholder="(0)" /></div>
                                 </div>
                                 <div className="flex justify-between font-bold">
                                     <span className="pl-8">Net Book Value</span>
@@ -686,7 +703,7 @@ const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calcula
             <div className="p-4 overflow-y-auto flex-1 text-xs">
                 <div className="mb-4"><div className="font-bold mb-1 text-gray-800">Revenues</div><table className="w-full mb-1"><tbody>${revenues.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Revenue Account]" value=${r.label} onChange=${(e)=>handleArrChange('revenues',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('revenues',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('revenues',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>${!isReadOnly && html`<button onClick=${()=>addRow('revenues')} className=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>`}<div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Revenues</span><div className="w-full"><${FeedbackInput} value=${data?.totalRevenues} onChange=${(e)=>updateData({ totalRevenues: e.target.value })} expected=${expRev} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
                 <div className="mb-4"><div className="font-bold mb-1 text-gray-800">Less: Expenses</div><table className="w-full mb-1"><tbody>${expenses.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('expenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>${!isReadOnly && html`<button onClick=${()=>addRow('expenses')} className=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>`}<div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Expenses</span><div className="w-full"><${FeedbackInput} value=${data?.totalExpenses} onChange=${(e)=>updateData({ totalExpenses: e.target.value })} expected=${expExp} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
-                <div className="space-y-1 mt-4 border-t-2 border-gray-400 pt-2"><div className="flex justify-between items-center py-1 font-semibold"><span className="">Net Income (Loss) before taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeBeforeTax} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div><div className="flex justify-between items-center py-1"><span className="pl-4">Less: Income Tax</span><input type="text" className=${inputClass(false)} value=${data?.incomeTax || ''} onChange=${(e)=>updateData({ incomeTax: e.target.value })} disabled=${isReadOnly}/></div><div className="flex justify-between items-center py-2 font-bold text-blue-900 bg-gray-50 border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeAfterTax} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
+                <div className="space-y-1 mt-4 border-t-2 border-gray-400 pt-2"><div className="flex justify-between items-center py-1 font-semibold"><span className="">Net Income (Loss) before taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeBeforeTax} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div><div className="flex justify-between items-center py-1"><span className="pl-4">Less: Income Tax</span><div className="w-full"><${FeedbackInput} value=${data?.incomeTax} onChange=${(e)=>updateData({ incomeTax: e.target.value })} expected=${0} showFeedback=${showFeedback} isReadOnly=${isReadOnly} /></div></div><div className="flex justify-between items-center py-2 font-bold text-blue-900 bg-gray-50 border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeAfterTax} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
             </div>
         </div>
     `;
