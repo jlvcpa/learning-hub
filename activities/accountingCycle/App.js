@@ -12,8 +12,7 @@ import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
 import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js';
 import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
 import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js'; // CHANGED & RENAMED
-import Step5Worksheet from './steps/Step5Worksheet.js';
-import Step6FinancialStatements from './steps/Step6FinancialStatements.js';
+import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js'; // RENAMED
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
@@ -281,12 +280,18 @@ const App = () => {
             const result = validateStep04(activityData.transactions, currentAns, activityData.ledger);
             isCorrect = result.isCorrect;
 
-    // Optional: You can console log score here if needed
-    // console.log("Step 4 Score:", result.score, "/", result.maxScore);
+            // Optional: You can console log score here if needed
+            // console.log("Step 4 Score:", result.score, "/", result.maxScore);
+        
+                } else if (stepId === 5) {
+                     const userFinal = currentAns.footers?.final || {};
+                     isCorrect = Number(userFinal.finBSDr) > 0 && Math.abs(Number(userFinal.finBSDr) - Number(userFinal.finBSCr)) <= 1;
 
         } else if (stepId === 5) {
-             const userFinal = currentAns.footers?.final || {};
-             isCorrect = Number(userFinal.finBSDr) > 0 && Math.abs(Number(userFinal.finBSDr) - Number(userFinal.finBSCr)) <= 1;
+             const { validateStep05 } = await import('./steps/Step05Worksheet.js'); 
+             const result = validateStep05(activityData.ledger, activityData.adjustments, currentAns);
+             isCorrect = result.isCorrect;
+            
         } else if (stepId === 6) {
              const { ledger, adjustments } = activityData;
              const mergedAccounts = new Set(Object.keys(ledger));
