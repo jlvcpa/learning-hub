@@ -23,27 +23,17 @@ const parseUserValue = (val) => {
 };
 
 const checkField = (userVal, expectedVal, isDeduction = false) => {
-    // If user hasn't input anything, it's wrong (unless we strictly want to allow blank for 0, 
-    // but the request asks for explicit X if no entries yet for totals).
-    // However, for standard inputs, blank usually equals 0. 
-    // To solve the "confusing checkmark" issue: we treat blank as 0 numerically, 
-    // BUT we can enforce that the user must type '0' to get a check if it's a critical field.
-    // For simplicity and standard behavior: 
-    // A blank field matches expected 0. A blank field does NOT match expected > 0.
-    
+    // Round expected value to nearest integer for comparison
     const expRounded = Math.round(expectedVal);
     
-    // Case 1: Expected is 0
+    // Case 1: Expected is 0 (e.g. Income Tax, Beg Cap for new business)
+    // Allowed to be blank or '0'
     if (Math.abs(expRounded) < 0.01) {
-        // If expected is 0, blank is technically correct in math terms, 
-        // but if we want to force input, we could require userVal !== ''. 
-        // The prompt says "Income Tax amount... expecting zero balance... can be retained".
-        // So blank or '0' is fine for 0.
         return !userVal || parseUserValue(userVal) === 0;
     }
 
-    // Case 2: Expected is NOT 0
-    // If userVal is empty/null, it is 0. 0 != expRounded. So it returns false (Error/X).
+    // Case 2: Expected is NON-ZERO
+    // Must NOT be blank. If blank, return FALSE (X mark).
     if (!userVal && userVal !== 0) return false;
 
     const parsedUser = parseUserValue(userVal);
@@ -53,6 +43,10 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
     
     // Sign check for deductions
     if (expRounded < 0 || isDeduction) {
+        // If deduction, user usually types positive number in a "Less:" row, or negative.
+        // We accept (100) or -100 or 100 (if logic handles it as abs comparison).
+        // Here we enforce explicit sign if user didn't type parens/negative but expected negative? 
+        // Actually, previous logic enforced sign:
         if (!userVal.toString().includes('(') && !userVal.toString().includes('-') && parsedUser > 0) return false;
     }
     return true;
@@ -66,10 +60,6 @@ const btnStyle = "mt-2 text-xs text-blue-900 font-medium hover:underline flex it
 const FeedbackInput = ({ value, onChange, expected, isDeduction, showFeedback, isReadOnly, placeholder }) => {
     // Determine validation status
     const isCorrect = checkField(value, expected, isDeduction);
-    
-    // Logic for showing X marks on empty totals that expect non-zero:
-    // checkField returns false if expected != 0 and value is empty.
-    // So isCorrect is false. 
     
     // We show styling if feedback is enabled.
     const isError = showFeedback && !isCorrect;
@@ -117,7 +107,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         liabilities: [],
         currentLiabilities: [],
         nonCurrentLiabilities: [],
-        equity: {}, 
+        equity: {}, // BegCap, Investments, Drawings
         totals: { 
             ni: 0, 
             rev: 0,
@@ -163,7 +153,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
                 expected.totals.curAssets += val;
             } else if (isContra) {
                 expected.contraAssets.push({ name: acc, amount: val }); 
-                expected.totals.nonCurAssets -= val; // Contra reduces non-current assets
+                expected.totals.nonCurAssets -= val; // Contra reduces assets
             } else {
                 // Non-current (PPE, Land)
                 expected.nonCurrentAssets.push({ name: acc, amount: val });
@@ -192,7 +182,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         }
     });
 
-    // Special handling for Investments
+    // Special handling for Investments (Credits to Capital during period)
     let investments = 0;
     activityData.transactions.forEach(t => {
         t.credits.forEach(c => {
@@ -203,7 +193,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     });
     expected.equity.investments = investments;
 
-    // Recalculate End Cap strictly (Assets - Liabilities = Equity)
+    // Recalculate End Cap strictly
     expected.totals.endCap = expected.totals.assets - expected.totals.liabs;
     expected.totals.liabEquity = expected.totals.liabs + expected.totals.endCap;
 
@@ -242,12 +232,12 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     scoreSection(allUserISRows, expected.revenues);
     scoreSection(allUserISRows, expected.expenses);
     
-    // Score Totals in IS
+    // Score Totals in IS (Explicitly added as requested)
     scoreField(isData.totalRevenues || isData.totalOpRevenues, expected.totals.rev);
     scoreField(isData.totalExpenses || isData.totalOpExpenses, expected.totals.exp);
     scoreField(isData.netIncomeBeforeTax, expected.totals.ni);
     scoreField(isData.incomeTax, 0); // Income Tax is 0 in this simplified simulator
-    scoreField(isData.netIncomeAfterTax, expected.totals.ni); // After Tax Score
+    scoreField(isData.netIncomeAfterTax, expected.totals.ni); 
 
     // 3. Score SCE
     const sceData = userAnswers.sce || {};
@@ -438,6 +428,18 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
     const [showNonCurrentAssets, setShowNonCurrentAssets] = useState(false);
     const [showNonCurrentLiabs, setShowNonCurrentLiabs] = useState(false);
 
+    // Initial load check for Depreciable Assets row
+    useEffect(() => {
+        if (!data?.depAssets || data.depAssets.length === 0) {
+            // Only update if not readonly to avoid loops or state conflicts during review
+            if (!isReadOnly && onChange) {
+                // We use a functional update pattern if possible, but here we call parent onChange
+                // Merge current data with new depAssets row
+                onChange({ ...data, depAssets: [{ asset: '', cost: '', contra: '', accum: '', net: '' }] });
+            }
+        }
+    }, []); 
+
     const updateData = (updates) => onChange({ ...data, ...updates });
 
     // --- Asset Lists ---
@@ -452,13 +454,14 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
     // --- Helpers ---
     const handleArrChange = (arrKey, idx, field, val) => {
         const arr = [...(data?.[arrKey] || [])];
+        if (!arr[idx]) arr[idx] = {}; // Safety check to prevent crash
         arr[idx] = { ...arr[idx], [field]: val };
         updateData({ [arrKey]: arr });
     };
     const addRow = (arrKey, defaultObj) => updateData({ [arrKey]: [...(data?.[arrKey]||[]), defaultObj] });
     const deleteRow = (arrKey, idx) => updateData({ [arrKey]: (data?.[arrKey]||[]).filter((_, i) => i !== idx) });
 
-    // Calculations for Validation (Helpers for the UI, Validation done in validateStep06)
+    // Calculations for Validation
     const sumArr = (arr) => arr.reduce((acc, r) => acc + parseUserValue(r.amount), 0);
     const sumDepNet = depAssets.reduce((acc, r) => acc + parseUserValue(r.net), 0);
     
@@ -503,11 +506,11 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                             <div key=${i} className="mb-2 bg-gray-50 p-2 rounded relative group">
                                 <div className="flex justify-between mb-1">
                                     <input type="text" className="bg-transparent w-full outline-none" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
-                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={parseUserValue(block.cost)} showFeedback={showFeedback} isReadOnly={isReadOnly} placeholder="0" /></div>
+                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={parseUserValue(block.cost)} showFeedback={false} isReadOnly={isReadOnly} placeholder="0" /></div>
                                 </div>
                                 <div className="flex justify-between mb-1 text-gray-600">
                                     <span className="pl-4">Less: <input type="text" className="inline-block bg-transparent outline-none w-32" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
-                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={parseUserValue(block.accum)} showFeedback={showFeedback} isReadOnly={isReadOnly} placeholder="(0)" /></div>
+                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={parseUserValue(block.accum)} showFeedback={false} isReadOnly={isReadOnly} placeholder="(0)" /></div>
                                 </div>
                                 <div className="flex justify-between font-bold">
                                     <span className="pl-8">Net Book Value</span>
