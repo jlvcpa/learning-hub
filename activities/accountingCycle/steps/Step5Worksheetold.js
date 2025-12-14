@@ -3,7 +3,7 @@
 // ------------------------------
 import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Table, Trash2, Plus, List, ChevronDown, ChevronRight, Check, X } from 'https://esm.sh/lucide-react@0.263.1';
+import { Table, Trash2, Plus, AlertCircle, List, ChevronDown, ChevronRight, Check, X } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts, getAccountType, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
@@ -259,18 +259,17 @@ export default function Step05Worksheet({ ledgerData, adjustments, data, onChang
         `;
     };
 
-    // 5. Banner
+    // 5. Banner (UPDATED PER REQUEST)
     const renderBanner = () => {
         if (!showFeedback && !isReadOnly) return null;
-        const color = validation.isCorrect ? 'green' : 'blue';
+        
+        // Use 'result' to match your requested variable name style, mapped from 'validation'
+        const result = validation;
+
         return html`
-            <div className=${`mb-4 p-3 bg-${color}-100 border-l-4 border-${color}-500 text-${color}-900 flex justify-between items-center shadow-sm rounded-r`}>
-                <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">Worksheet Score: ${validation.score} / ${validation.maxScore}</span>
-                </div>
-                <div className="text-2xl font-extrabold bg-white px-3 py-1 rounded shadow-sm border border-${color}-200">
-                    ${validation.letterGrade}
-                </div>
+            <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
+                <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
+                <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'IR'})</span>
             </div>
         `;
     };
