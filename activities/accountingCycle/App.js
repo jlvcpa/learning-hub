@@ -281,7 +281,7 @@ const App = () => {
             isCorrect = result.isCorrect;
 
         } else if (stepId === 5) {
-             const { validateStep05 } = await import('./steps/Step05Worksheet.js'); 
+             // const { validateStep05 } = await import('./steps/Step05Worksheet.js'); 
              const result = validateStep05(activityData.ledger, activityData.adjustments, currentAns);
              isCorrect = result.isCorrect;
             
