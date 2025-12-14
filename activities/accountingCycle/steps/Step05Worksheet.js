@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Table, Trash2, Plus, AlertCircle, List, ChevronDown, ChevronRight, Check, X, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
+import { Table, Trash2, Plus, List, ChevronDown, ChevronRight, Check, X, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
 import { sortAccounts, getAccountType, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
