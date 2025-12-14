@@ -26,14 +26,25 @@ const checkField = (userVal, expectedVal, isDeduction = false) => {
     // Round expected value to nearest integer for comparison
     const expRounded = Math.round(expectedVal);
     
+    // Case 1: Expected is 0 (e.g. Income Tax, Beg Cap for new business)
+    // Allowed to be blank or '0'
     if (Math.abs(expRounded) < 0.01) {
         return !userVal || parseUserValue(userVal) === 0;
     }
+
+    // Case 2: Expected is NON-ZERO
+    // Must NOT be blank. If blank, return FALSE (X mark).
+    // This fixes the "Confusing Checkmarks" issue on empty total boxes.
+    if (!userVal && userVal !== 0) return false;
+
     const parsedUser = parseUserValue(userVal);
     const matchesNumber = Math.abs(parsedUser - expRounded) <= 1 || Math.abs(parsedUser - (-expRounded)) <= 1;
     
     if (!matchesNumber) return false;
+    
+    // Sign check for deductions
     if (expRounded < 0 || isDeduction) {
+        // Enforce explicit sign if needed, though mostly we just check magnitude above
         if (!userVal.toString().includes('(') && !userVal.toString().includes('-') && parsedUser > 0) return false;
     }
     return true;
@@ -45,8 +56,12 @@ const btnStyle = "mt-2 text-xs text-blue-900 font-medium hover:underline flex it
 
 // --- NEW INTERNAL COMPONENT: Input with Feedback Icon ---
 const FeedbackInput = ({ value, onChange, expected, isDeduction, showFeedback, isReadOnly, placeholder }) => {
-    const isError = showFeedback && !checkField(value, expected, isDeduction);
-    const isValid = showFeedback && checkField(value, expected, isDeduction);
+    // Determine validation status
+    const isCorrect = checkField(value, expected, isDeduction);
+    
+    // We show styling if feedback is enabled.
+    const isError = showFeedback && !isCorrect;
+    const isValid = showFeedback && isCorrect;
 
     return html`
         <div className="relative w-full">
@@ -90,7 +105,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
         liabilities: [],
         currentLiabilities: [],
         nonCurrentLiabilities: [],
-        equity: {}, 
+        equity: {}, // BegCap, Investments, Drawings
         totals: { 
             ni: 0, 
             rev: 0,
@@ -135,7 +150,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
                 expected.currentAssets.push({ name: acc, amount: val });
                 expected.totals.curAssets += val;
             } else if (isContra) {
-                expected.contraAssets.push({ name: acc, amount: val }); // Stored as positive magnitude
+                expected.contraAssets.push({ name: acc, amount: val }); 
                 expected.totals.nonCurAssets -= val; // Contra reduces assets
             } else {
                 // Non-current (PPE, Land)
@@ -145,9 +160,6 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             expected.totals.assets += (isContra ? -val : val); // Net Asset Total
             
         } else if (type === 'Liability') {
-            // Simplified classification: Payable/Unearned usually current, Mortgage/Bonds non-current
-            // For this simulation, assuming most are current unless specified otherwise.
-            // Let's assume all standard generated ones are current for simplicity unless 'Mortgage' or 'Bond'.
             const isNonCurrent = acc.toLowerCase().includes('mortgage') || acc.toLowerCase().includes('bond') || acc.toLowerCase().includes('loan');
             
             if (isNonCurrent) {
@@ -187,7 +199,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     // --- SCORING HELPER ---
     const scoreSection = (userRows, expectedItems) => {
         expectedItems.forEach(exp => {
-            maxScore += 2; 
+            maxScore += 2; // 1 for Name, 1 for Amount
             const match = userRows.find(r => r.label && r.label.toLowerCase().trim() === exp.name.toLowerCase().trim());
             if (match) {
                 score += 1; // Found the account
@@ -221,7 +233,9 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     // Score Totals in IS
     scoreField(isData.totalRevenues || isData.totalOpRevenues, expected.totals.rev);
     scoreField(isData.totalExpenses || isData.totalOpExpenses, expected.totals.exp);
-    scoreField(isData.netIncomeAfterTax || isData.netIncomeBeforeTax, expected.totals.ni);
+    scoreField(isData.netIncomeBeforeTax, expected.totals.ni);
+    scoreField(isData.incomeTax, 0); // Income Tax is 0
+    scoreField(isData.netIncomeAfterTax, expected.totals.ni); 
 
     // 3. Score SCE
     const sceData = userAnswers.sce || {};
@@ -286,30 +300,21 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
 
     // Score Depreciable Assets (Cost, Accum, Net)
     const userDepAssets = bsData.depAssets || [];
-    // We expect every Non-Current Asset (excluding Land if logic separates it, but here all non-current assets except contras are candidates)
-    // to be represented if the user puts them here.
-    
-    // For each expected PPE asset (found in expected.nonCurrentAssets):
-    // 1. Find matched row in userDepAssets
-    // 2. Score Cost
-    // 3. Score Accum (Find matching Contra)
-    // 4. Score Net
     const ppeAssets = expected.nonCurrentAssets.filter(a => !a.name.toLowerCase().includes('land')); 
     const landAssets = expected.nonCurrentAssets.filter(a => a.name.toLowerCase().includes('land'));
 
     ppeAssets.forEach(ppe => {
         maxScore += 3; // Cost + Accum + Net
-        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); // Simple partial match
+        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0]));
         
         if (userRow) {
             // Check Cost
             if (checkField(userRow.cost, ppe.amount)) score += 1;
             
-            // Check Accum
-            // Find contra in expected
-            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); // Heuristic match by name (e.g. Equipment -> Accum Dep - Equipment)
+            // Check Accum (Contra)
+            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); 
             const contraAmt = contra ? contra.amount : 0;
-            if (checkField(userRow.accum, contraAmt, true)) score += 1; // Accum is typically entered as negative or just number in deduction column
+            if (checkField(userRow.accum, contraAmt, true)) score += 1; 
 
             // Check Net
             const netAmt = ppe.amount - contraAmt;
@@ -339,7 +344,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     const isCorrect = score === maxScore && maxScore > 0;
     const letterGrade = getLetterGrade(score, maxScore);
     
-    return { score, maxScore, letterGrade, isCorrect };
+    return { score, maxScore, letterGrade, isCorrect, expected }; 
 };
 
 
@@ -415,18 +420,28 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
     `;
 };
 
-// --- BALANCE SHEET COMPONENT (NEW DEC 9 VERSION) ---
+// --- BALANCE SHEET COMPONENT ---
 
-const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapital }) => {
+const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapital, expectedTotals }) => {
     const [showNonCurrentAssets, setShowNonCurrentAssets] = useState(false);
     const [showNonCurrentLiabs, setShowNonCurrentLiabs] = useState(false);
+
+    // Initial load check for Depreciable Assets row
+    useEffect(() => {
+        if (!data?.depAssets || data.depAssets.length === 0) {
+            if (!isReadOnly && onChange) {
+                // Initialize with one empty block if missing
+                onChange({ ...data, depAssets: [{ asset: '', cost: '', contra: '', accum: '', net: '' }] });
+            }
+        }
+    }, []); 
 
     const updateData = (updates) => onChange({ ...data, ...updates });
 
     // --- Asset Lists ---
     const curAssets = data?.curAssets || [{ label: '', amount: '' }];
     const otherAssets = data?.otherAssets || [{ label: '', amount: '' }];
-    const depAssets = data?.depAssets || []; // Array of blocks: { asset: '', cost: '', contra: '', accum: '', net: '' }
+    const depAssets = data?.depAssets || []; 
 
     // --- Liability Lists ---
     const curLiabs = data?.curLiabs || [{ label: '', amount: '' }];
@@ -435,25 +450,16 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
     // --- Helpers ---
     const handleArrChange = (arrKey, idx, field, val) => {
         const arr = [...(data?.[arrKey] || [])];
+        if (!arr[idx]) arr[idx] = {}; // Safety check
         arr[idx] = { ...arr[idx], [field]: val };
         updateData({ [arrKey]: arr });
     };
     const addRow = (arrKey, defaultObj) => updateData({ [arrKey]: [...(data?.[arrKey]||[]), defaultObj] });
     const deleteRow = (arrKey, idx) => updateData({ [arrKey]: (data?.[arrKey]||[]).filter((_, i) => i !== idx) });
 
-    // Calculations for Validation (Helpers for the UI, Validation done in validateStep06)
-    const sumArr = (arr) => arr.reduce((acc, r) => acc + parseUserValue(r.amount), 0);
-    const sumDepNet = depAssets.reduce((acc, r) => acc + parseUserValue(r.net), 0);
-    
-    const calcTotalCurAssets = sumArr(curAssets);
-    const calcTotalNonCurAssets = sumArr(otherAssets) + sumDepNet;
-    const calcTotalAssets = calcTotalCurAssets + calcTotalNonCurAssets;
-
-    const calcTotalCurLiabs = sumArr(curLiabs);
-    const calcTotalNonCurLiabs = sumArr(nonCurLiabs);
-    const calcTotalLiabs = calcTotalCurLiabs + calcTotalNonCurLiabs;
-    
-    const calcTotalLiabEquity = calcTotalLiabs + parseUserValue(data?.endCapital);
+    // EXPECTED TOTALS (From Truth, passed via props)
+    // Fallback to 0 if not provided
+    const expTotals = expectedTotals || { curAssets:0, nonCurAssets:0, assets:0, curLiabs:0, nonCurLiabs:0, liabs:0, liabEquity:0 };
 
     return html`
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
@@ -473,7 +479,7 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                 ${!isReadOnly && html`<button onClick=${()=>addRow('curAssets', {label:'', amount:''})} className=${btnStyle}><${Plus} size=${12}/> Add Current Asset Row</button>`}
                 <div className="flex justify-between items-center py-1 font-semibold border-t border-black mt-1">
                     <span className="pl-8">Total Current Assets</span>
-                    <div className="w-full"><${FeedbackInput} value=${data?.totalCurAssets} onChange=${(e)=>updateData({ totalCurAssets: e.target.value })} expected=${calcTotalCurAssets} showFeedback=${showFeedback} isReadOnly=${isReadOnly} /></div>
+                    <div className="w-full"><${FeedbackInput} value=${data?.totalCurAssets} onChange=${(e)=>updateData({ totalCurAssets: e.target.value })} expected=${expTotals.curAssets} showFeedback=${showFeedback} isReadOnly=${isReadOnly} /></div>
                 </div>
 
                 <div className="mt-4 mb-2 flex items-center gap-2 cursor-pointer text-blue-800 font-bold text-xs" onClick=${()=>setShowNonCurrentAssets(!showNonCurrentAssets)}>
@@ -486,11 +492,15 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                             <div key=${i} className="mb-2 bg-gray-50 p-2 rounded relative group">
                                 <div className="flex justify-between mb-1">
                                     <input type="text" className="bg-transparent w-full outline-none" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
-                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={0} showFeedback={false} isReadOnly={isReadOnly} placeholder="0" /></div>
+                                    <div className="w-24 relative">
+                                        <input type="text" className=${inputClass(false)} value=${block.cost || ''} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} disabled=${isReadOnly} placeholder="0" />
+                                    </div>
                                 </div>
                                 <div className="flex justify-between mb-1 text-gray-600">
                                     <span className="pl-4">Less: <input type="text" className="inline-block bg-transparent outline-none w-32" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
-                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={0} showFeedback={false} isReadOnly={isReadOnly} placeholder="(0)" /></div>
+                                    <div className="w-24 relative">
+                                        <input type="text" className=${inputClass(false)} value=${block.accum || ''} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} disabled=${isReadOnly} placeholder="(0)" />
+                                    </div>
                                 </div>
                                 <div className="flex justify-between font-bold">
                                     <span className="pl-8">Net Book Value</span>
@@ -512,14 +522,14 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                         
                         <div className="flex justify-between items-center py-1 font-semibold border-t border-black mt-2">
                             <span className="pl-8">Total Non-current Assets</span>
-                            <div className="w-full"><${FeedbackInput} value=${data?.totalNonCurAssets} onChange=${(e)=>updateData({ totalNonCurAssets: e.target.value })} expected=${calcTotalNonCurAssets} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
+                            <div className="w-full"><${FeedbackInput} value=${data?.totalNonCurAssets} onChange=${(e)=>updateData({ totalNonCurAssets: e.target.value })} expected=${expTotals.nonCurAssets} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
                         </div>
                     </div>
                 `}
 
                 <div className="flex justify-between items-center py-2 font-bold border-t-2 border-black border-double border-b-4 mt-2 mb-6">
                     <span className="">Total Assets</span>
-                    <div className="w-full"><${FeedbackInput} value=${data?.totalAssets} onChange=${(e)=>updateData({ totalAssets: e.target.value })} expected=${calcTotalAssets} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
+                    <div className="w-full"><${FeedbackInput} value=${data?.totalAssets} onChange=${(e)=>updateData({ totalAssets: e.target.value })} expected=${expTotals.assets} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
                 </div>
 
                 <div className="text-center font-bold text-sm mb-2">Liabilities and Owner's Equity</div>
@@ -537,7 +547,7 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                 
                 <div className="flex justify-between items-center py-1 font-semibold border-t border-black mt-1">
                     <span className="pl-8">Total Current Liabilities</span>
-                    <div className="w-full"><${FeedbackInput} value=${data?.totalCurLiabs} onChange=${(e)=>updateData({ totalCurLiabs: e.target.value })} expected=${calcTotalCurLiabs} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
+                    <div className="w-full"><${FeedbackInput} value=${data?.totalCurLiabs} onChange=${(e)=>updateData({ totalCurLiabs: e.target.value })} expected=${expTotals.curLiabs} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
                 </div>
 
                  <div className="mt-4 mb-2 flex items-center gap-2 cursor-pointer text-blue-800 font-bold text-xs" onClick=${()=>setShowNonCurrentLiabs(!showNonCurrentLiabs)}>
@@ -555,14 +565,14 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                         ${!isReadOnly && html`<button onClick=${()=>addRow('nonCurLiabs', {label:'', amount:''})} className=${btnStyle}><${Plus} size=${12}/> Add Non-current Liability Row</button>`}
                          <div className="flex justify-between items-center py-1 font-semibold border-t border-black mt-1">
                             <span className="pl-8">Total Non-current Liabilities</span>
-                            <div className="w-full"><${FeedbackInput} value=${data?.totalNonCurLiabs} onChange=${(e)=>updateData({ totalNonCurLiabs: e.target.value })} expected=${calcTotalNonCurLiabs} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
+                            <div className="w-full"><${FeedbackInput} value=${data?.totalNonCurLiabs} onChange=${(e)=>updateData({ totalNonCurLiabs: e.target.value })} expected=${expTotals.nonCurLiabs} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
                         </div>
                     </div>
                 `}
 
                 <div className="flex justify-between items-center py-1 font-bold mt-2">
                     <span className="pl-0">Total Liabilities</span>
-                    <div className="w-full"><${FeedbackInput} value=${data?.totalLiabs} onChange=${(e)=>updateData({ totalLiabs: e.target.value })} expected=${calcTotalLiabs} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
+                    <div className="w-full"><${FeedbackInput} value=${data?.totalLiabs} onChange=${(e)=>updateData({ totalLiabs: e.target.value })} expected=${expTotals.liabs} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
                 </div>
 
                 <div className="font-bold text-gray-700 mt-4 mb-1">Owner's Equity</div>
@@ -573,7 +583,7 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
 
                 <div className="flex justify-between items-center py-2 font-bold mt-4 border-t-2 border-black border-double border-b-4">
                     <span className="">Total Liabilities and Owner's Equity</span>
-                    <div className="w-full"><${FeedbackInput} value=${data?.totalLiabEquity} onChange=${(e)=>updateData({ totalLiabEquity: e.target.value })} expected=${calcTotalLiabEquity} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
+                    <div className="w-full"><${FeedbackInput} value=${data?.totalLiabEquity} onChange=${(e)=>updateData({ totalLiabEquity: e.target.value })} expected=${expTotals.liabEquity} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div>
                 </div>
 
             </div>
@@ -585,7 +595,7 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
 // --------------------------------------------------------
 // SCE
 // --------------------------------------------------------
-const StatementOfChangesInEquity = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, activityData }) => {
+const StatementOfChangesInEquity = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, activityData, expectedTotals }) => {
     const { isSubsequentYear } = activityData.config;
     const { beginningBalances, transactions, ledger } = activityData;
 
@@ -672,7 +682,7 @@ const StatementOfChangesInEquity = ({ data, onChange, isReadOnly, showFeedback, 
 
 // --- RESTORED INCOME STATEMENT COMPONENTS (FROM DEC 8) ---
 
-const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals }) => {
+const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, expectedTotals }) => {
     const revenues = data?.revenues || [{ label: '', amount: '' }];
     const expenses = data?.expenses || [{ label: '', amount: '' }];
     const updateData = (updates) => onChange({ ...data, ...updates });
@@ -684,15 +694,15 @@ const ServiceSingleStepIS = ({ data, onChange, isReadOnly, showFeedback, calcula
         <div className="border rounded bg-white flex flex-col h-full shadow-sm">
             <div className="bg-green-100 p-2 font-bold text-gray-800 border-b text-center text-sm">Income Statement (Single-Step Service)</div>
             <div className="p-4 overflow-y-auto flex-1 text-xs">
-                <div className="mb-4"><div className="font-bold mb-1 text-gray-800">Revenues</div><table className="w-full mb-1"><tbody>${revenues.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Revenue Account]" value=${r.label} onChange=${(e)=>handleArrChange('revenues',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('revenues',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('revenues',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>${!isReadOnly && html`<button onClick=${()=>addRow('revenues')} className=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>`}<div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Revenues</span><div className="w-full"><${FeedbackInput} value=${data?.totalRevenues} onChange=${(e)=>updateData({ totalRevenues: e.target.value })} expected=${expRev} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
-                <div className="mb-4"><div className="font-bold mb-1 text-gray-800">Less: Expenses</div><table className="w-full mb-1"><tbody>${expenses.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('expenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>${!isReadOnly && html`<button onClick=${()=>addRow('expenses')} className=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>`}<div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Expenses</span><div className="w-full"><${FeedbackInput} value=${data?.totalExpenses} onChange=${(e)=>updateData({ totalExpenses: e.target.value })} expected=${expExp} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
-                <div className="space-y-1 mt-4 border-t-2 border-gray-400 pt-2"><div className="flex justify-between items-center py-1 font-semibold"><span className="">Net Income (Loss) before taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeBeforeTax} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div><div className="flex justify-between items-center py-1"><span className="pl-4">Less: Income Tax</span><input type="text" className=${inputClass(false)} value=${data?.incomeTax || ''} onChange=${(e)=>updateData({ incomeTax: e.target.value })} disabled=${isReadOnly}/></div><div className="flex justify-between items-center py-2 font-bold text-blue-900 bg-gray-50 border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeAfterTax} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
+                <div className="mb-4"><div className="font-bold mb-1 text-gray-800">Revenues</div><table className="w-full mb-1"><tbody>${revenues.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Revenue Account]" value=${r.label} onChange=${(e)=>handleArrChange('revenues',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('revenues',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('revenues',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>${!isReadOnly && html`<button onClick=${()=>addRow('revenues')} className=${btnStyle}><${Plus} size=${12}/> Add Revenue Row</button>`}<div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Revenues</span><div className="w-full"><${FeedbackInput} value=${data?.totalRevenues} onChange=${(e)=>updateData({ totalRevenues: e.target.value })} expected=${expectedTotals?.rev || expRev} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
+                <div className="mb-4"><div className="font-bold mb-1 text-gray-800">Less: Expenses</div><table className="w-full mb-1"><tbody>${expenses.map((r,i)=>html`<tr key=${i}><td className="p-1 pl-4"><input type="text" className="w-full outline-none bg-transparent" placeholder="[Expense Account]" value=${r.label} onChange=${(e)=>handleArrChange('expenses',i,'label',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-24"><input type="text" className="w-full text-right outline-none bg-transparent border-b border-gray-200" value=${r.amount} onChange=${(e)=>handleArrChange('expenses',i,'amount',e.target.value)} disabled=${isReadOnly}/></td><td className="p-1 w-6 text-center">${!isReadOnly && html`<button onClick=${()=>deleteRow('expenses',i)}><${Trash2} size=${12}/></button>`}</td></tr>`)}</tbody></table>${!isReadOnly && html`<button onClick=${()=>addRow('expenses')} className=${btnStyle}><${Plus} size=${12}/> Add Expense Row</button>`}<div className="flex justify-between items-center py-1 font-bold mt-1"><span className="pl-0">Total Expenses</span><div className="w-full"><${FeedbackInput} value=${data?.totalExpenses} onChange=${(e)=>updateData({ totalExpenses: e.target.value })} expected=${expectedTotals?.exp || expExp} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
+                <div className="space-y-1 mt-4 border-t-2 border-gray-400 pt-2"><div className="flex justify-between items-center py-1 font-semibold"><span className="">Net Income (Loss) before taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeBeforeTax} onChange=${(e)=>updateData({ netIncomeBeforeTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div><div className="flex justify-between items-center py-1"><span className="pl-4">Less: Income Tax</span><div className="w-full"><${FeedbackInput} value=${data?.incomeTax} onChange=${(e)=>updateData({ incomeTax: e.target.value })} expected=${0} showFeedback=${showFeedback} isReadOnly=${isReadOnly} /></div></div><div className="flex justify-between items-center py-2 font-bold text-blue-900 bg-gray-50 border-t-2 border-black border-double border-b-4"><span className="">Net Income (Loss) after taxes</span><div className="w-full"><${FeedbackInput} value=${data?.netIncomeAfterTax} onChange=${(e)=>updateData({ netIncomeAfterTax: e.target.value })} expected=${expNI} showFeedback=${showFeedback} isReadOnly=${isReadOnly}/></div></div></div>
             </div>
         </div>
     `;
 };
 
-const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals }) => {
+const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, expectedTotals }) => {
     const opRevenues = data?.opRevenues || [{ label: '', amount: '' }];
     const opExpenses = data?.opExpenses || [{ label: '', amount: '' }];
     const nonOpItems = data?.nonOpItems || [{ label: '', amount: '' }];
@@ -717,7 +727,7 @@ const ServiceMultiStepIS = ({ data, onChange, isReadOnly, showFeedback, calculat
 
 // --- RESTORED MERCH COMPONENTS ---
 
-const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, type = "Single" }) => {
+const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, type = "Single", expectedTotals }) => {
     const { ledger, adjustments } = calculatedTotals;
     const getBal = (accName) => { const acc = Object.keys(ledger).find(k => k.toLowerCase() === accName.toLowerCase()); if (!acc) return 0; return (ledger[acc].debit || 0) - (ledger[acc].credit || 0); };
     
@@ -836,7 +846,7 @@ const MerchPeriodicIS = ({ data, onChange, isReadOnly, showFeedback, calculatedT
     `;
 };
 
-const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, type = "Single" }) => {
+const MerchPerpetualIS = ({ data, onChange, isReadOnly, showFeedback, calculatedTotals, type = "Single", expectedTotals }) => {
     const { ledger } = calculatedTotals;
     const getBal = (accName) => { const acc = Object.keys(ledger).find(k => k.toLowerCase() === accName.toLowerCase()); if (!acc) return 0; return (ledger[acc].debit || 0) - (ledger[acc].credit || 0); };
 
@@ -954,19 +964,6 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
         }, [ledgerData, adjustments])
     };
 
-    const renderIncomeStatement = () => {
-        const currentData = data.is || {};
-        if (!isMerch) {
-            return fsFormat === 'Single' 
-                ? html`<${ServiceSingleStepIS} data=${currentData} onChange=${(d)=>onChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`
-                : html`<${ServiceMultiStepIS} data=${currentData} onChange=${(d)=>onChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
-        } else {
-            return isPerpetual 
-                ? html`<${MerchPerpetualIS} type=${fsFormat} data=${currentData} onChange=${(d)=>onChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`
-                : html`<${MerchPeriodicIS} type=${fsFormat} data=${currentData} onChange=${(d)=>onChange('is', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} />`;
-        }
-    };
-
     const handleSCEChange = (newData) => onChange('sce', newData);
     const handleBSChange = (key, val) => onChange('bs', { ...data.bs, [key]: val });
     const handleSCFChange = (key, val) => onChange('scf', { ...data.scf, [key]: val });
@@ -974,11 +971,35 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
     // Derive ending capital from SCE data to pass to Balance Sheet for validation
     const sceEndingCapital = parseUserValue(data.sce?.endCapital);
 
-    // Calculate Banner Results
+    // Calculate Banner Results and Get Expected Totals
     const validationResult = useMemo(() => {
         if (!showFeedback && !isReadOnly) return null;
         return validateStep06(ledgerData, adjustments, activityData, data);
     }, [ledgerData, adjustments, activityData, data, showFeedback, isReadOnly]);
+
+    const expectedTotals = validationResult?.expected?.totals;
+
+    const renderIncomeStatement = () => {
+        const currentData = data.is || {};
+        const props = {
+            data: currentData,
+            onChange: (d) => onChange('is', d),
+            isReadOnly,
+            showFeedback,
+            calculatedTotals,
+            expectedTotals // Pass expected totals for scoring IS
+        };
+        
+        if (!isMerch) {
+            return fsFormat === 'Single' 
+                ? html`<${ServiceSingleStepIS} ...${props} />`
+                : html`<${ServiceMultiStepIS} ...${props} />`;
+        } else {
+            return isPerpetual 
+                ? html`<${MerchPerpetualIS} type=${fsFormat} ...${props} />`
+                : html`<${MerchPeriodicIS} type=${fsFormat} ...${props} />`;
+        }
+    };
 
     return html`
         <div className="flex flex-col h-[calc(100vh-140px)]">
@@ -999,11 +1020,11 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
                                 <div className="flex flex-col gap-4 h-full">
                                     <div className="flex-1 flex flex-col h-1/2">${renderIncomeStatement()}</div>
                                     <div className="flex-1 flex flex-col h-1/2">
-                                        <${StatementOfChangesInEquity} data=${data.sce} onChange=${handleSCEChange} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} />
+                                        <${StatementOfChangesInEquity} data=${data.sce} onChange=${handleSCEChange} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} expectedTotals=${expectedTotals}/>
                                     </div>
                                 </div>
                                 <div className="h-full">
-                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} />
+                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} expectedTotals=${expectedTotals}/>
                                 </div>
                                 <div className="h-full">
                                     <${FinancialStatementForm} title="Statement of Cash Flows" headerColor="bg-indigo-100" data=${data.scf} onChange=${(k, v) => handleSCFChange(k, v)} isReadOnly=${isReadOnly} />
@@ -1014,10 +1035,10 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full min-h-[400px]">
                                 <div className="h-full">${renderIncomeStatement()}</div>
                                 <div className="h-full">
-                                    <${StatementOfChangesInEquity} data=${data.sce} onChange=${handleSCEChange} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} />
+                                    <${StatementOfChangesInEquity} data=${data.sce} onChange=${handleSCEChange} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} expectedTotals=${expectedTotals}/>
                                 </div>
                                 <div className="h-full">
-                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} />
+                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} expectedTotals=${expectedTotals}/>
                                 </div>
                             </div>
                         `
