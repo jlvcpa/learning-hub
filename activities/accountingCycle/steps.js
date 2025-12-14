@@ -51,7 +51,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         updateAnswerFns.updateAnswer(3, {...(answers[3] || {}), journalPRs: {...cur, [key]: !cur[key]}});
     };
     const handleStep04Change = (key, val) => updateAnswerFns.updateAnswer(4, { ...(answers[4] || {}), [key]: val });
-    const handleStep5Change = (type, payload) => {
+    const handleStep05Change = (type, payload) => {
         const stepAnswer = answers[stepId] || {};
         const currentFooters = stepAnswer.footers || {};
         if (type === 'rows') {
