@@ -11,8 +11,9 @@ import { TaskSection } from './steps.js';
 import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
 import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js';
 import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
-import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js'; // CHANGED & RENAMED
-import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js'; // RENAMED
+import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js';
+import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
+import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
 import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
@@ -281,45 +282,13 @@ const App = () => {
             isCorrect = result.isCorrect;
 
         } else if (stepId === 5) {
-             // const { validateStep05 } = await import('./steps/Step05Worksheet.js'); 
              const result = validateStep05(activityData.ledger, activityData.adjustments, currentAns);
              isCorrect = result.isCorrect;
             
         } else if (stepId === 6) {
-             const { ledger, adjustments } = activityData;
-             const mergedAccounts = new Set(Object.keys(ledger));
-             adjustments.forEach(adj => { mergedAccounts.add(adj.drAcc); mergedAccounts.add(adj.crAcc); });
-             
-             let calcBSDr = 0;
-             let calcISDr = 0;
-             let calcISCr = 0;
-             
-             Array.from(mergedAccounts).forEach(acc => {
-                 const lBal = (ledger[acc]?.debit || 0) - (ledger[acc]?.credit || 0);
-                 let aDr = 0; let aCr = 0;
-                 adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
-                 const atbNet = lBal + (aDr - aCr);
-                 const atbDr = atbNet > 0 ? atbNet : 0; 
-                 const atbCr = atbNet < 0 ? Math.abs(atbNet) : 0;
-                 
-                 const type = getAccountType(acc);
-                 const isIS = type === 'Revenue' || type === 'Expense';
-                 
-                 if (isIS) {
-                     calcISDr += atbDr;
-                     calcISCr += atbCr;
-                 } else {
-                     calcBSDr += atbDr;
-                 }
-             });
-             
-             const netInc = calcISCr - calcISDr;
-             const expectedBSTotal = calcBSDr + (netInc < 0 ? Math.abs(netInc) : 0);
-             
-             const userBSRows = currentAns.bs?.rows || [];
-             const matchFound = userBSRows.some(r => Math.abs(Number(r.amount) - expectedBSTotal) <= 1);
-             
-             isCorrect = matchFound;
+             const result = validateStep06(activityData.ledger, activityData.adjustments, activityData, currentAns);
+             isCorrect = result.isCorrect;
+            
         } else if (stepId === 7) {
              // ... (Step 7 validation remains unchanged)
              const journalData = currentAns.journal || {};
