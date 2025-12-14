@@ -83,10 +83,27 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     const expected = {
         revenues: [],
         expenses: [],
-        assets: [],
+        currentAssets: [],
+        nonCurrentAssets: [], // For PPE Cost
+        contraAssets: [],     // For Accumulated Depreciation
+        otherAssets: [],      // Land, etc.
         liabilities: [],
-        equity: {}, // BegCap, Investments, Drawings
-        totals: { ni: 0, assets: 0, liabs: 0, endCap: 0 }
+        currentLiabilities: [],
+        nonCurrentLiabilities: [],
+        equity: {}, 
+        totals: { 
+            ni: 0, 
+            rev: 0,
+            exp: 0,
+            curAssets: 0, 
+            nonCurAssets: 0,
+            assets: 0, 
+            curLiabs: 0,
+            nonCurLiabs: 0,
+            liabs: 0, 
+            endCap: 0,
+            liabEquity: 0
+        }
     };
 
     // Process Ledger + Adjustments to get Final Adjusted Balances
@@ -103,27 +120,55 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
 
         if (type === 'Revenue') {
             expected.revenues.push({ name: acc, amount: val });
-            expected.totals.ni += val; // Credit increases income
+            expected.totals.ni += val; 
+            expected.totals.rev += val;
         } else if (type === 'Expense') {
             expected.expenses.push({ name: acc, amount: val });
-            expected.totals.ni -= val; // Debit decreases income
+            expected.totals.ni -= val; 
+            expected.totals.exp += val;
         } else if (type === 'Asset') {
-            expected.assets.push({ name: acc, amount: val }); // Dr is positive asset
-            expected.totals.assets += val;
+            const lowerAcc = acc.toLowerCase();
+            const isCurrent = ['cash', 'receivable', 'inventory', 'supplies', 'prepaid'].some(k => lowerAcc.includes(k));
+            const isContra = lowerAcc.includes('accumulated');
+            
+            if (isCurrent) {
+                expected.currentAssets.push({ name: acc, amount: val });
+                expected.totals.curAssets += val;
+            } else if (isContra) {
+                expected.contraAssets.push({ name: acc, amount: val }); // Stored as positive magnitude
+                expected.totals.nonCurAssets -= val; // Contra reduces assets
+            } else {
+                // Non-current (PPE, Land)
+                expected.nonCurrentAssets.push({ name: acc, amount: val });
+                expected.totals.nonCurAssets += val;
+            }
+            expected.totals.assets += (isContra ? -val : val); // Net Asset Total
+            
         } else if (type === 'Liability') {
-            expected.liabilities.push({ name: acc, amount: val }); // Cr is positive liability
+            // Simplified classification: Payable/Unearned usually current, Mortgage/Bonds non-current
+            // For this simulation, assuming most are current unless specified otherwise.
+            // Let's assume all standard generated ones are current for simplicity unless 'Mortgage' or 'Bond'.
+            const isNonCurrent = acc.toLowerCase().includes('mortgage') || acc.toLowerCase().includes('bond') || acc.toLowerCase().includes('loan');
+            
+            if (isNonCurrent) {
+                expected.nonCurrentLiabilities.push({ name: acc, amount: val });
+                expected.totals.nonCurLiabs += val;
+            } else {
+                expected.currentLiabilities.push({ name: acc, amount: val });
+                expected.totals.curLiabs += val;
+            }
             expected.totals.liabs += val;
+            
         } else if (acc.includes('Drawings') || acc.includes('Dividends')) {
             expected.equity.drawings = (expected.equity.drawings || 0) + val;
         } else if (type === 'Equity' && !acc.includes('Income Summary')) {
-            // Capital / Retained Earnings
             expected.equity.capitalAccount = acc;
             expected.equity.begBal = Math.abs(activityData.beginningBalances?.balances?.[acc]?.cr || 0); 
             expected.equity.atbCapital = val; 
         }
     });
 
-    // Special handling for Investments (Credits to Capital during period)
+    // Special handling for Investments
     let investments = 0;
     activityData.transactions.forEach(t => {
         t.credits.forEach(c => {
@@ -134,8 +179,9 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     });
     expected.equity.investments = investments;
 
-    // Recalculate End Cap strictly
-    expected.totals.endCap = expected.totals.assets - expected.totals.liabilities;
+    // Recalculate End Cap strictly (Assets - Liabilities = Equity)
+    expected.totals.endCap = expected.totals.assets - expected.totals.liabs;
+    expected.totals.liabEquity = expected.totals.liabs + expected.totals.endCap;
 
 
     // --- SCORING HELPER ---
@@ -171,6 +217,10 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
 
     scoreSection(allUserISRows, expected.revenues);
     scoreSection(allUserISRows, expected.expenses);
+    
+    // Score Totals in IS
+    scoreField(isData.totalRevenues || isData.totalOpRevenues, expected.totals.rev);
+    scoreField(isData.totalExpenses || isData.totalOpExpenses, expected.totals.exp);
     scoreField(isData.netIncomeAfterTax || isData.netIncomeBeforeTax, expected.totals.ni);
 
     // 3. Score SCE
@@ -179,6 +229,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     scoreField(sceData.begCapital, begCapVal);
     
     const sceAdditions = sceData.additions || [];
+    let additionsTotal = 0;
     if (expected.equity.investments > 0) {
         maxScore += 2;
         const invMatch = sceAdditions.find(r => r.label.toLowerCase().includes('investment') || r.label.toLowerCase().includes('capital'));
@@ -186,6 +237,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             score += 1;
             if (checkField(invMatch.amount, expected.equity.investments)) score += 1;
         }
+        additionsTotal += expected.equity.investments;
     }
     if (expected.totals.ni > 0) {
         maxScore += 2;
@@ -194,9 +246,15 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             score += 1;
             if (checkField(niMatch.amount, expected.totals.ni)) score += 1;
         }
+        additionsTotal += expected.totals.ni;
     }
+    scoreField(sceData.totalAdditions, additionsTotal);
+
+    // Capital During
+    scoreField(sceData.totalCapDuring, begCapVal + additionsTotal);
 
     const sceDeductions = sceData.deductions || [];
+    let deductionsTotal = 0;
     if (expected.equity.drawings > 0) {
         maxScore += 2;
         const drwMatch = sceDeductions.find(r => r.label.toLowerCase().includes('drawing'));
@@ -204,6 +262,7 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             score += 1;
             if (checkField(drwMatch.amount, expected.equity.drawings)) score += 1;
         }
+        deductionsTotal += expected.equity.drawings;
     }
     if (expected.totals.ni < 0) {
         maxScore += 2;
@@ -212,21 +271,70 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
             score += 1;
             if (checkField(lossMatch.amount, Math.abs(expected.totals.ni))) score += 1;
         }
+        deductionsTotal += Math.abs(expected.totals.ni);
     }
+    scoreField(sceData.totalDeductions, deductionsTotal);
 
     scoreField(sceData.endCapital, expected.totals.endCap);
 
     // 4. Score Balance Sheet
     const bsData = userAnswers.bs || {};
-    const allUserAssetRows = [...(bsData.curAssets || []), ...(bsData.otherAssets || []), ...(bsData.depAssets || []).map(d => ({label: d.asset, amount: d.net}))];
-    const allUserLiabRows = [...(bsData.curLiabs || []), ...(bsData.nonCurLiabs || [])];
-
-    scoreSection(allUserAssetRows, expected.assets);
-    scoreSection(allUserLiabRows, expected.liabilities);
     
+    // Score Current Assets
+    scoreSection(bsData.curAssets || [], expected.currentAssets);
+    scoreField(bsData.totalCurAssets, expected.totals.curAssets);
+
+    // Score Depreciable Assets (Cost, Accum, Net)
+    const userDepAssets = bsData.depAssets || [];
+    // We expect every Non-Current Asset (excluding Land if logic separates it, but here all non-current assets except contras are candidates)
+    // to be represented if the user puts them here.
+    
+    // For each expected PPE asset (found in expected.nonCurrentAssets):
+    // 1. Find matched row in userDepAssets
+    // 2. Score Cost
+    // 3. Score Accum (Find matching Contra)
+    // 4. Score Net
+    const ppeAssets = expected.nonCurrentAssets.filter(a => !a.name.toLowerCase().includes('land')); 
+    const landAssets = expected.nonCurrentAssets.filter(a => a.name.toLowerCase().includes('land'));
+
+    ppeAssets.forEach(ppe => {
+        maxScore += 3; // Cost + Accum + Net
+        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); // Simple partial match
+        
+        if (userRow) {
+            // Check Cost
+            if (checkField(userRow.cost, ppe.amount)) score += 1;
+            
+            // Check Accum
+            // Find contra in expected
+            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); // Heuristic match by name (e.g. Equipment -> Accum Dep - Equipment)
+            const contraAmt = contra ? contra.amount : 0;
+            if (checkField(userRow.accum, contraAmt, true)) score += 1; // Accum is typically entered as negative or just number in deduction column
+
+            // Check Net
+            const netAmt = ppe.amount - contraAmt;
+            if (checkField(userRow.net, netAmt)) score += 1;
+        }
+    });
+
+    // Score Other Assets (Land, etc)
+    scoreSection(bsData.otherAssets || [], landAssets);
+    
+    scoreField(bsData.totalNonCurAssets, expected.totals.nonCurAssets);
     scoreField(bsData.totalAssets, expected.totals.assets);
+
+    // Score Liabilities
+    scoreSection(bsData.curLiabs || [], expected.currentLiabilities);
+    scoreField(bsData.totalCurLiabs, expected.totals.curLiabs);
+    
+    scoreSection(bsData.nonCurLiabs || [], expected.nonCurrentLiabilities);
+    scoreField(bsData.totalNonCurLiabs, expected.totals.nonCurLiabs);
+
     scoreField(bsData.totalLiabs, expected.totals.liabs);
-    scoreField(bsData.totalLiabEquity, expected.totals.assets);
+    
+    // Score Equity Section in BS
+    scoreField(bsData.endCapital, expected.totals.endCap);
+    scoreField(bsData.totalLiabEquity, expected.totals.liabEquity);
 
     const isCorrect = score === maxScore && maxScore > 0;
     const letterGrade = getLetterGrade(score, maxScore);
@@ -333,7 +441,7 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
     const addRow = (arrKey, defaultObj) => updateData({ [arrKey]: [...(data?.[arrKey]||[]), defaultObj] });
     const deleteRow = (arrKey, idx) => updateData({ [arrKey]: (data?.[arrKey]||[]).filter((_, i) => i !== idx) });
 
-    // Calculations for Validation
+    // Calculations for Validation (Helpers for the UI, Validation done in validateStep06)
     const sumArr = (arr) => arr.reduce((acc, r) => acc + parseUserValue(r.amount), 0);
     const sumDepNet = depAssets.reduce((acc, r) => acc + parseUserValue(r.net), 0);
     
@@ -378,15 +486,15 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                             <div key=${i} className="mb-2 bg-gray-50 p-2 rounded relative group">
                                 <div className="flex justify-between mb-1">
                                     <input type="text" className="bg-transparent w-full outline-none" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
-                                    <input type="text" className="w-20 text-right bg-transparent outline-none" placeholder="0" value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} disabled=${isReadOnly}/>
+                                    <div className="w-24"><${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected={0} showFeedback={false} isReadOnly={isReadOnly} placeholder="0" /></div>
                                 </div>
                                 <div className="flex justify-between mb-1 text-gray-600">
                                     <span className="pl-4">Less: <input type="text" className="inline-block bg-transparent outline-none w-32" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
-                                    <input type="text" className="w-20 text-right bg-transparent outline-none border-b border-gray-300" placeholder="(0)" value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} disabled=${isReadOnly}/>
+                                    <div className="w-24"><${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected={0} showFeedback={false} isReadOnly={isReadOnly} placeholder="(0)" /></div>
                                 </div>
                                 <div className="flex justify-between font-bold">
                                     <span className="pl-8">Net Book Value</span>
-                                    <div className="w-full"><${FeedbackInput} value=${block.net} onChange=${(e)=>handleArrChange('depAssets', i, 'net', e.target.value)} expected=${parseUserValue(block.cost) - Math.abs(parseUserValue(block.accum))} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="0"/></div>
+                                    <div className="w-full"><${FeedbackInput} value=${block.net} onChange=${(e)=>handleArrChange('depAssets', i, 'net', e.target.value)} expected={parseUserValue(block.cost) - Math.abs(parseUserValue(block.accum))} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="0"/></div>
                                 </div>
                                 ${!isReadOnly && html`<button onClick=${()=>deleteRow('depAssets', i)} className="absolute top-1 right-[-20px] text-red-400 opacity-0 group-hover:opacity-100"><${Trash2} size=${12}/></button>`}
                             </div>
