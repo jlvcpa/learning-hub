@@ -280,13 +280,6 @@ const App = () => {
             const result = validateStep04(activityData.transactions, currentAns, activityData.ledger);
             isCorrect = result.isCorrect;
 
-            // Optional: You can console log score here if needed
-            // console.log("Step 4 Score:", result.score, "/", result.maxScore);
-        
-                } else if (stepId === 5) {
-                     const userFinal = currentAns.footers?.final || {};
-                     isCorrect = Number(userFinal.finBSDr) > 0 && Math.abs(Number(userFinal.finBSDr) - Number(userFinal.finBSCr)) <= 1;
-
         } else if (stepId === 5) {
              const { validateStep05 } = await import('./steps/Step05Worksheet.js'); 
              const result = validateStep05(activityData.ledger, activityData.adjustments, currentAns);
