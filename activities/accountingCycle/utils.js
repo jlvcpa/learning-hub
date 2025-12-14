@@ -1,4 +1,7 @@
-// Constants and Logic Helpers for Accounting Cycle
+// -------------------
+// --- utils.js for Constants and Logic Helpers for Accounting Cycle ---
+// ------------------
+
 
 export const APP_VERSION = "Version: 2025-12-10 17:11 PST";
 
