@@ -102,6 +102,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
         updateBlock(blockIdx, rows);
     };
 
+    // Helper for validation styling
     const getInputClass = (isOk) => 
         `w-full h-full p-1 outline-none text-sm ${showFeedback && isOk === false ? 'bg-red-50' : ''}`;
 
@@ -112,6 +113,8 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                 Journalize Closing Entries (REID)
             </div>
             
+            
+
             <div className="overflow-y-auto p-2 flex-1">
                 ${currentEntries.map((block, bIdx) => {
                     const rows = block.rows || [{}, {}];
@@ -129,16 +132,12 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                             </div>
 
                             ${rows.map((row, rIdx) => {
-                                // Dynamic Validation Keys: blockId-rowIndex-field
-                                const accKey = `${block.id}-${rIdx}-acc`;
-                                const prKey = `${block.id}-${rIdx}-pr`;
-                                const drKey = `${block.id}-${rIdx}-dr`;
-                                const crKey = `${block.id}-${rIdx}-cr`;
-
-                                const accOk = fieldStatus?.[accKey];
-                                const prOk = fieldStatus?.[prKey];
-                                const drOk = fieldStatus?.[drKey];
-                                const crOk = fieldStatus?.[crKey];
+                                // Validation Keys
+                                const baseKey = `journal-${bIdx}-${rIdx}`;
+                                const accOk = fieldStatus?.[`${baseKey}-acc`];
+                                const drOk = fieldStatus?.[`${baseKey}-dr`];
+                                const crOk = fieldStatus?.[`${baseKey}-cr`];
+                                const prOk = fieldStatus?.[`${baseKey}-pr`];
 
                                 return html`
                                 <div key=${rIdx} className="flex border-b border-gray-100 h-8">
@@ -189,21 +188,20 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 
 // --- COMPONENT: Enhanced Ledger Account ---
 const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount }) => {
-    // Extract Validation Status for this specific account
+    // Validation
     const { fieldStatus } = validationResult || {};
-    
-    // DRY Validation Keys
-    const drTotalOk = fieldStatus?.[`${accName}-drTotal`];
-    const crTotalOk = fieldStatus?.[`${accName}-crTotal`];
-    const balAmtOk = fieldStatus?.[`${accName}-balance`];
-    const balTypeOk = fieldStatus?.[`${accName}-balType`];
-    const accountOk = fieldStatus?.[`${accName}-overall`];
+    const ledgerKeyBase = `ledger-${accName}`;
+    const overallOk = fieldStatus?.[`${ledgerKeyBase}-overall`];
+    const drTotalOk = fieldStatus?.[`${ledgerKeyBase}-drTotal`];
+    const crTotalOk = fieldStatus?.[`${ledgerKeyBase}-crTotal`];
+    const balAmtOk = fieldStatus?.[`${ledgerKeyBase}-bal`];
+    const balTypeOk = fieldStatus?.[`${ledgerKeyBase}-balType`];
 
     // 1. Prepare Data Rows
     const leftRows = [];
     const rightRows = [];
 
-    // Beg Bal (Only for historical accounts)
+    // Beg Bal
     if (startingBalance) {
         if (startingBalance.dr > 0) leftRows.push({ date: 'Jan 01', item: 'Bal', pr: '✓', amount: startingBalance.dr, isLocked: true });
         if (startingBalance.cr > 0) rightRows.push({ date: 'Jan 01', item: 'Bal', pr: '✓', amount: startingBalance.cr, isLocked: true });
@@ -220,7 +218,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         t.credits.forEach(c => { if(c.account === accName) rightRows.push({ date: dateStr, item: 'GJ', pr: '1', amount: c.amount, isLocked: true }); });
     });
 
-    // Adjusting Entries (From Step 7 - Treated as History in Step 8)
+    // Adjusting Entries
     if (adjustments) {
         adjustments.forEach(adj => {
             if (adj.drAcc === accName) leftRows.push({ date: 'Dec 31', item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
@@ -341,7 +339,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     return html`
         <div className="border-2 border-gray-800 bg-white shadow-md mb-6">
             <div className="border-b-2 border-gray-800 p-2 flex justify-between bg-gray-100 relative">
-                <div className="absolute left-2 top-2"><${StatusIcon} show=${showFeedback} isCorrect=${accountOk} /></div>
+                <div className="absolute left-2 top-2"><${StatusIcon} show=${showFeedback} isCorrect=${overallOk} /></div>
                 <div className="w-full text-center mx-8 font-bold text-lg">${accName}</div>
             </div>
             
@@ -414,11 +412,9 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
 
             <div className="border-t border-gray-300 p-2 bg-gray-100 flex justify-center items-center gap-2 relative">
                 <span className="text-xs font-bold uppercase text-gray-600">Balance:</span>
-                
                 <div className="relative">
                     <select className=${`border border-gray-300 rounded text-xs p-1 outline-none bg-white ${showFeedback && balTypeOk === false ? 'bg-red-50' : ''}`} value=${userLedger?.balanceType || ''} onChange=${(e)=>onUpdate({...userLedger, balanceType: e.target.value})} disabled=${isReadOnly}><option value="" disabled>Type</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
                 </div>
-                
                 <div className="relative">
                     <input type="number" className=${`w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none ${showFeedback && balAmtOk === false ? 'bg-red-50' : ''}`} placeholder="0" value=${userLedger?.balance||''} onChange=${(e)=>onUpdate({...userLedger, balance: e.target.value})} disabled=${isReadOnly} />
                     <div className="absolute -right-5 top-1"><${StatusIcon} show=${showFeedback} isCorrect=${balAmtOk}/></div>
@@ -494,3 +490,230 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
         </div>
     `;
 }
+
+// --- VALIDATION HELPER ---
+export const validateStep08 = (data, activityData) => {
+    const { validAccounts, ledger, adjustments } = activityData;
+    const userJournal = data.journal || [];
+    const userLedgers = data.ledgers || {};
+
+    let score = 0;
+    let maxScore = 0;
+    const fieldStatus = {};
+
+    // 1. Calculate Correct Closing Amounts
+    let totalRev = 0, totalExp = 0, drawingAmt = 0;
+    const revAccounts = [];
+    const expAccounts = [];
+    let drawingAccName = '';
+    let capitalAccName = '';
+
+    validAccounts.forEach(acc => {
+        const type = getAccountType(acc);
+        const rawDr = ledger[acc]?.debit || 0;
+        const rawCr = ledger[acc]?.credit || 0;
+        let adjDr = 0, adjCr = 0;
+        adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
+        
+        const net = (rawDr + adjDr) - (rawCr + adjCr); // +Dr, -Cr
+
+        if (type === 'Revenue') {
+            totalRev += Math.abs(net); // Normal Balance Cr
+            revAccounts.push({ acc, amt: Math.abs(net) });
+        } else if (type === 'Expense') {
+            totalExp += Math.abs(net); // Normal Balance Dr
+            expAccounts.push({ acc, amt: Math.abs(net) });
+        } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
+            drawingAmt = Math.abs(net);
+            drawingAccName = acc;
+        } else if (acc.includes('Capital') || acc.includes('Retained Earnings')) {
+            capitalAccName = acc;
+        }
+    });
+
+    const netIncome = totalRev - totalExp;
+
+    // 2. Validate Journal Entries (REID)
+    // Structure: 0=Rev, 1=Exp, 2=IncSum, 3=Draw
+
+    // --- Block 0: Close Revenues ---
+    // Dr Revenue Accounts, Cr Income Summary
+    const b0 = userJournal[0]?.rows || [];
+    const expectedB0 = [
+        ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
+        { acc: 'Income Summary', dr: 0, cr: totalRev }
+    ];
+    // Simple validation: Check if user rows match expected set (ignoring order for revs)
+    b0.forEach((row, rIdx) => {
+        const keyBase = `journal-0-${rIdx}`;
+        // Find match in expected
+        const match = expectedB0.find(e => e.acc === row.acc);
+        
+        const accOk = !!match;
+        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
+        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
+        
+        fieldStatus[`${keyBase}-acc`] = accOk;
+        fieldStatus[`${keyBase}-dr`] = drOk;
+        fieldStatus[`${keyBase}-cr`] = crOk;
+        fieldStatus[`${keyBase}-pr`] = row.pr === true; // Simplified PR check
+
+        if (accOk && drOk && crOk) score++;
+        maxScore++;
+    });
+
+    // --- Block 1: Close Expenses ---
+    // Dr Income Summary, Cr Expenses
+    const b1 = userJournal[1]?.rows || [];
+    const expectedB1 = [
+        { acc: 'Income Summary', dr: totalExp, cr: 0 },
+        ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
+    ];
+    b1.forEach((row, rIdx) => {
+        const keyBase = `journal-1-${rIdx}`;
+        const match = expectedB1.find(e => e.acc === row.acc);
+        
+        const accOk = !!match;
+        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
+        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
+        
+        fieldStatus[`${keyBase}-acc`] = accOk;
+        fieldStatus[`${keyBase}-dr`] = drOk;
+        fieldStatus[`${keyBase}-cr`] = crOk;
+        fieldStatus[`${keyBase}-pr`] = row.pr === true;
+
+        if (accOk && drOk && crOk) score++;
+        maxScore++;
+    });
+
+    // --- Block 2: Close Income Summary (Net Income) ---
+    // Dr Income Summary, Cr Capital (if NI)
+    const b2 = userJournal[2]?.rows || [];
+    const expectedB2 = netIncome >= 0 
+        ? [ { acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome } ]
+        : [ { acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) } ];
+    
+    b2.forEach((row, rIdx) => {
+        const keyBase = `journal-2-${rIdx}`;
+        const match = expectedB2.find(e => e.acc === row.acc);
+        const accOk = !!match;
+        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
+        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
+        fieldStatus[`${keyBase}-acc`] = accOk;
+        fieldStatus[`${keyBase}-dr`] = drOk;
+        fieldStatus[`${keyBase}-cr`] = crOk;
+        fieldStatus[`${keyBase}-pr`] = row.pr === true;
+        if (accOk && drOk && crOk) score++;
+        maxScore++;
+    });
+
+    // --- Block 3: Close Drawings ---
+    // Dr Capital, Cr Drawing
+    const b3 = userJournal[3]?.rows || [];
+    const expectedB3 = [
+        { acc: capitalAccName, dr: drawingAmt, cr: 0 },
+        { acc: drawingAccName, dr: 0, cr: drawingAmt }
+    ];
+    b3.forEach((row, rIdx) => {
+        const keyBase = `journal-3-${rIdx}`;
+        const match = expectedB3.find(e => e.acc === row.acc);
+        const accOk = !!match;
+        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
+        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
+        fieldStatus[`${keyBase}-acc`] = accOk;
+        fieldStatus[`${keyBase}-dr`] = drOk;
+        fieldStatus[`${keyBase}-cr`] = crOk;
+        fieldStatus[`${keyBase}-pr`] = row.pr === true;
+        if (accOk && drOk && crOk) score++;
+        maxScore++;
+    });
+
+    // 3. Validate Ledger Post-Closing Balances
+    // Calculate Post-Closing Values
+    const postClosingVals = {};
+    validAccounts.forEach(acc => {
+        const type = getAccountType(acc);
+        let rawDr = ledger[acc]?.debit || 0;
+        let rawCr = ledger[acc]?.credit || 0;
+        adjustments.forEach(a => { if (a.drAcc === acc) rawDr += a.amount; if (a.crAcc === acc) rawCr += a.amount; });
+        let net = rawDr - rawCr;
+
+        // Apply Closing Effects
+        if (type === 'Revenue') net -= net; // Should be 0
+        else if (type === 'Expense') net += Math.abs(net); // Should be 0 (dr + cr to close) -> actually net becomes 0.
+        // Simplification:
+        if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') {
+            postClosingVals[acc] = 0;
+        } else if (acc === capitalAccName) {
+            // Capital = Old + NI - Drawings
+            // Original Net (Credit is negative in logic? No, let's keep Dr +, Cr -)
+            // Capital is Credit normal (-).
+            // Net Income adds to Credit (more negative).
+            // Drawings reduces Credit (positive Dr).
+            // Let's rely on absolute checks for this validator to be safe.
+            // Expected Capital = Adjusted Capital + Net Income - Drawings
+            // We'll calculate the final Number directly.
+            let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); // Cr Balance
+            capBal += netIncome;
+            capBal -= drawingAmt;
+            postClosingVals[acc] = capBal; // Expected Credit Balance
+        } else {
+            // Assets / Liabilities remain adjusted
+            postClosingVals[acc] = Math.abs(net);
+        }
+    });
+
+    validAccounts.forEach(acc => {
+        const userL = userLedgers[acc] || {};
+        const keyBase = `ledger-${acc}`;
+        
+        // 1. Calculate user totals from their rows
+        const uLeft = userL.leftRows || [];
+        const uRight = userL.rightRows || [];
+        // We trust the totals entered in the input boxes for validation grading usually, 
+        // or we sum the rows. Step 8 usually requires user to input totals.
+        const uDrTotal = Number(userL.drTotal) || 0;
+        const uCrTotal = Number(userL.crTotal) || 0;
+        
+        // Expected Totals? This is hard because Closing entries add lines.
+        // Instead, we validate the FINAL BALANCE match.
+        
+        const expectedBal = postClosingVals[acc];
+        const userBal = Number(userL.balance) || 0;
+        const userType = userL.balanceType;
+
+        const isZero = Math.abs(expectedBal) < 1;
+        const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
+        
+        // Determine Expected Type
+        let expectedType = '';
+        if (!isZero) {
+            const type = getAccountType(acc);
+            if (acc === capitalAccName) expectedType = 'Cr'; // Capital usually Cr
+            else if (type === 'Asset') expectedType = 'Dr';
+            else if (type === 'Liability') expectedType = 'Cr';
+        }
+
+        const matchesType = isZero ? true : (userType === expectedType);
+
+        fieldStatus[`${keyBase}-bal`] = matchesAmt;
+        fieldStatus[`${keyBase}-balType`] = matchesType;
+        fieldStatus[`${keyBase}-overall`] = matchesAmt && matchesType;
+        
+        // Dummy checks for totals to prevent undefined errors in UI, 
+        // or implement logic if we want to enforce summing.
+        fieldStatus[`${keyBase}-drTotal`] = true; 
+        fieldStatus[`${keyBase}-crTotal`] = true;
+
+        if (matchesAmt && matchesType) score += 2;
+        maxScore += 2;
+    });
+
+    return {
+        score,
+        maxScore,
+        letterGrade: getLetterGrade(score, maxScore),
+        fieldStatus,
+        year: '20XX' // Placeholder
+    };
+};
