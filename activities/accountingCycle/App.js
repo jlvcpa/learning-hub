@@ -16,7 +16,7 @@ import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
 import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js';
 import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js';
-import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
+import Step09PostClosingTB, { validateStep09 } from './steps/Step09PostClosingTB.js';
 import Step10ReversingEntries, { validateReversingEntry } from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
@@ -309,60 +309,10 @@ const App = () => {
             isCorrect = result.score === result.maxScore && result.maxScore > 0;
 
         } else if (stepId === 9) {
-             // ... (Step 9 validation remains unchanged)
-             const rows = currentAns.rows || [];
-             const { ledger, adjustments, validAccounts } = activityData;
-             
-             const finalBalances = {};
-             let capitalAcc = '';
-             let ni = 0;
-             let draw = 0;
-
-             validAccounts.forEach(acc => {
-                 const rawDr = ledger[acc]?.debit || 0;
-                 const rawCr = ledger[acc]?.credit || 0;
-                 let aDr = 0, aCr = 0;
-                 adjustments.forEach(a => { if(a.drAcc === acc) aDr += a.amount; if(a.crAcc === acc) aCr += a.amount; });
-                 const net = (rawDr + aDr) - (rawCr + aCr);
-                 const type = getAccountType(acc);
-                 
-                 if (type === 'Revenue') ni += Math.abs(net);
-                 else if (type === 'Expense') ni -= net;
-                 else if (acc.includes('Drawing')) draw += net;
-                 else if (type === 'Equity') capitalAcc = acc;
-                 
-                 if (['Asset','Liability'].includes(type)) finalBalances[acc] = net;
-             });
-
-             const rawCapDr = ledger[capitalAcc]?.debit || 0;
-             const rawCapCr = ledger[capitalAcc]?.credit || 0;
-             const startCap = Math.abs(rawCapDr - rawCapCr); 
-             const endCap = startCap + ni - draw;
-             finalBalances[capitalAcc] = -endCap; 
-
-             let allCorrect = true;
-             const expectedCount = Object.keys(finalBalances).filter(k => Math.abs(finalBalances[k]) > 0).length;
-             let validUserRows = 0;
-
-             rows.forEach(r => {
-                 const acc = r.account.trim();
-                 if (!acc) return;
-                 const expVal = finalBalances[Object.keys(finalBalances).find(k=>k.toLowerCase()===acc.toLowerCase())];
-                 
-                 if (expVal === undefined) { 
-                     allCorrect = false; 
-                 } else {
-                     const uDr = Number(r.dr)||0;
-                     const uCr = Number(r.cr)||0;
-                     const uNet = uDr - uCr;
-                     if (Math.abs(uNet - expVal) > 1) allCorrect = false;
-                     validUserRows++;
-                 }
-             });
-
-             if (validUserRows < expectedCount) allCorrect = false;
-
-             isCorrect = allCorrect && rows.length > 0;
+             // --- UPDATED STEP 9 VALIDATION ---
+             const currentAns = answers[9] || {};
+             const result = validateStep09(currentAns, activityData);
+             isCorrect = result.isCorrect;
 
         } else if (stepId === 10) {
             // ... (Step 10 validation remains unchanged)
