@@ -7,10 +7,46 @@ import { sortAccounts, getLetterGrade, getAccountType } from '../utils.js';
 const html = htm.bind(React.createElement);
 
 // --- HELPER: DRY VALIDATION LOGIC ---
-export const validateStep07 = (activityData, journalData, ledgerData) => {
+export const validateStep07 = (arg1, arg2, arg3, arg4) => {
+    // 1. Adapter for arguments to handle different calling signatures from App.js vs Internal
+    let activityData, journalData, ledgerData;
+
+    // Check if arg1 is activityData object (contains 'transactions' or 'adjustments' as full array)
+    if (arg1 && (arg1.transactions || (arg1.adjustments && !Array.isArray(arg1)))) {
+        activityData = arg1;
+        journalData = arg2;
+        ledgerData = arg3;
+    } else {
+        // Legacy/App.js signature: (adjustments, journalData, ledgerData, transactions)
+        // We construct a fallback activityData
+        const transactions = arg4 || [];
+        const adjustments = arg1 || [];
+        
+        // Derive validAccounts for scoring iteration
+        const accs = new Set();
+        transactions.forEach(t => {
+            t.debits.forEach(d => accs.add(d.account));
+            t.credits.forEach(c => accs.add(c.account));
+        });
+        adjustments.forEach(a => {
+            accs.add(a.drAcc);
+            accs.add(a.crAcc);
+        });
+
+        activityData = {
+            adjustments,
+            transactions,
+            beginningBalances: null, // Fallback
+            config: {}, // Fallback
+            validAccounts: Array.from(accs)
+        };
+        journalData = arg2;
+        ledgerData = arg3;
+    }
+
     const { adjustments, transactions, beginningBalances, config, validAccounts } = activityData;
     
-    // 1. Determine Correct Date
+    // 2. Determine Correct Date
     const baseDate = transactions.length > 0 ? new Date(transactions[0].date) : new Date();
     const year = baseDate.getFullYear().toString();
     const month = baseDate.getMonth();
@@ -33,7 +69,7 @@ export const validateStep07 = (activityData, journalData, ledgerData) => {
         });
     };
 
-    // A. Journal & Posting Validation (14 pts per adjustment)
+    // A. Journal & Posting Validation
     adjustments.forEach(adj => {
         const entry = journalData[adj.id] || {};
 
@@ -62,7 +98,7 @@ export const validateStep07 = (activityData, journalData, ledgerData) => {
         if (crPrCorrect) score++;
         maxScore += 3;
 
-        // 3. Ledger Posting Score ("TIMES 2" -> Add points for correct ledger existence)
+        // 3. Ledger Posting Score (Double counting logic as requested)
         if (drPostedRowFound) score += 4;
         maxScore += 4;
 
@@ -82,21 +118,27 @@ export const validateStep07 = (activityData, journalData, ledgerData) => {
     const adjAccounts = new Set();
     adjustments.forEach(a => { adjAccounts.add(a.drAcc); adjAccounts.add(a.crAcc); });
     const historicalAccounts = new Set(validAccounts);
+    // Accounts in adjustments that are NOT in original transactions/balances are "New"
+    // Note: validAccounts usually includes all involved accounts. We check against the original set if possible.
+    // If constructed from fallback, this distinction might be weak, but functional.
     const newLedgerAccounts = [...adjAccounts].filter(acc => !historicalAccounts.has(acc));
     
     // B. New Ledger Year Entry (1 pt each)
-    newLedgerAccounts.forEach(acc => {
-        // User must have added this ledger manually
-        if (ledgerData[acc]) {
-            const userYear = (ledgerData[acc].yearInput || '').trim();
-            if (userYear === year) score++;
+    // Note: In fallback mode, validAccounts derived from adj includes adj accounts, so newLedgerAccounts might be empty.
+    // We rely on 'ledgerData.addedAccounts' list if available or check manually added props.
+    // Enhanced check: Check if user added yearInput for any account
+    const allRelevantAccounts = new Set([...validAccounts, ...adjAccounts]);
+    
+    allRelevantAccounts.forEach(acc => {
+        const u = ledgerData[acc] || {};
+        // If this account has a 'yearInput' field (meaning it was treated as new by UI), validate it
+        if (u.yearInput !== undefined) {
+             if ((u.yearInput || '').trim() === year) score++;
+             maxScore += 1;
         }
-        maxScore += 1;
     });
 
     // C. Ledger Totals & Balance (3 pts each)
-    const allRelevantAccounts = new Set([...validAccounts, ...adjAccounts]);
-    
     allRelevantAccounts.forEach(acc => {
         // Calculate Expected
         let bbDr = 0, bbCr = 0;
@@ -399,9 +441,6 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
          const histLenLeft = leftRows.length;
          const histLenRight = rightRows.length;
          
-         // Only delete if BOTH sides at this index are user rows (or empty)
-         // Actually, standard behavior: if index is within user range for either, splice both.
-         // If one side has historical at this index, we can't delete the row? 
          // Adjusting entries step usually appends to existing. Historical rows are at top.
          // So if dataIdx >= max(histLenLeft, histLenRight), it is safe.
          if (dataIdx < Math.max(histLenLeft, histLenRight)) return;
@@ -552,12 +591,10 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
     const sortedAccounts = sortAccounts(validAccounts);
     const { year } = validationResult || {};
     
-    // Manage added accounts locally or via prop? 
-    // Usually state should be lifted, but for simplicity we rely on ledgerData keys that are NOT in validAccounts
-    // But we need a UI to add them. 
     const [isAdding, setIsAdding] = useState(false);
     const [newAccName, setNewAccName] = useState('');
 
+    // Ensure addedAccounts is always an array
     const addedAccounts = useMemo(() => {
         return (ledgerData.addedAccounts || []);
     }, [ledgerData.addedAccounts]);
@@ -565,13 +602,11 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
     const handleAddAccount = () => {
         if (!newAccName.trim()) return;
         const name = newAccName.trim();
-        // Check duplication
         if (validAccounts.includes(name) || addedAccounts.includes(name)) {
             alert('Account already exists.');
             return;
         }
         
-        // Update ledgerData with new account key and list
         const newAdded = [...addedAccounts, name];
         // Initialize with 2 empty rows per side as requested
         const initialLedger = {
@@ -579,12 +614,7 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
             rightRows: [{}, {}]
         };
         
-        onChange(name, initialLedger); // This sets ledgerData[name]
-        
-        // We need to update the 'addedAccounts' list in ledgerData to persist it
-        // BUT onChange is designed for single account update: onChange(acc, val) -> ledgerData[acc] = val
-        // We need a special key or method to update the list. 
-        // Hack: Use a special key 'addedAccounts' in ledgerData.
+        onChange(name, initialLedger); 
         onChange('addedAccounts', newAdded);
         
         setNewAccName('');
