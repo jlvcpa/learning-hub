@@ -87,6 +87,32 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
     const handleRowChange = (blockIdx, rowIdx, field, val) => {
         const rows = [...currentEntries[blockIdx].rows];
         if (!rows[rowIdx]) rows[rowIdx] = {};
+
+        // 1. Debit Entry Check: Prevent Debit if a Credit exists in previous rows
+        if (field === 'dr' && val > 0) {
+            const hasPriorCredit = rows.some((r, idx) => idx < rowIdx && (Number(r.cr) || 0) > 0);
+            if (hasPriorCredit) {
+                alert("Please enter all Debit entries first before entering any Credit entries.");
+                return; // Block change
+            }
+            // If entering Debit, ensure account is NOT indented
+            if (rows[rowIdx].acc && rows[rowIdx].acc.startsWith("   ")) {
+                rows[rowIdx].acc = rows[rowIdx].acc.trim();
+            }
+        }
+
+        // 2. Credit Entry Logic: Auto-indent Account
+        if (field === 'cr' && val > 0) {
+            // Automatically indent account title if not already
+            const currentAcc = rows[rowIdx].acc || '';
+            if (!currentAcc.startsWith("   ")) {
+                rows[rowIdx].acc = "   " + currentAcc;
+            }
+        }
+
+        // 3. Date Logic: Only allowed on rowIdx 0 (Enforced in Render, but filtered here just in case)
+        if (field === 'date' && rowIdx !== 0) return;
+
         rows[rowIdx][field] = val;
         updateBlock(blockIdx, rows);
     };
@@ -136,11 +162,18 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
                                 const crOk = fieldStatus?.[`${baseKey}-cr`];
                                 const prOk = fieldStatus?.[`${baseKey}-pr`];
+                                const dateOk = fieldStatus?.[`${baseKey}-date`]; // New date validation key
 
                                 return html`
                                 <div key=${rIdx} className="flex border-b border-gray-100 h-8">
                                     <div className="w-14 border-r relative">
-                                        <input type="text" className="w-full h-full p-1 outline-none text-sm text-center" placeholder="Dec 31" value=${rIdx === 0 ? 'Dec 31' : ''} disabled />
+                                        ${rIdx === 0 
+                                            ? html`
+                                                <input type="text" className=${getInputClass(dateOk) + " text-center"} placeholder="dd" value=${row.date || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'date', e.target.value)} disabled=${isReadOnly}/>
+                                                <div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${dateOk}/></div>
+                                              `
+                                            : html`<div className="w-full h-full bg-gray-50"></div>`
+                                        }
                                     </div>
                                     <div className="flex-1 border-r relative">
                                         <input type="text" className=${getInputClass(accOk)} placeholder="Account Title" value=${row.acc || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'acc', e.target.value)} disabled=${isReadOnly}/>
@@ -238,7 +271,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     const updateSide = (side, visualIdx, field, val) => {
         // Visual Index 0 is Year Row
         if (visualIdx === 0) {
-            if (isNewAccount && side === 'left') { // Store year in userLedger root or special field
+            if (isNewAccount && side === 'left') { 
                 onUpdate({ ...userLedger, yearInput: val });
             }
             return;
@@ -359,7 +392,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                                 <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                             </div>
                         `;
@@ -431,17 +464,16 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
         return validateStep08(data, activityData);
     }, [data, activityData, showFeedback, isReadOnly]);
 
-    // Ensure data structures exist
-    const ledgers = data.ledgers || {}; 
-    const handleJournalChange = (entries) => onChange('journal', entries);
-    
-    const updateLedgerData = (accName, val) => {
-        const newLedgers = { ...ledgers, [accName]: val };
-        onChange('ledgers', newLedgers);
-    };
-
+    // Calculate Dynamic Dates from Transactions
     const { validAccounts, transactions, beginningBalances, config } = activityData;
     const sortedAccounts = sortAccounts(validAccounts);
+
+    const contextYear = useMemo(() => {
+        if (transactions && transactions.length > 0) {
+            return new Date(transactions[0].date).getFullYear();
+        }
+        return new Date().getFullYear();
+    }, [transactions]);
 
     return html`
         <div className="h-full flex flex-col">
@@ -477,12 +509,15 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
                                         transactions=${transactions}
                                         startingBalance=${config.isSubsequentYear && beginningBalances ? beginningBalances.balances[acc] : null}
                                         adjustments=${activityData.adjustments}
-                                        userLedger=${ledgers[acc] || {}}
-                                        onUpdate=${(val) => updateLedgerData(acc, val)}
+                                        userLedger=${data.ledgers?.[acc] || {}}
+                                        onUpdate=${(val) => {
+                                            const newLedgers = { ...(data.ledgers || {}), [acc]: val };
+                                            onChange('ledgers', newLedgers);
+                                        }}
                                         isReadOnly=${isReadOnly}
                                         showFeedback=${showFeedback}
                                         validationResult=${validationResult}
-                                        contextYear=${validationResult?.year || '20XX'}
+                                        contextYear=${contextYear}
                                         isNewAccount=${isNew}
                                     />
                                 `;
@@ -497,9 +532,17 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
 
 // --- VALIDATION HELPER ---
 export const validateStep08 = (data, activityData) => {
-    const { validAccounts, ledger, adjustments } = activityData;
+    const { validAccounts, ledger, adjustments, transactions } = activityData;
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
+
+    // Determine correct date (End of Month of last transaction)
+    let expectedDate = 31;
+    if (transactions && transactions.length > 0) {
+        const d = new Date(transactions[transactions.length - 1].date);
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        expectedDate = lastDay;
+    }
 
     let score = 0;
     let maxScore = 0;
@@ -541,33 +584,31 @@ export const validateStep08 = (data, activityData) => {
     // Structure: 0=Rev, 1=Exp, 2=IncSum, 3=Draw
 
     // --- Block 0: Close Revenues ---
-    // Dr Revenue Accounts, Cr Income Summary
     const b0 = userJournal[0]?.rows || [];
     const expectedB0 = [
         ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
         { acc: 'Income Summary', dr: 0, cr: totalRev }
     ];
-    // Simple validation: Check if user rows match expected set (ignoring order for revs)
     b0.forEach((row, rIdx) => {
         const keyBase = `journal-0-${rIdx}`;
-        // Find match in expected
-        const match = expectedB0.find(e => e.acc === row.acc);
+        const match = expectedB0.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
         
         const accOk = !!match;
         const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
         const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
-        
+        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate); // Only check date on first row
+
         fieldStatus[`${keyBase}-acc`] = accOk;
         fieldStatus[`${keyBase}-dr`] = drOk;
         fieldStatus[`${keyBase}-cr`] = crOk;
-        fieldStatus[`${keyBase}-pr`] = row.pr === true; // Simplified PR check
+        fieldStatus[`${keyBase}-pr`] = row.pr === true;
+        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
 
-        if (accOk && drOk && crOk) score++;
+        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
         maxScore++;
     });
 
     // --- Block 1: Close Expenses ---
-    // Dr Income Summary, Cr Expenses
     const b1 = userJournal[1]?.rows || [];
     const expectedB1 = [
         { acc: 'Income Summary', dr: totalExp, cr: 0 },
@@ -575,23 +616,24 @@ export const validateStep08 = (data, activityData) => {
     ];
     b1.forEach((row, rIdx) => {
         const keyBase = `journal-1-${rIdx}`;
-        const match = expectedB1.find(e => e.acc === row.acc);
+        const match = expectedB1.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
         
         const accOk = !!match;
         const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
         const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
-        
+        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate);
+
         fieldStatus[`${keyBase}-acc`] = accOk;
         fieldStatus[`${keyBase}-dr`] = drOk;
         fieldStatus[`${keyBase}-cr`] = crOk;
         fieldStatus[`${keyBase}-pr`] = row.pr === true;
+        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
 
-        if (accOk && drOk && crOk) score++;
+        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
         maxScore++;
     });
 
     // --- Block 2: Close Income Summary (Net Income) ---
-    // Dr Income Summary, Cr Capital (if NI)
     const b2 = userJournal[2]?.rows || [];
     const expectedB2 = netIncome >= 0 
         ? [ { acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome } ]
@@ -599,20 +641,23 @@ export const validateStep08 = (data, activityData) => {
     
     b2.forEach((row, rIdx) => {
         const keyBase = `journal-2-${rIdx}`;
-        const match = expectedB2.find(e => e.acc === row.acc);
+        const match = expectedB2.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
         const accOk = !!match;
         const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
         const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
+        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate);
+
         fieldStatus[`${keyBase}-acc`] = accOk;
         fieldStatus[`${keyBase}-dr`] = drOk;
         fieldStatus[`${keyBase}-cr`] = crOk;
         fieldStatus[`${keyBase}-pr`] = row.pr === true;
-        if (accOk && drOk && crOk) score++;
+        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+
+        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
         maxScore++;
     });
 
     // --- Block 3: Close Drawings ---
-    // Dr Capital, Cr Drawing
     const b3 = userJournal[3]?.rows || [];
     const expectedB3 = [
         { acc: capitalAccName, dr: drawingAmt, cr: 0 },
@@ -620,15 +665,19 @@ export const validateStep08 = (data, activityData) => {
     ];
     b3.forEach((row, rIdx) => {
         const keyBase = `journal-3-${rIdx}`;
-        const match = expectedB3.find(e => e.acc === row.acc);
+        const match = expectedB3.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
         const accOk = !!match;
         const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
         const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
+        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate);
+
         fieldStatus[`${keyBase}-acc`] = accOk;
         fieldStatus[`${keyBase}-dr`] = drOk;
         fieldStatus[`${keyBase}-cr`] = crOk;
         fieldStatus[`${keyBase}-pr`] = row.pr === true;
-        if (accOk && drOk && crOk) score++;
+        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+
+        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
         maxScore++;
     });
 
@@ -642,9 +691,9 @@ export const validateStep08 = (data, activityData) => {
         let net = rawDr - rawCr;
 
         // Apply Closing Effects
-        if (type === 'Revenue') net -= net; // Should be 0
-        else if (type === 'Expense') net += Math.abs(net); // Should be 0 (dr + cr to close) -> actually net becomes 0.
-        // Simplification:
+        if (type === 'Revenue') net -= net; 
+        else if (type === 'Expense') net += Math.abs(net);
+        
         if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') {
             postClosingVals[acc] = 0;
         } else if (acc === capitalAccName) {
@@ -653,7 +702,6 @@ export const validateStep08 = (data, activityData) => {
             capBal -= drawingAmt;
             postClosingVals[acc] = capBal; // Expected Credit Balance
         } else {
-            // Assets / Liabilities remain adjusted
             postClosingVals[acc] = Math.abs(net);
         }
     });
@@ -669,11 +717,10 @@ export const validateStep08 = (data, activityData) => {
         const isZero = Math.abs(expectedBal) < 1;
         const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
         
-        // Determine Expected Type
         let expectedType = '';
         if (!isZero) {
             const type = getAccountType(acc);
-            if (acc === capitalAccName) expectedType = 'Cr'; // Capital usually Cr
+            if (acc === capitalAccName) expectedType = 'Cr'; 
             else if (type === 'Asset') expectedType = 'Dr';
             else if (type === 'Liability') expectedType = 'Cr';
         }
@@ -696,6 +743,6 @@ export const validateStep08 = (data, activityData) => {
         maxScore,
         letterGrade: getLetterGrade(score, maxScore),
         fieldStatus,
-        year: '20XX' // Placeholder
+        year: '20XX' 
     };
 };
