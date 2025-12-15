@@ -1,4 +1,3 @@
-// --- Step06FinancialStatements.js ---
 import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Table, Trash2, Plus, List, ChevronDown, ChevronRight, AlertCircle, Check, X } from 'https://esm.sh/lucide-react@0.263.1';
@@ -304,19 +303,37 @@ export const validateStep06 = (ledgerData, adjustments, activityData, userAnswer
     const landAssets = expected.nonCurrentAssets.filter(a => a.name.toLowerCase().includes('land'));
 
     ppeAssets.forEach(ppe => {
-        maxScore += 3; // Cost + Accum + Net
-        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0]));
+        // ENHANCEMENT: Increase max score to 5 per asset to include Names and all Amounts
+        // 1. Asset Name (1)
+        // 2. Cost Amount (1)
+        // 3. Contra Name (1)
+        // 4. Accum Amount (1)
+        // 5. Net Amount (1)
+        maxScore += 5; 
+
+        // Matching logic: Check if user asset name contains key word from expected (e.g. "Equipment" from "Office Equipment")
+        const keyword = ppe.name.toLowerCase().split(' ')[0];
+        const userRow = userDepAssets.find(r => r.asset && r.asset.toLowerCase().includes(keyword));
         
         if (userRow) {
-            // Check Cost
+            // 1. Asset Name found
+            score += 1;
+
+            // 2. Check Cost Amount
             if (checkField(userRow.cost, ppe.amount)) score += 1;
             
-            // Check Accum (Contra)
-            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(ppe.name.toLowerCase().split(' ')[0])); 
+            // 3. Check Contra Name (Should imply it's an Accumulated Depreciation account)
+            // We check if it exists and reasonably looks like a contra account
+            if (userRow.contra && userRow.contra.toLowerCase().includes('accumulated')) {
+                score += 1;
+            }
+
+            // 4. Check Accum Amount (Contra)
+            const contra = expected.contraAssets.find(c => c.name.toLowerCase().includes(keyword)); 
             const contraAmt = contra ? contra.amount : 0;
             if (checkField(userRow.accum, contraAmt, true)) score += 1; 
 
-            // Check Net
+            // 5. Check Net
             const netAmt = ppe.amount - contraAmt;
             if (checkField(userRow.net, netAmt)) score += 1;
         }
@@ -422,7 +439,7 @@ const FinancialStatementForm = ({ title, data, onChange, isReadOnly, headerColor
 
 // --- BALANCE SHEET COMPONENT ---
 
-const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapital, expectedTotals }) => {
+const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapital, expectedTotals, expectedData }) => {
     const [showNonCurrentAssets, setShowNonCurrentAssets] = useState(false);
     const [showNonCurrentLiabs, setShowNonCurrentLiabs] = useState(false);
 
@@ -488,27 +505,47 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                 
                 ${showNonCurrentAssets && html`
                     <div className="pl-2 border-l-2 border-blue-100 mb-4">
-                        ${depAssets.map((block, i) => html`
+                        ${depAssets.map((block, i) => {
+                            // Enhancement: Find "True" expected values based on asset name entered by user
+                            // This ensures that if the User has the correct name, we validate amounts against the ANSWER KEY, not just math.
+                            let expCost = 0, expAccum = 0, expNet = 0;
+                            if (expectedData && block.asset) {
+                                const keyword = block.asset.toLowerCase().split(' ')[0];
+                                const matchAsset = expectedData.nonCurrentAssets.find(a => a.name.toLowerCase().includes(keyword));
+                                if (matchAsset) {
+                                    expCost = matchAsset.amount;
+                                    const matchContra = expectedData.contraAssets.find(c => c.name.toLowerCase().includes(keyword));
+                                    expAccum = matchContra ? matchContra.amount : 0;
+                                    expNet = expCost - expAccum;
+                                } else {
+                                    // Fallback to internal consistency check if no match found yet
+                                    expNet = parseUserValue(block.cost) - Math.abs(parseUserValue(block.accum));
+                                }
+                            } else {
+                                expNet = parseUserValue(block.cost) - Math.abs(parseUserValue(block.accum));
+                            }
+
+                            return html`
                             <div key=${i} className="mb-2 bg-gray-50 p-2 rounded relative group">
                                 <div className="flex justify-between mb-1">
-                                    <input type="text" className="bg-transparent w-full outline-none" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
+                                    <input type="text" className="bg-transparent w-full outline-none font-bold text-gray-800" placeholder="[Property/Equipment Account]" value=${block.asset} onChange=${(e)=>handleArrChange('depAssets', i, 'asset', e.target.value)} disabled=${isReadOnly}/>
                                     <div className="w-24 relative">
-                                        <input type="text" className=${inputClass(false)} value=${block.cost || ''} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} disabled=${isReadOnly} placeholder="0" />
+                                        <${FeedbackInput} value=${block.cost} onChange=${(e)=>handleArrChange('depAssets', i, 'cost', e.target.value)} expected=${expCost} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="Cost" />
                                     </div>
                                 </div>
                                 <div className="flex justify-between mb-1 text-gray-600">
-                                    <span className="pl-4">Less: <input type="text" className="inline-block bg-transparent outline-none w-32" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
+                                    <span className="pl-4 flex-1">Less: <input type="text" className="inline-block bg-transparent outline-none w-3/4 italic" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
                                     <div className="w-24 relative">
-                                        <input type="text" className=${inputClass(false)} value=${block.accum || ''} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} disabled=${isReadOnly} placeholder="(0)" />
+                                         <${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected=${expAccum} isDeduction=${true} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="(Accum)" />
                                     </div>
                                 </div>
                                 <div className="flex justify-between font-bold">
                                     <span className="pl-8">Net Book Value</span>
-                                    <div className="w-full"><${FeedbackInput} value=${block.net} onChange=${(e)=>handleArrChange('depAssets', i, 'net', e.target.value)} expected={parseUserValue(block.cost) - Math.abs(parseUserValue(block.accum))} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="0"/></div>
+                                    <div className="w-full"><${FeedbackInput} value=${block.net} onChange=${(e)=>handleArrChange('depAssets', i, 'net', e.target.value)} expected=${expNet} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="0"/></div>
                                 </div>
                                 ${!isReadOnly && html`<button onClick=${()=>deleteRow('depAssets', i)} className="absolute top-1 right-[-20px] text-red-400 opacity-0 group-hover:opacity-100"><${Trash2} size=${12}/></button>`}
                             </div>
-                        `)}
+                        `})}
                         ${!isReadOnly && html`<button onClick=${()=>addRow('depAssets', {asset:'', cost:'', contra:'', accum:'', net:''})} className=${btnStyle}><${Plus} size=${12}/> Add Depreciable Asset Row</button>`}
                         
                         ${otherAssets.map((r, i) => html`
@@ -978,6 +1015,8 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
     }, [ledgerData, adjustments, activityData, data, showFeedback, isReadOnly]);
 
     const expectedTotals = validationResult?.expected?.totals;
+    // Pass detailed expected data for advanced validation in child components (e.g. Balance Sheet)
+    const expectedData = validationResult?.expected; 
 
     const renderIncomeStatement = () => {
         const currentData = data.is || {};
@@ -1024,7 +1063,7 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
                                     </div>
                                 </div>
                                 <div className="h-full">
-                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} expectedTotals=${expectedTotals}/>
+                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} expectedTotals=${expectedTotals} expectedData=${expectedData}/>
                                 </div>
                                 <div className="h-full">
                                     <${FinancialStatementForm} title="Statement of Cash Flows" headerColor="bg-indigo-100" data=${data.scf} onChange=${(k, v) => handleSCFChange(k, v)} isReadOnly=${isReadOnly} />
@@ -1038,7 +1077,7 @@ export default function Step06FinancialStatements({ ledgerData, adjustments, act
                                     <${StatementOfChangesInEquity} data=${data.sce} onChange=${handleSCEChange} isReadOnly=${isReadOnly} showFeedback=${showFeedback} calculatedTotals=${calculatedTotals} activityData=${activityData} expectedTotals=${expectedTotals}/>
                                 </div>
                                 <div className="h-full">
-                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} expectedTotals=${expectedTotals}/>
+                                    <${BalanceSheet} data=${data.bs} onChange=${(d)=>onChange('bs', d)} isReadOnly=${isReadOnly} showFeedback=${showFeedback} sceEndingCapital=${sceEndingCapital} expectedTotals=${expectedTotals} expectedData=${expectedData}/>
                                 </div>
                             </div>
                         `
