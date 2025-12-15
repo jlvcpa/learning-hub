@@ -14,7 +14,7 @@ import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.j
 import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
 import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js'; // UPDATED IMPORT
-import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
+import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js'; // UPDATED IMPORT
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
 import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
@@ -64,7 +64,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
     };
     const handleStep06Change = (section, data) => updateAnswerFns.updateAnswer(6, { ...(answers[6] || {}), [section]: data });
     const handleStep07Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
-    const handleStep8Change = (section, data) => updateAnswerFns.updateAnswer(8, { ...(answers[8] || {}), [section]: data });
+    const handleStep08Change = (section, data) => updateAnswerFns.updateAnswer(8, { ...(answers[8] || {}), [section]: data });
     const handleStep9Change = (key, val) => updateAnswerFns.updateAnswer(9, { ...(answers[9] || {}), [key]: val });
     const handleStep10Change = (adjId, val) => updateAnswerFns.updateAnswer(10, { ...(answers[10] || {}), [adjId]: val });
 
@@ -130,6 +130,16 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
+
+    // --- ADDED STEP 8 SCORE DISPLAY ---
+    else if (stepId === 8 && answers[8] && (status.completed || status.attempts < 3)) {
+        if (typeof validateStep08 === 'function') {
+            const res = validateStep08(answers[8], activityData);
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
+        }
+    }
     
     const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
@@ -139,13 +149,11 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 1) return html`<${Step01Analysis} transactions=${activityData.transactions} data=${answers[1] || {}} onChange=${handleStep01Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 2) return html`<${Step02Journalizing} transactions=${activityData.transactions} data=${answers[2] || {}} onChange=${handleStep02Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} isReadOnly=${status.completed} />`;
         if (stepId === 3) return html`<${Step03Posting} activityData=${activityData} data=${answers[3] || {}} onChange=${handleStep03Change} showFeedback=${showFeedback} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} isReadOnly=${status.completed} journalPRs=${answers[3]?.journalPRs || {}} onTogglePR=${handleStep03TogglePR} matchedJournalEntries=${status.completed || showFeedback ? (answers[3]?.matched || new Set()) : null} />`;
-        
-        // --- UPDATED STEP 4 RENDER ---
         if (stepId === 4) return html`<${Step04TrialBalance} activityData=${activityData} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep04Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
         if (stepId === 5) return html`<${Step05Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep05Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step06FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep06Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 7) return html`<${Step07AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep07Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 8) return html`<${Step8ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep8Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        if (stepId === 8) return html`<${Step08ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep08Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 9) return html`<${Step9PostClosingTB} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`; 
         if (stepId === 10) return html`<${Step10ReversingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep10Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         
