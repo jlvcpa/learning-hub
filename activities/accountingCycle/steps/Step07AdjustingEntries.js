@@ -1,50 +1,44 @@
 // --- Step07AdjustingEntries.js ---
-import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, X, ChevronDown, ChevronRight, Table, Trash2, Plus, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts } from '../utils.js';
+import { sortAccounts, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
-// --- HELPER: DRY VALIDATION LOGIC ---
-
-/**
- * Centralized validation logic to calculate score and field statuses.
- * Calculates score based on:
- * 1. Journal: Date (end of month), Account, Amount, PR (checked + posted).
- * 2. Ledger: Correct Ending Balance.
- */
-const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
+// --- HELPER: DRY VALIDATION LOGIC (Exported to fix SyntaxError) ---
+export const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
     // 1. Determine Correct Date (End of Month of the transaction period)
-    // We assume all transactions are in the same month based on data generation
-    const baseDate = new Date(transactions[0].date);
+    // We assume transactions are within a specific month. We take the date from the first transaction.
+    const baseDate = transactions.length > 0 ? new Date(transactions[0].date) : new Date();
     const year = baseDate.getFullYear();
     const month = baseDate.getMonth();
-    const lastDayOfMonth = new Date(year, month + 1, 0).getDate().toString(); // e.g., "31" or "28"
+    // Get the last day of the month (e.g., 28, 30, 31)
+    const lastDayOfMonth = new Date(year, month + 1, 0).getDate().toString();
 
     let score = 0;
     let maxScore = 0;
-    const fieldStatus = {}; // { 'journal-adjId-dr-field': boolean }
+    const fieldStatus = {}; // { 'adjId-side-field': boolean }
 
-    // --- A. JOURNAL VALIDATION ---
+    // Helper: Check if amount is posted to ledger
+    const isPosted = (accName, amount, side) => {
+        if (!accName || !ledgerData[accName]) return false;
+        // Check both left and right rows for the amount (allowing flexible side usage, though technically strict)
+        const rows = [...(ledgerData[accName].leftRows || []), ...(ledgerData[accName].rightRows || [])];
+        return rows.some(r => Math.abs(Number(r.amount) - amount) <= 1);
+    };
+
     adjustments.forEach(adj => {
         const entry = journalData[adj.id] || {};
-        
-        // Helper to check if an entry is actually posted to the ledger
-        // We look for the amount in the user's added rows for that specific account
-        const isPosted = (accName, amount, side) => {
-            if (!accName || !ledgerData[accName]) return false;
-            const rows = side === 'dr' ? ledgerData[accName].leftRows : ledgerData[accName].rightRows;
-            if (!rows) return false;
-            // Loose comparison for amount to allow slight rounding diffs, check if amount exists in user rows
-            return rows.some(r => Math.abs(Number(r.amount) - amount) <= 1);
-        };
 
-        // 1. Debit Side Validation
+        // --- Debit Side ---
+        // 1. Date (4 pts total per line, 1 per box)
         const drDateCorrect = (entry.drDate || '').trim() === lastDayOfMonth;
+        // 2. Account
         const drAccCorrect = (entry.drAcc || '').toLowerCase() === adj.drAcc.toLowerCase();
+        // 3. Amount
         const drAmtCorrect = Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
-        // PR Logic: Point only if Checked AND Posted correctly
+        // 4. PR (Must be checked AND posted)
         const drPosted = isPosted(adj.drAcc, adj.amount, 'dr');
         const drPrCorrect = entry.drPR === true && drPosted;
 
@@ -59,11 +53,10 @@ const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
         fieldStatus[`${adj.id}-dr-amt`] = drAmtCorrect;
         fieldStatus[`${adj.id}-dr-pr`] = drPrCorrect;
 
-        // 2. Credit Side Validation
+        // --- Credit Side ---
         const crDateCorrect = (entry.crDate || '').trim() === lastDayOfMonth;
         const crAccCorrect = (entry.crAcc || '').toLowerCase() === adj.crAcc.toLowerCase();
         const crAmtCorrect = Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
-        // PR Logic
         const crPosted = isPosted(adj.crAcc, adj.amount, 'cr');
         const crPrCorrect = entry.crPR === true && crPosted;
 
@@ -79,42 +72,7 @@ const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
         fieldStatus[`${adj.id}-cr-pr`] = crPrCorrect;
     });
 
-    // --- B. LEDGER VALIDATION ---
-    // We calculate correct ending balances for all accounts to validate the Ledger
-    // (We iterate over valid accounts found in transaction/adjustments)
-    // Note: In this step, we usually score strictly on the Adjusting Entry inputs as requested in point #5.
-    // However, usually Ledger Balances are also scored. I will include Ledger Balance validity as well 
-    // to ensure the system is robust, but the request emphasized the 4 points per line in Journal.
-    // Let's add 1 point per correct ledger ending balance to keep it consistent with other steps.
-    
-    // ... (This logic is effectively calculated inside LedgerPanel render, 
-    // but to centralize score, we need to replicate the 'correct balance' calculation briefly or rely on visual cues.
-    // To strictly follow DRY and React patterns, we calculate the totals here).
-    
-    // See LedgerPanel for calculation logic. For the summary score, we will assume 
-    // the user wants the detailed breakdown primarily on the Journal inputs as per instruction #5.
-    // Instruction #5 says "Each input... must be included in computing the highest possible score."
-    // It implies the Journal is the heavy lifter here. 
-    
-    // Calculating Ledger correctness for the Score Banner:
-    // We need the list of all accounts.
-    const allAccounts = new Set();
-    adjustments.forEach(a => { allAccounts.add(a.drAcc); allAccounts.add(a.crAcc); });
-    transactions.forEach(t => { t.debits.forEach(d=>allAccounts.add(d.account)); t.credits.forEach(c=>allAccounts.add(c.account)); });
-    
-    // Simple verification for Ledger correctness (1 pt per account)
-    // ... Implementation omitted to focus on the strictly requested Journal points, 
-    // but we can add if needed. For now, strictly following point #5:
-    // "Student's score for posting of date, account, 1 for PR and amount combination... shall be total of 4"
-    
-    // We will stick to the Journal inputs for the Letter Grade calculation as strictly defined.
-    
-    // Determine Letter Grade
-    let letterGrade = 'IR';
-    const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
-    if (pct >= 95) letterGrade = 'A';
-    else if (pct >= 85) letterGrade = 'P';
-    else if (pct >= 75) letterGrade = 'D';
+    const letterGrade = getLetterGrade(score, maxScore);
 
     return { score, maxScore, letterGrade, fieldStatus, lastDayOfMonth, year };
 };
@@ -230,7 +188,7 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                 ${adjustments.map((adj, idx) => {
                     const entry = data[adj.id] || {};
                     
-                    // Retrieve specific validation status for this row's fields
+                    // Retrieve status
                     const drDateOk = fieldStatus?.[`${adj.id}-dr-date`];
                     const drAccOk = fieldStatus?.[`${adj.id}-dr-acc`];
                     const drAmtOk = fieldStatus?.[`${adj.id}-dr-amt`];
@@ -241,7 +199,6 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                     const crAmtOk = fieldStatus?.[`${adj.id}-cr-amt`];
                     const crPrOk = fieldStatus?.[`${adj.id}-cr-pr`];
 
-                    // Styling helpers
                     const inputClass = (isOk) => `w-full h-full p-1 outline-none text-sm ${showFeedback && !isOk ? 'bg-red-50' : ''}`;
 
                     return html`
@@ -332,17 +289,14 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
         t.credits.forEach(c => { if(c.account === accName) rightRows.push({ date: dateStr, item: 'GJ', pr: '1', amount: c.amount, isLocked: true }); });
     });
 
-    // User Rows
     const userLeft = userLedger?.leftRows || [];
     const userRight = userLedger?.rightRows || [];
 
-    // Combine for display
     const finalLeft = [...leftRows, ...userLeft];
     const finalRight = [...rightRows, ...userRight];
     const maxRows = Math.max(finalLeft.length, finalRight.length, 4);
     const displayRows = Array.from({length: maxRows}).map((_, i) => i);
 
-    // Handlers
     const updateSide = (side, idx, field, val) => {
         const histLen = side === 'left' ? leftRows.length : rightRows.length;
         if (idx < histLen) return; 
@@ -359,10 +313,8 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
         });
     };
 
-    // Unified Add Row Function: Adds a blank slot to BOTH sides to maintain structure, 
-    // or simply adds to both arrays so the user can use either side.
+    // Unified Add Row
     const addCombinedRow = () => {
-        // We push a new blank object to both arrays
         onUpdate({ 
             ...userLedger, 
             leftRows: [...userLeft, { date: '', item: 'Adj', pr: '', amount: '' }],
@@ -383,24 +335,18 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
     
     // Formatting Helper for Date Column
     const getDateValue = (row, rowIndex, side) => {
-        // If row exists, prioritize its user value.
-        // If it's a historical row (locked), we format it based on row Index requirements
         if (row && row.isLocked) {
-             // If it's the very first row of the table, show Year
+             // Row 0: Year (YYYY)
              if (rowIndex === 0) return contextYear; 
-             // If it's the second row, show Month + Day (from the data)
-             if (rowIndex === 1) return row.date; // already formatted as Mmm dd or similar in setup
-             // Otherwise just Day? The transactions setup creates 'Mmm dd'.
-             // To conform to "Second row ... Mmm d, others dd":
-             // We need to parse the stored string.
+             // Row 1: Month Day (Mmm dd) - if data exists
+             if (rowIndex === 1) return row.date; 
+             // Subsequent Rows: Day only (dd)
              const parts = row.date.split(' ');
              if (parts.length > 1) {
-                  if (rowIndex === 1) return row.date;
                   return parts[1]; // just dd
              }
              return row.date;
         }
-        // User Input Rows
         return row ? (row.date || '') : ''; 
     };
 
@@ -427,8 +373,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                     ${displayRows.map(i => {
                         const r = finalLeft[i];
                         const isUser = i >= leftRows.length;
-                        // Determine display value for Date
-                        let dateVal = r ? (r.isLocked ? getDateValue(r, i, 'left') : r.date) : '';
+                        const dateVal = getDateValue(r, i, 'left');
                         
                         return html`
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!isUser && r ? 'bg-gray-50/50 text-gray-600' : ''}">
@@ -457,7 +402,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                     ${displayRows.map(i => {
                         const r = finalRight[i];
                         const isUser = i >= rightRows.length;
-                        let dateVal = r ? (r.isLocked ? getDateValue(r, i, 'right') : r.date) : '';
+                        const dateVal = getDateValue(r, i, 'right');
 
                         return html`
                             <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!isUser && r ? 'bg-gray-50/50 text-gray-600' : ''}">
@@ -497,9 +442,9 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
                 <${Table} size=${16} className="inline mr-2 w-4 h-4"/>
                 General Ledger (Adjusted)
             </div>
-            
+
             ${(showFeedback || isReadOnly) && validationResult && html`
-                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 m-2 flex justify-between items-center shadow-sm flex-shrink-0">
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
                     <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
                     <span className="font-mono font-bold text-lg">Score: ${validationResult.score || 0} of ${validationResult.maxScore || 0} - (${validationResult.letterGrade || 'IR'})</span>
                 </div>
@@ -560,7 +505,6 @@ export default function Step07AdjustingEntries({ activityData, data, onChange, s
     const journalData = data.journal || {};
     const ledgerData = data.ledger || {};
 
-    // Calculate Validation Result using DRY method
     const validationResult = useMemo(() => {
         return validateStep07(activityData.adjustments, journalData, ledgerData, activityData.transactions);
     }, [activityData.adjustments, journalData, ledgerData, activityData.transactions]);
