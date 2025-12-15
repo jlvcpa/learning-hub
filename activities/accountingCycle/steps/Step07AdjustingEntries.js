@@ -9,7 +9,6 @@ const html = htm.bind(React.createElement);
 // --- HELPER: DRY VALIDATION LOGIC (Exported to fix SyntaxError) ---
 export const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
     // 1. Determine Correct Date (End of Month of the transaction period)
-    // We assume transactions are within a specific month. We take the date from the first transaction.
     const baseDate = transactions.length > 0 ? new Date(transactions[0].date) : new Date();
     const year = baseDate.getFullYear();
     const month = baseDate.getMonth();
@@ -23,7 +22,6 @@ export const validateStep07 = (adjustments, journalData, ledgerData, transaction
     // Helper: Check if amount is posted to ledger
     const isPosted = (accName, amount, side) => {
         if (!accName || !ledgerData[accName]) return false;
-        // Check both left and right rows for the amount (allowing flexible side usage, though technically strict)
         const rows = [...(ledgerData[accName].leftRows || []), ...(ledgerData[accName].rightRows || [])];
         return rows.some(r => Math.abs(Number(r.amount) - amount) <= 1);
     };
@@ -31,8 +29,8 @@ export const validateStep07 = (adjustments, journalData, ledgerData, transaction
     adjustments.forEach(adj => {
         const entry = journalData[adj.id] || {};
 
-        // --- Debit Side ---
-        // 1. Date (4 pts total per line, 1 per box)
+        // --- Debit Side (4 points) ---
+        // 1. Date 
         const drDateCorrect = (entry.drDate || '').trim() === lastDayOfMonth;
         // 2. Account
         const drAccCorrect = (entry.drAcc || '').toLowerCase() === adj.drAcc.toLowerCase();
@@ -53,20 +51,18 @@ export const validateStep07 = (adjustments, journalData, ledgerData, transaction
         fieldStatus[`${adj.id}-dr-amt`] = drAmtCorrect;
         fieldStatus[`${adj.id}-dr-pr`] = drPrCorrect;
 
-        // --- Credit Side ---
-        const crDateCorrect = (entry.crDate || '').trim() === lastDayOfMonth;
+        // --- Credit Side (3 points - Date is excluded) ---
+        // Date is not scored for Credit row
         const crAccCorrect = (entry.crAcc || '').toLowerCase() === adj.crAcc.toLowerCase();
         const crAmtCorrect = Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
         const crPosted = isPosted(adj.crAcc, adj.amount, 'cr');
         const crPrCorrect = entry.crPR === true && crPosted;
 
-        if (crDateCorrect) score++;
         if (crAccCorrect) score++;
         if (crAmtCorrect) score++;
         if (crPrCorrect) score++;
-        maxScore += 4;
+        maxScore += 3; // Reduced from 4 because date is not required/scored
 
-        fieldStatus[`${adj.id}-cr-date`] = crDateCorrect;
         fieldStatus[`${adj.id}-cr-acc`] = crAccCorrect;
         fieldStatus[`${adj.id}-cr-amt`] = crAmtCorrect;
         fieldStatus[`${adj.id}-cr-pr`] = crPrCorrect;
@@ -194,7 +190,7 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                     const drAmtOk = fieldStatus?.[`${adj.id}-dr-amt`];
                     const drPrOk = fieldStatus?.[`${adj.id}-dr-pr`];
 
-                    const crDateOk = fieldStatus?.[`${adj.id}-cr-date`];
+                    // Credit Date is NOT validated
                     const crAccOk = fieldStatus?.[`${adj.id}-cr-acc`];
                     const crAmtOk = fieldStatus?.[`${adj.id}-cr-amt`];
                     const crPrOk = fieldStatus?.[`${adj.id}-cr-pr`];
@@ -205,6 +201,7 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                         <div key=${adj.id} className="mb-4 border border-blue-200 rounded overflow-hidden">
                             <div className="bg-blue-50 px-2 py-1 text-xs font-bold text-blue-800 border-b border-blue-200">AJE #${idx + 1}</div>
                             
+                            <!-- Header -->
                             <div className="flex bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-600 text-center">
                                 <div className="w-14 border-r p-1">Date</div>
                                 <div className="flex-1 border-r p-1">Account Title</div>
@@ -213,6 +210,7 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                                 <div className="w-24 p-1">Credit</div>
                             </div>
 
+                            <!-- DEBIT ROW -->
                             <div className="flex border-b border-gray-100 h-8">
                                 <div className="w-14 border-r relative">
                                     <input type="text" className=${inputClass(drDateOk) + " text-center"} placeholder="dd" value=${entry.drDate || ''} onChange=${(e) => handleChange(adj.id, 'drDate', e.target.value)} disabled=${isReadOnly}/>
@@ -233,10 +231,11 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                                 <div className="w-24 bg-gray-50"></div>
                             </div>
 
+                            <!-- CREDIT ROW -->
                             <div className="flex border-b border-gray-100 h-8">
-                                <div className="w-14 border-r relative">
-                                    <input type="text" className=${inputClass(crDateOk) + " text-center"} placeholder="dd" value=${entry.crDate || ''} onChange=${(e) => handleChange(adj.id, 'crDate', e.target.value)} disabled=${isReadOnly}/>
-                                    <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${crDateOk}/></div>
+                                <div className="w-14 border-r relative bg-gray-50">
+                                    <!-- Date Disabled for Credit Row -->
+                                    <input type="text" className="w-full h-full bg-gray-50 outline-none" disabled value="" />
                                 </div>
                                 <div className="flex-1 border-r relative pl-6">
                                     <input type="text" className=${inputClass(crAccOk)} placeholder="Credit Account" value=${entry.crAcc || ''} onChange=${(e) => handleChange(adj.id, 'crAcc', e.target.value)} disabled=${isReadOnly}/>
@@ -268,7 +267,7 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
 // --- RIGHT PANEL: LEDGER COMPONENTS ---
 
 const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, onUpdate, isReadOnly, showFeedback, correctEndingValues, contextYear }) => {
-    // 1. Prepare Rows
+    // 1. Prepare Data Rows
     const leftRows = [];
     const rightRows = [];
 
@@ -294,14 +293,25 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
 
     const finalLeft = [...leftRows, ...userLeft];
     const finalRight = [...rightRows, ...userRight];
-    const maxRows = Math.max(finalLeft.length, finalRight.length, 4);
-    const displayRows = Array.from({length: maxRows}).map((_, i) => i);
+    
+    // VISUAL ROWS MAPPING:
+    // Row 0: Year Row (YYYY)
+    // Row 1: Full Date (Mmm dd)
+    // Row 2+: Day only (dd)
+    // Therefore, visual rows = data rows + 1
+    const maxDataRows = Math.max(finalLeft.length, finalRight.length, 4);
+    const displayRowsCount = maxDataRows + 1; 
+    const displayRows = Array.from({length: displayRowsCount}).map((_, i) => i);
 
-    const updateSide = (side, idx, field, val) => {
+    const updateSide = (side, visualIdx, field, val) => {
+        // Visual Index 0 is Year Row - do not update data
+        if (visualIdx === 0) return;
+
+        const dataIdx = visualIdx - 1; // Shift index back to 0-based data
         const histLen = side === 'left' ? leftRows.length : rightRows.length;
-        if (idx < histLen) return; 
+        if (dataIdx < histLen) return; 
 
-        const userIdx = idx - histLen;
+        const userIdx = dataIdx - histLen;
         const currentArr = side === 'left' ? userLeft : userRight;
         const newArr = [...currentArr];
         if (!newArr[userIdx]) newArr[userIdx] = {}; 
@@ -322,10 +332,12 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
         });
     };
 
-    const deleteRow = (side, idx) => {
+    const deleteRow = (side, visualIdx) => {
+         if (visualIdx === 0) return;
+         const dataIdx = visualIdx - 1;
          const histLen = side === 'left' ? leftRows.length : rightRows.length;
-         if (idx < histLen) return; 
-         const userIdx = idx - histLen;
+         if (dataIdx < histLen) return; 
+         const userIdx = dataIdx - histLen;
          const currentArr = side === 'left' ? userLeft : userRight;
          onUpdate({
              ...userLedger,
@@ -333,21 +345,51 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
          });
     };
     
-    // Formatting Helper for Date Column
-    const getDateValue = (row, rowIndex, side) => {
-        if (row && row.isLocked) {
-             // Row 0: Year (YYYY)
-             if (rowIndex === 0) return contextYear; 
-             // Row 1: Month Day (Mmm dd) - if data exists
-             if (rowIndex === 1) return row.date; 
-             // Subsequent Rows: Day only (dd)
-             const parts = row.date.split(' ');
-             if (parts.length > 1) {
-                  return parts[1]; // just dd
-             }
-             return row.date;
+    // Helper to get formatted values for display based on row index
+    const getCellProps = (side, visualIdx) => {
+        // ROW 0: Year Row
+        if (visualIdx === 0) {
+            return {
+                isYearRow: true,
+                date: contextYear,
+                item: '', pr: '', amount: '',
+                isUser: false,
+                isLocked: true
+            };
         }
-        return row ? (row.date || '') : ''; 
+
+        const dataIdx = visualIdx - 1;
+        const dataArr = side === 'left' ? finalLeft : finalRight;
+        const row = dataArr[dataIdx];
+        const isUser = side === 'left' ? dataIdx >= leftRows.length : dataIdx >= rightRows.length;
+
+        if (!row) {
+            return { isYearRow: false, date: '', item: '', pr: '', amount: '', isUser: isUser, isLocked: !isUser };
+        }
+
+        // Format Date based on Visual Index
+        let displayDate = row.date || '';
+        if (visualIdx === 1) {
+            // First Data Row: Should be "Mmm dd"
+            // If historical, it comes as "Mmm dd", so use as is.
+            // If user input, they type it.
+        } else {
+            // Subsequent Rows: "dd"
+            // If historical "Mmm dd", split it.
+            if (row.isLocked && displayDate.includes(' ')) {
+                displayDate = displayDate.split(' ')[1];
+            }
+        }
+
+        return {
+            isYearRow: false,
+            date: displayDate,
+            item: row.item,
+            pr: row.pr,
+            amount: row.amount,
+            isUser: isUser,
+            isLocked: row.isLocked
+        };
     };
 
     return html`
@@ -361,6 +403,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
             </div>
             
             <div className="flex">
+                <!-- DEBIT SIDE -->
                 <div className="flex-1 border-r-2 border-gray-800">
                     <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
                     <div className="flex text-xs font-bold border-b border-gray-400">
@@ -371,18 +414,19 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         <div className="w-6"></div>
                     </div>
                     ${displayRows.map(i => {
-                        const r = finalLeft[i];
-                        const isUser = i >= leftRows.length;
-                        const dateVal = getDateValue(r, i, 'left');
-                        
+                        const props = getCellProps('left', i);
+                        // If Year Row, inputs are disabled (except date shows year) and others empty
+                        const isRowDisabled = props.isLocked || props.isYearRow;
+                        const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
+
                         return html`
-                            <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!isUser && r ? 'bg-gray-50/50 text-gray-600' : ''}">
-                                <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${i===0?"YYYY": (i===1?"Mmm dd":"dd")} value=${dateVal} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
-                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${r?.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${r?.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
-                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${r?.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
+                            <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
+                                <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="w-6 flex justify-center items-center">
-                                    ${isUser && !isReadOnly && r && html`<button onClick=${()=>deleteRow('left', i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
+                                    ${props.isUser && !isReadOnly && !props.isYearRow && html`<button onClick=${()=>deleteRow('left', i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
                                 </div>
                             </div>
                         `;
@@ -390,6 +434,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                     <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50"><span className="text-xs font-bold">Total Debit</span><input type="number" className="w-20 text-right border border-gray-300 bg-white" value=${userLedger?.drTotal||''} onChange=${(e)=>onUpdate({...userLedger, drTotal: e.target.value})} disabled=${isReadOnly} /></div>
                 </div>
 
+                <!-- CREDIT SIDE -->
                 <div className="flex-1">
                     <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
                     <div className="flex text-xs font-bold border-b border-gray-400">
@@ -400,18 +445,18 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         <div className="w-6"></div>
                     </div>
                     ${displayRows.map(i => {
-                        const r = finalRight[i];
-                        const isUser = i >= rightRows.length;
-                        const dateVal = getDateValue(r, i, 'right');
+                        const props = getCellProps('right', i);
+                        const isRowDisabled = props.isLocked || props.isYearRow;
+                        const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
 
                         return html`
-                            <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!isUser && r ? 'bg-gray-50/50 text-gray-600' : ''}">
-                                <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${i===0?"YYYY": (i===1?"Mmm dd":"dd")} value=${dateVal} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
-                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${r?.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${r?.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
-                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${r?.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${isReadOnly || !isUser}/></div>
+                            <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
+                                <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="w-6 flex justify-center items-center">
-                                    ${isUser && !isReadOnly && r && html`<button onClick=${()=>deleteRow('right', i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
+                                    ${props.isUser && !isReadOnly && !props.isYearRow && html`<button onClick=${()=>deleteRow('right', i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
                                 </div>
                             </div>
                         `;
@@ -442,13 +487,6 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
                 <${Table} size=${16} className="inline mr-2 w-4 h-4"/>
                 General Ledger (Adjusted)
             </div>
-
-            ${(showFeedback || isReadOnly) && validationResult && html`
-                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
-                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
-                    <span className="font-mono font-bold text-lg">Score: ${validationResult.score || 0} of ${validationResult.maxScore || 0} - (${validationResult.letterGrade || 'IR'})</span>
-                </div>
-            `}
 
             <div className="overflow-y-auto p-4 flex-1 bg-gray-50 custom-scrollbar">
                 ${sortedAccounts.map(acc => {
@@ -518,27 +556,37 @@ export default function Step07AdjustingEntries({ activityData, data, onChange, s
     };
 
     return html`
-        <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-140px)]">
-            <div className="flex-1 lg:w-5/12 flex flex-col gap-4 min-h-0">
-                <${HistoricalJournalView} transactions=${activityData.transactions} />
-                <${AdjustmentEntryForm} 
-                    adjustments=${activityData.adjustments} 
-                    data=${journalData} 
-                    onChange=${handleJournalChange} 
-                    isReadOnly=${isReadOnly} 
-                    showFeedback=${showFeedback}
-                    validationResult=${validationResult}
-                />
-            </div>
-            <div className="flex-1 lg:w-7/12 min-h-0 border rounded bg-white shadow-sm flex flex-col overflow-hidden">
-                <${LedgerPanel} 
-                    activityData=${activityData} 
-                    ledgerData=${ledgerData} 
-                    onChange=${handleLedgerChange} 
-                    isReadOnly=${isReadOnly} 
-                    showFeedback=${showFeedback}
-                    validationResult=${validationResult}
-                />
+        <div className="flex flex-col h-[calc(100vh-140px)]">
+            <!-- VALIDATION BANNER MOVED HERE -->
+            ${(showFeedback || isReadOnly) && validationResult && html`
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
+                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
+                    <span className="font-mono font-bold text-lg">Score: ${validationResult.score || 0} of ${validationResult.maxScore || 0} - (${validationResult.letterGrade || 'IR'})</span>
+                </div>
+            `}
+
+            <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+                <div className="flex-1 lg:w-5/12 flex flex-col gap-4 min-h-0">
+                    <${HistoricalJournalView} transactions=${activityData.transactions} />
+                    <${AdjustmentEntryForm} 
+                        adjustments=${activityData.adjustments} 
+                        data=${journalData} 
+                        onChange=${handleJournalChange} 
+                        isReadOnly=${isReadOnly} 
+                        showFeedback=${showFeedback}
+                        validationResult=${validationResult}
+                    />
+                </div>
+                <div className="flex-1 lg:w-7/12 min-h-0 border rounded bg-white shadow-sm flex flex-col overflow-hidden">
+                    <${LedgerPanel} 
+                        activityData=${activityData} 
+                        ledgerData=${ledgerData} 
+                        onChange=${handleLedgerChange} 
+                        isReadOnly=${isReadOnly} 
+                        showFeedback=${showFeedback}
+                        validationResult=${validationResult}
+                    />
+                </div>
             </div>
         </div>
     `;
