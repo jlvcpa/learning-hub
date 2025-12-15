@@ -2,43 +2,48 @@
 import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, X, ChevronDown, ChevronRight, Table, Trash2, Plus, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts, getLetterGrade } from '../utils.js';
+import { sortAccounts, getLetterGrade, getAccountType } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
-// --- HELPER: DRY VALIDATION LOGIC (Exported to fix SyntaxError) ---
-export const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
-    // 1. Determine Correct Date (End of Month of the transaction period)
+// --- HELPER: DRY VALIDATION LOGIC ---
+export const validateStep07 = (activityData, journalData, ledgerData) => {
+    const { adjustments, transactions, beginningBalances, config, validAccounts } = activityData;
+    
+    // 1. Determine Correct Date
     const baseDate = transactions.length > 0 ? new Date(transactions[0].date) : new Date();
-    const year = baseDate.getFullYear();
+    const year = baseDate.getFullYear().toString();
     const month = baseDate.getMonth();
-    // Get the last day of the month (e.g., 28, 30, 31)
     const lastDayOfMonth = new Date(year, month + 1, 0).getDate().toString();
 
     let score = 0;
     let maxScore = 0;
-    const fieldStatus = {}; // { 'adjId-side-field': boolean }
+    const fieldStatus = {}; 
 
-    // Helper: Check if amount is posted to ledger
-    const isPosted = (accName, amount, side) => {
+    // Helper: Check if matching row exists in ledger
+    const findMatchingRow = (accName, side, date, amt) => {
         if (!accName || !ledgerData[accName]) return false;
-        const rows = [...(ledgerData[accName].leftRows || []), ...(ledgerData[accName].rightRows || [])];
-        return rows.some(r => Math.abs(Number(r.amount) - amount) <= 1);
+        const rows = side === 'dr' ? (ledgerData[accName].leftRows || []) : (ledgerData[accName].rightRows || []);
+        
+        return rows.some(r => {
+            const rAmt = Number(r.amount);
+            const matchAmt = Math.abs(rAmt - amt) <= 1;
+            const matchDate = (r.date || '').trim() === date;
+            return matchAmt && matchDate;
+        });
     };
 
+    // A. Journal & Posting Validation (14 pts per adjustment)
     adjustments.forEach(adj => {
         const entry = journalData[adj.id] || {};
 
-        // --- Debit Side (4 points) ---
-        // 1. Date 
+        // 1. Journal Debit (4 pts)
         const drDateCorrect = (entry.drDate || '').trim() === lastDayOfMonth;
-        // 2. Account
         const drAccCorrect = (entry.drAcc || '').toLowerCase() === adj.drAcc.toLowerCase();
-        // 3. Amount
         const drAmtCorrect = Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
-        // 4. PR (Must be checked AND posted)
-        const drPosted = isPosted(adj.drAcc, adj.amount, 'dr');
-        const drPrCorrect = entry.drPR === true && drPosted;
+        
+        const drPostedRowFound = findMatchingRow(adj.drAcc, 'dr', lastDayOfMonth, adj.amount);
+        const drPrCorrect = entry.drPR === true && drPostedRowFound;
 
         if (drDateCorrect) score++;
         if (drAccCorrect) score++;
@@ -46,26 +51,87 @@ export const validateStep07 = (adjustments, journalData, ledgerData, transaction
         if (drPrCorrect) score++;
         maxScore += 4;
 
-        fieldStatus[`${adj.id}-dr-date`] = drDateCorrect;
-        fieldStatus[`${adj.id}-dr-acc`] = drAccCorrect;
-        fieldStatus[`${adj.id}-dr-amt`] = drAmtCorrect;
-        fieldStatus[`${adj.id}-dr-pr`] = drPrCorrect;
-
-        // --- Credit Side (3 points - Date is excluded) ---
-        // Date is not scored for Credit row
+        // 2. Journal Credit (3 pts - No Date)
         const crAccCorrect = (entry.crAcc || '').toLowerCase() === adj.crAcc.toLowerCase();
         const crAmtCorrect = Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
-        const crPosted = isPosted(adj.crAcc, adj.amount, 'cr');
-        const crPrCorrect = entry.crPR === true && crPosted;
+        const crPostedRowFound = findMatchingRow(adj.crAcc, 'cr', lastDayOfMonth, adj.amount);
+        const crPrCorrect = entry.crPR === true && crPostedRowFound;
 
         if (crAccCorrect) score++;
         if (crAmtCorrect) score++;
         if (crPrCorrect) score++;
-        maxScore += 3; // Reduced from 4 because date is not required/scored
+        maxScore += 3;
 
+        // 3. Ledger Posting Score ("TIMES 2" -> Add points for correct ledger existence)
+        if (drPostedRowFound) score += 4;
+        maxScore += 4;
+
+        if (crPostedRowFound) score += 3;
+        maxScore += 3;
+        
+        fieldStatus[`${adj.id}-dr-date`] = drDateCorrect;
+        fieldStatus[`${adj.id}-dr-acc`] = drAccCorrect;
+        fieldStatus[`${adj.id}-dr-amt`] = drAmtCorrect;
+        fieldStatus[`${adj.id}-dr-pr`] = drPrCorrect;
         fieldStatus[`${adj.id}-cr-acc`] = crAccCorrect;
         fieldStatus[`${adj.id}-cr-amt`] = crAmtCorrect;
         fieldStatus[`${adj.id}-cr-pr`] = crPrCorrect;
+    });
+
+    // Determine New vs Historical Accounts
+    const adjAccounts = new Set();
+    adjustments.forEach(a => { adjAccounts.add(a.drAcc); adjAccounts.add(a.crAcc); });
+    const historicalAccounts = new Set(validAccounts);
+    const newLedgerAccounts = [...adjAccounts].filter(acc => !historicalAccounts.has(acc));
+    
+    // B. New Ledger Year Entry (1 pt each)
+    newLedgerAccounts.forEach(acc => {
+        // User must have added this ledger manually
+        if (ledgerData[acc]) {
+            const userYear = (ledgerData[acc].yearInput || '').trim();
+            if (userYear === year) score++;
+        }
+        maxScore += 1;
+    });
+
+    // C. Ledger Totals & Balance (3 pts each)
+    const allRelevantAccounts = new Set([...validAccounts, ...adjAccounts]);
+    
+    allRelevantAccounts.forEach(acc => {
+        // Calculate Expected
+        let bbDr = 0, bbCr = 0;
+        if (config.isSubsequentYear && beginningBalances?.balances[acc]) {
+            bbDr = beginningBalances.balances[acc].dr;
+            bbCr = beginningBalances.balances[acc].cr;
+        }
+        let transDr = 0, transCr = 0;
+        transactions.forEach(t => {
+            t.debits.forEach(d => { if(d.account === acc) transDr += d.amount; });
+            t.credits.forEach(c => { if(c.account === acc) transCr += c.amount; });
+        });
+        let adjDr = 0, adjCr = 0;
+        adjustments.forEach(a => {
+            if (a.drAcc === acc) adjDr += a.amount;
+            if (a.crAcc === acc) adjCr += a.amount;
+        });
+        const expTotalDr = bbDr + transDr + adjDr;
+        const expTotalCr = bbCr + transCr + adjCr;
+        const net = expTotalDr - expTotalCr;
+        const expBal = Math.abs(net);
+        const expType = net >= 0 ? 'Dr' : 'Cr';
+
+        // Check User Inputs
+        const u = ledgerData[acc] || {};
+        const uDrTotal = Number(u.drTotal || 0);
+        const uCrTotal = Number(u.crTotal || 0);
+        const uBal = Number(u.balance || 0);
+        const uType = u.balanceType;
+
+        if (Math.abs(uDrTotal - expTotalDr) <= 1) score++;
+        if (Math.abs(uCrTotal - expTotalCr) <= 1) score++;
+        if (Math.abs(uBal - expBal) <= 1 && (uType === expType || expBal === 0)) score++;
+        
+        maxScore += 3;
     });
 
     const letterGrade = getLetterGrade(score, maxScore);
@@ -184,13 +250,11 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                 ${adjustments.map((adj, idx) => {
                     const entry = data[adj.id] || {};
                     
-                    // Retrieve status
                     const drDateOk = fieldStatus?.[`${adj.id}-dr-date`];
                     const drAccOk = fieldStatus?.[`${adj.id}-dr-acc`];
                     const drAmtOk = fieldStatus?.[`${adj.id}-dr-amt`];
                     const drPrOk = fieldStatus?.[`${adj.id}-dr-pr`];
 
-                    // Credit Date is NOT validated
                     const crAccOk = fieldStatus?.[`${adj.id}-cr-acc`];
                     const crAmtOk = fieldStatus?.[`${adj.id}-cr-amt`];
                     const crPrOk = fieldStatus?.[`${adj.id}-cr-pr`];
@@ -201,7 +265,6 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                         <div key=${adj.id} className="mb-4 border border-blue-200 rounded overflow-hidden">
                             <div className="bg-blue-50 px-2 py-1 text-xs font-bold text-blue-800 border-b border-blue-200">AJE #${idx + 1}</div>
                             
-                            <!-- Header -->
                             <div className="flex bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-600 text-center">
                                 <div className="w-14 border-r p-1">Date</div>
                                 <div className="flex-1 border-r p-1">Account Title</div>
@@ -210,7 +273,6 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                                 <div className="w-24 p-1">Credit</div>
                             </div>
 
-                            <!-- DEBIT ROW -->
                             <div className="flex border-b border-gray-100 h-8">
                                 <div className="w-14 border-r relative">
                                     <input type="text" className=${inputClass(drDateOk) + " text-center"} placeholder="dd" value=${entry.drDate || ''} onChange=${(e) => handleChange(adj.id, 'drDate', e.target.value)} disabled=${isReadOnly}/>
@@ -231,10 +293,8 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
                                 <div className="w-24 bg-gray-50"></div>
                             </div>
 
-                            <!-- CREDIT ROW -->
                             <div className="flex border-b border-gray-100 h-8">
                                 <div className="w-14 border-r relative bg-gray-50">
-                                    <!-- Date Disabled for Credit Row -->
                                     <input type="text" className="w-full h-full bg-gray-50 outline-none" disabled value="" />
                                 </div>
                                 <div className="flex-1 border-r relative pl-6">
@@ -266,12 +326,12 @@ const AdjustmentEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeed
 
 // --- RIGHT PANEL: LEDGER COMPONENTS ---
 
-const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, onUpdate, isReadOnly, showFeedback, correctEndingValues, contextYear }) => {
+const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, onUpdate, isReadOnly, showFeedback, correctEndingValues, contextYear, isNewAccount }) => {
     // 1. Prepare Data Rows
     const leftRows = [];
     const rightRows = [];
 
-    // Beg Bal
+    // Beg Bal (Only for historical accounts)
     if (startingBalance) {
         if (startingBalance.dr > 0) leftRows.push({ date: 'Jan 01', item: 'Bal', pr: '✓', amount: startingBalance.dr, isLocked: true });
         if (startingBalance.cr > 0) rightRows.push({ date: 'Jan 01', item: 'Bal', pr: '✓', amount: startingBalance.cr, isLocked: true });
@@ -294,20 +354,21 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
     const finalLeft = [...leftRows, ...userLeft];
     const finalRight = [...rightRows, ...userRight];
     
-    // VISUAL ROWS MAPPING:
-    // Row 0: Year Row (YYYY)
-    // Row 1: Full Date (Mmm dd)
-    // Row 2+: Day only (dd)
-    // Therefore, visual rows = data rows + 1
+    // VISUAL ROWS MAPPING
     const maxDataRows = Math.max(finalLeft.length, finalRight.length, 4);
-    const displayRowsCount = maxDataRows + 1; 
+    const displayRowsCount = maxDataRows + 1; // +1 for Year Row
     const displayRows = Array.from({length: displayRowsCount}).map((_, i) => i);
 
     const updateSide = (side, visualIdx, field, val) => {
-        // Visual Index 0 is Year Row - do not update data
-        if (visualIdx === 0) return;
+        // Visual Index 0 is Year Row
+        if (visualIdx === 0) {
+            if (isNewAccount && side === 'left') { // Store year in userLedger root or special field
+                onUpdate({ ...userLedger, yearInput: val });
+            }
+            return;
+        }
 
-        const dataIdx = visualIdx - 1; // Shift index back to 0-based data
+        const dataIdx = visualIdx - 1; 
         const histLen = side === 'left' ? leftRows.length : rightRows.length;
         if (dataIdx < histLen) return; 
 
@@ -323,7 +384,6 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
         });
     };
 
-    // Unified Add Row
     const addCombinedRow = () => {
         onUpdate({ 
             ...userLedger, 
@@ -332,29 +392,46 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
         });
     };
 
-    const deleteRow = (side, visualIdx) => {
+    const deleteCombinedRow = (visualIdx) => {
          if (visualIdx === 0) return;
          const dataIdx = visualIdx - 1;
-         const histLen = side === 'left' ? leftRows.length : rightRows.length;
-         if (dataIdx < histLen) return; 
-         const userIdx = dataIdx - histLen;
-         const currentArr = side === 'left' ? userLeft : userRight;
+         
+         const histLenLeft = leftRows.length;
+         const histLenRight = rightRows.length;
+         
+         // Only delete if BOTH sides at this index are user rows (or empty)
+         // Actually, standard behavior: if index is within user range for either, splice both.
+         // If one side has historical at this index, we can't delete the row? 
+         // Adjusting entries step usually appends to existing. Historical rows are at top.
+         // So if dataIdx >= max(histLenLeft, histLenRight), it is safe.
+         if (dataIdx < Math.max(histLenLeft, histLenRight)) return;
+
+         const userIdxLeft = dataIdx - histLenLeft;
+         const userIdxRight = dataIdx - histLenRight;
+
+         const newLeft = [...userLeft];
+         const newRight = [...userRight];
+
+         // Remove if index exists in user array
+         if (userIdxLeft >= 0 && userIdxLeft < newLeft.length) newLeft.splice(userIdxLeft, 1);
+         if (userIdxRight >= 0 && userIdxRight < newRight.length) newRight.splice(userIdxRight, 1);
+
          onUpdate({
              ...userLedger,
-             [side === 'left' ? 'leftRows' : 'rightRows']: currentArr.filter((_, i) => i !== userIdx)
+             leftRows: newLeft,
+             rightRows: newRight
          });
     };
     
-    // Helper to get formatted values for display based on row index
     const getCellProps = (side, visualIdx) => {
-        // ROW 0: Year Row
         if (visualIdx === 0) {
+            // Year Row
             return {
                 isYearRow: true,
-                date: contextYear,
+                date: isNewAccount ? (userLedger.yearInput || '') : contextYear, // Editable if new
                 item: '', pr: '', amount: '',
-                isUser: false,
-                isLocked: true
+                isUser: isNewAccount, 
+                isLocked: !isNewAccount
             };
         }
 
@@ -367,15 +444,11 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
             return { isYearRow: false, date: '', item: '', pr: '', amount: '', isUser: isUser, isLocked: !isUser };
         }
 
-        // Format Date based on Visual Index
         let displayDate = row.date || '';
         if (visualIdx === 1) {
-            // First Data Row: Should be "Mmm dd"
-            // If historical, it comes as "Mmm dd", so use as is.
-            // If user input, they type it.
+            // First Data Row: "Mmm dd"
         } else {
-            // Subsequent Rows: "dd"
-            // If historical "Mmm dd", split it.
+            // Subsequent: "dd"
             if (row.isLocked && displayDate.includes(' ')) {
                 displayDate = displayDate.split(' ')[1];
             }
@@ -411,23 +484,18 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         <div className="flex-1 border-r p-1 text-center">Particulars</div>
                         <div className="w-8 border-r p-1 text-center">PR</div>
                         <div className="w-16 p-1 text-center">Amount</div>
-                        <div className="w-6"></div>
                     </div>
                     ${displayRows.map(i => {
                         const props = getCellProps('left', i);
-                        // If Year Row, inputs are disabled (except date shows year) and others empty
-                        const isRowDisabled = props.isLocked || props.isYearRow;
+                        const isRowDisabled = props.isLocked; // Year row is editable if isNewAccount
                         const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
 
                         return html`
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="w-6 flex justify-center items-center">
-                                    ${props.isUser && !isReadOnly && !props.isYearRow && html`<button onClick=${()=>deleteRow('left', i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
-                                </div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
+                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                             </div>
                         `;
                     })}
@@ -446,17 +514,20 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                     </div>
                     ${displayRows.map(i => {
                         const props = getCellProps('right', i);
-                        const isRowDisabled = props.isLocked || props.isYearRow;
+                        const isRowDisabled = props.isLocked;
                         const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
+                        
+                        // Check if row is deletable (user row and not year row)
+                        const isDeletable = props.isUser && !isReadOnly && !props.isYearRow;
 
                         return html`
                             <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
-                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
+                                <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                                 <div className="w-6 flex justify-center items-center">
-                                    ${props.isUser && !isReadOnly && !props.isYearRow && html`<button onClick=${()=>deleteRow('right', i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
+                                    ${isDeletable && html`<button onClick=${()=>deleteCombinedRow(i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
                                 </div>
                             </div>
                         `;
@@ -480,19 +551,72 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
     const { validAccounts, transactions, beginningBalances, config } = activityData;
     const sortedAccounts = sortAccounts(validAccounts);
     const { year } = validationResult || {};
+    
+    // Manage added accounts locally or via prop? 
+    // Usually state should be lifted, but for simplicity we rely on ledgerData keys that are NOT in validAccounts
+    // But we need a UI to add them. 
+    const [isAdding, setIsAdding] = useState(false);
+    const [newAccName, setNewAccName] = useState('');
+
+    const addedAccounts = useMemo(() => {
+        return (ledgerData.addedAccounts || []);
+    }, [ledgerData.addedAccounts]);
+
+    const handleAddAccount = () => {
+        if (!newAccName.trim()) return;
+        const name = newAccName.trim();
+        // Check duplication
+        if (validAccounts.includes(name) || addedAccounts.includes(name)) {
+            alert('Account already exists.');
+            return;
+        }
+        
+        // Update ledgerData with new account key and list
+        const newAdded = [...addedAccounts, name];
+        // Initialize with 2 empty rows per side as requested
+        const initialLedger = {
+            leftRows: [{}, {}], 
+            rightRows: [{}, {}]
+        };
+        
+        onChange(name, initialLedger); // This sets ledgerData[name]
+        
+        // We need to update the 'addedAccounts' list in ledgerData to persist it
+        // BUT onChange is designed for single account update: onChange(acc, val) -> ledgerData[acc] = val
+        // We need a special key or method to update the list. 
+        // Hack: Use a special key 'addedAccounts' in ledgerData.
+        onChange('addedAccounts', newAdded);
+        
+        setNewAccName('');
+        setIsAdding(false);
+    };
+
+    const allAccountsToRender = [...sortedAccounts, ...addedAccounts];
 
     return html`
         <div className="h-full flex flex-col">
-            <div className="bg-blue-100 p-2 font-bold text-blue-900 border-b border-blue-200 flex items-center">
-                <${Table} size=${16} className="inline mr-2 w-4 h-4"/>
-                General Ledger (Adjusted)
+            <div className="bg-blue-100 p-2 font-bold text-blue-900 border-b border-blue-200 flex items-center justify-between">
+                <div className="flex items-center"><${Table} size=${16} className="inline mr-2 w-4 h-4"/> General Ledger (Adjusted)</div>
+                ${!isReadOnly && html`
+                    <button onClick=${() => setIsAdding(true)} className="bg-blue-600 text-white text-xs px-2 py-1 rounded hover:bg-blue-700 flex items-center"><${Plus} size=${12} className="mr-1"/> Add Ledger</button>
+                `}
             </div>
 
+            ${isAdding && html`
+                <div className="p-2 bg-blue-50 border-b border-blue-200 flex gap-2">
+                    <input type="text" className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Enter Account Name" value=${newAccName} onChange=${(e)=>setNewAccName(e.target.value)} />
+                    <button onClick=${handleAddAccount} className="bg-green-600 text-white text-xs px-3 py-1 rounded hover:bg-green-700">Add</button>
+                    <button onClick=${() => setIsAdding(false)} className="bg-gray-400 text-white text-xs px-3 py-1 rounded hover:bg-gray-500">Cancel</button>
+                </div>
+            `}
+
             <div className="overflow-y-auto p-4 flex-1 bg-gray-50 custom-scrollbar">
-                ${sortedAccounts.map(acc => {
+                ${allAccountsToRender.map(acc => {
+                    const isNew = !validAccounts.includes(acc);
+                    
                     // Calculate Correct Ending Values
                     let bbDr = 0, bbCr = 0;
-                    if (config.isSubsequentYear && beginningBalances?.balances[acc]) {
+                    if (!isNew && config.isSubsequentYear && beginningBalances?.balances[acc]) {
                         bbDr = beginningBalances.balances[acc].dr;
                         bbCr = beginningBalances.balances[acc].cr;
                     }
@@ -521,13 +645,14 @@ const LedgerPanel = ({ activityData, ledgerData, onChange, isReadOnly, showFeedb
                             key=${acc} 
                             accName=${acc} 
                             transactions=${transactions}
-                            startingBalance=${config.isSubsequentYear && beginningBalances ? beginningBalances.balances[acc] : null}
+                            startingBalance={config.isSubsequentYear && beginningBalances ? beginningBalances.balances[acc] : null}
                             userLedger=${ledgerData[acc] || {}}
                             onUpdate=${(val) => onChange(acc, val)}
                             isReadOnly=${isReadOnly}
                             showFeedback=${showFeedback}
                             correctEndingValues=${correctEndingValues}
                             contextYear=${year}
+                            isNewAccount=${isNew}
                         />
                     `;
                 })}
@@ -544,20 +669,21 @@ export default function Step07AdjustingEntries({ activityData, data, onChange, s
     const ledgerData = data.ledger || {};
 
     const validationResult = useMemo(() => {
-        return validateStep07(activityData.adjustments, journalData, ledgerData, activityData.transactions);
-    }, [activityData.adjustments, journalData, ledgerData, activityData.transactions]);
+        return validateStep07(activityData, journalData, ledgerData);
+    }, [activityData, journalData, ledgerData]);
 
     const handleJournalChange = (id, val) => {
         onChange('journal', { ...journalData, [id]: val });
     };
 
     const handleLedgerChange = (acc, val) => {
+        // If acc is 'addedAccounts', we update that specific key in the ledger object
         onChange('ledger', { ...ledgerData, [acc]: val });
     };
 
     return html`
         <div className="flex flex-col h-[calc(100vh-140px)]">
-            <!-- VALIDATION BANNER MOVED HERE -->
+            <!-- VALIDATION BANNER -->
             ${(showFeedback || isReadOnly) && validationResult && html`
                 <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
                     <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
