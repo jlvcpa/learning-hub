@@ -13,9 +13,9 @@ import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
 import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js';
 import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
-import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js'; // UPDATED IMPORT
-import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js'; // UPDATED IMPORT
-import Step09PostClosingTB, { validateStep09 } from './steps/Step09PostClosingTB.js'; // UPDATED IMPORT
+import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js'; 
+import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js'; 
+import Step09PostClosingTB, { validateStep09 } from './steps/Step09PostClosingTB.js'; 
 import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
@@ -91,7 +91,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
-    // Step 4 (NEW)
+    // Step 4
     else if (stepId === 4 && answers[4] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep04 === 'function') {
             const res = validateStep04(activityData, answers[4]);
@@ -100,28 +100,25 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
-
-    // ADDED STEP 5 SCORE DISPLAY
+    // Step 5
     else if (stepId === 5 && answers[5] && (status.completed || status.attempts < 3)) {
-    if (typeof validateStep05 === 'function') {
-        const res = validateStep05(activityData.ledger, activityData.adjustments, answers[5]);
-        if (res.maxScore > 0) {
-            scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+        if (typeof validateStep05 === 'function') {
+            const res = validateStep05(activityData.ledger, activityData.adjustments, answers[5]);
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
         }
     }
-}
-
-    // --- Step 6 Score Display ---
+    // Step 6
     else if (stepId === 6 && answers[6] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep06 === 'function') {
             const res = validateStep06(activityData.ledger, activityData.adjustments, activityData, answers[6]);
             if (res.maxScore > 0) {
                 scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
         }
     }
-}
-
-    // --- UPDATED STEP 7 SCORE DISPLAY ---
+    // Step 7
     else if (stepId === 7 && answers[7] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep07 === 'function') {
             const res = validateStep07(activityData.adjustments, answers[7].journal || {}, answers[7].ledger || {}, activityData.transactions);
@@ -130,8 +127,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
-
-    // --- ADDED STEP 8 SCORE DISPLAY ---
+    // Step 8
     else if (stepId === 8 && answers[8] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep08 === 'function') {
             const res = validateStep08(answers[8], activityData);
@@ -140,8 +136,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
-
-    // --- ADDED STEP 9 SCORE DISPLAY ---
+    // Step 9
     else if (stepId === 9 && answers[9] && (status.completed || status.attempts < 3)) {
         if (typeof validateStep09 === 'function') {
             const res = validateStep09(answers[9], activityData);
@@ -172,6 +167,10 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
 
             return html`<${Step09PostClosingTB} activityData=${activityData} data=${step9Data} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         }
+        if (stepId === 10) return html`<${Step10ReversingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep10Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        
+        return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${handleGenericChange} data=${answers[stepId]} />`;
+    };
 
     // Calculate conditional instruction for the hardcoded Step 8 block
     const showDeferredNote = (deferredExpenseMethod === 'Expense' || deferredIncomeMethod === 'Income');
