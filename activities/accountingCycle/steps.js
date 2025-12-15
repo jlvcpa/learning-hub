@@ -63,7 +63,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         }
     };
     const handleStep06Change = (section, data) => updateAnswerFns.updateAnswer(6, { ...(answers[6] || {}), [section]: data });
-    const handlestep07Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
+    const handleStep07Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
     const handleStep8Change = (section, data) => updateAnswerFns.updateAnswer(8, { ...(answers[8] || {}), [section]: data });
     const handleStep9Change = (key, val) => updateAnswerFns.updateAnswer(9, { ...(answers[9] || {}), [key]: val });
     const handleStep10Change = (adjId, val) => updateAnswerFns.updateAnswer(10, { ...(answers[10] || {}), [adjId]: val });
@@ -123,8 +123,8 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
 
     // --- UPDATED STEP 7 SCORE DISPLAY ---
     else if (stepId === 7 && answers[7] && (status.completed || status.attempts < 3)) {
-        if (typeof validatestep07 === 'function') {
-            const res = validatestep07(activityData.adjustments, answers[7].journal || {}, answers[7].ledger || {}, activityData.transactions);
+        if (typeof validateStep07 === 'function') {
+            const res = validateStep07(activityData.adjustments, answers[7].journal || {}, answers[7].ledger || {}, activityData.transactions);
             if (res.maxScore > 0) {
                 scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
             }
