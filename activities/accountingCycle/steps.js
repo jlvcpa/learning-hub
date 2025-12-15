@@ -15,7 +15,7 @@ import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
 import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js'; // UPDATED IMPORT
 import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js'; // UPDATED IMPORT
-import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
+import Step09PostClosingTB, { validateStep09 } from './steps/Step09PostClosingTB.js'; // UPDATED IMPORT
 import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
@@ -140,6 +140,16 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
+
+    // --- ADDED STEP 9 SCORE DISPLAY ---
+    else if (stepId === 9 && answers[9] && (status.completed || status.attempts < 3)) {
+        if (typeof validateStep09 === 'function') {
+            const res = validateStep09(answers[9], activityData);
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
+        }
+    }
     
     const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
@@ -154,11 +164,14 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 6) return html`<${Step06FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep06Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 7) return html`<${Step07AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep07Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 8) return html`<${Step08ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep08Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 9) return html`<${Step9PostClosingTB} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`; 
-        if (stepId === 10) return html`<${Step10ReversingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep10Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        
-        return html`<${GenericStep} stepId=${stepId} title=${step.title} onChange=${handleGenericChange} data=${answers[stepId]} />`;
-    };
+        if (stepId === 9) {
+            // We only need to inject the Closing Entries from Step 8 so the Ledger View can show them.
+            // The component handles its own validation logic internally.
+            const closingJournal = answers[8]?.journal; 
+            const step9Data = { ...(answers[stepId] || {}), closingJournal };
+
+            return html`<${Step09PostClosingTB} activityData=${activityData} data=${step9Data} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        }
 
     // Calculate conditional instruction for the hardcoded Step 8 block
     const showDeferredNote = (deferredExpenseMethod === 'Expense' || deferredIncomeMethod === 'Income');
