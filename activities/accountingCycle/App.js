@@ -14,7 +14,7 @@ import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
 import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js';
 import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
-import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
+import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js';
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
 import Step10ReversingEntries, { validateReversingEntry } from './steps/Step10ReversingEntries.js';
@@ -290,44 +290,15 @@ const App = () => {
              isCorrect = result.isCorrect;
             
         } else if (stepId === 7) {
-             // ... (Step 7 validation remains unchanged)
+             // --- UPDATED STEP 7 VALIDATION ---
+             // Use the new DRY validation method
              const journalData = currentAns.journal || {};
              const ledgerData = currentAns.ledger || {};
-             const { adjustments, ledger } = activityData;
+             const result = validateStep7(activityData.adjustments, journalData, ledgerData, activityData.transactions);
              
-             let allJournalCorrect = true;
-             let allLedgerCorrect = true;
-
-             adjustments.forEach(adj => {
-                 const entry = journalData[adj.id] || {};
-                 const drMatch = entry.drAcc?.toLowerCase() === adj.drAcc.toLowerCase() && Math.abs(Number(entry.drAmt) - adj.amount) <= 1;
-                 const crMatch = entry.crAcc?.toLowerCase() === adj.crAcc.toLowerCase() && Math.abs(Number(entry.crAmt) - adj.amount) <= 1;
-                 if (!drMatch || !crMatch) allJournalCorrect = false;
-             });
-
-             const affectedAccounts = new Set();
-             adjustments.forEach(a => { affectedAccounts.add(a.drAcc); affectedAccounts.add(a.crAcc); });
-             
-             Array.from(affectedAccounts).forEach(acc => {
-                 const rawDr = ledger[acc]?.debit || 0;
-                 const rawCr = ledger[acc]?.credit || 0;
-                 let adjDr = 0, adjCr = 0;
-                 adjustments.forEach(a => {
-                     if (a.drAcc === acc) adjDr += a.amount;
-                     if (a.crAcc === acc) adjCr += a.amount;
-                 });
-                 const finalNet = (rawDr + adjDr) - (rawCr + adjCr);
-                 const expBal = Math.abs(finalNet);
-                 const expType = finalNet >= 0 ? 'Dr' : 'Cr';
-
-                 const userAcc = ledgerData[acc] || {};
-                 if (Math.abs(Number(userAcc.endBal) - expBal) > 1 || userAcc.balType !== expType) {
-                     allLedgerCorrect = false;
-                 }
-             });
-             
-             isCorrect = allJournalCorrect && allLedgerCorrect;
-
+             // Strict check: User must get full points (based on requirements)
+             isCorrect = result.score === result.maxScore && result.maxScore > 0;
+            
         } else if (stepId === 8) {
              // ... (Step 8 validation remains unchanged)
              const ledgers = currentAns.ledgers || [];
