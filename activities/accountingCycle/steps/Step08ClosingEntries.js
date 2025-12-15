@@ -392,7 +392,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                             </div>
                         `;
@@ -464,7 +464,17 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
         return validateStep08(data, activityData);
     }, [data, activityData, showFeedback, isReadOnly]);
 
-    // Calculate Dynamic Dates from Transactions
+    // Ensure data structures exist
+    const ledgers = data.ledgers || {}; 
+    
+    // Define Handlers BEFORE use
+    const handleJournalChange = (entries) => onChange('journal', entries);
+    
+    const updateLedgerData = (accName, val) => {
+        const newLedgers = { ...ledgers, [accName]: val };
+        onChange('ledgers', newLedgers);
+    };
+
     const { validAccounts, transactions, beginningBalances, config } = activityData;
     const sortedAccounts = sortAccounts(validAccounts);
 
@@ -509,11 +519,8 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
                                         transactions=${transactions}
                                         startingBalance=${config.isSubsequentYear && beginningBalances ? beginningBalances.balances[acc] : null}
                                         adjustments=${activityData.adjustments}
-                                        userLedger=${data.ledgers?.[acc] || {}}
-                                        onUpdate=${(val) => {
-                                            const newLedgers = { ...(data.ledgers || {}), [acc]: val };
-                                            onChange('ledgers', newLedgers);
-                                        }}
+                                        userLedger=${ledgers[acc] || {}}
+                                        onUpdate=${(val) => updateLedgerData(acc, val)}
                                         isReadOnly=${isReadOnly}
                                         showFeedback=${showFeedback}
                                         validationResult=${validationResult}
