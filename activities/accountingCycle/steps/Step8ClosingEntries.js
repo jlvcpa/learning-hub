@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, X, Table, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts, getAccountType } from '../utils.js';
+import { sortAccounts, getAccountType, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
 
