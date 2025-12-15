@@ -162,7 +162,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
                                 const crOk = fieldStatus?.[`${baseKey}-cr`];
                                 const prOk = fieldStatus?.[`${baseKey}-pr`];
-                                const dateOk = fieldStatus?.[`${baseKey}-date`]; // New date validation key
+                                const dateOk = fieldStatus?.[`${baseKey}-date`]; 
 
                                 return html`
                                 <div key=${rIdx} className="flex border-b border-gray-100 h-8">
@@ -392,7 +392,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                                 <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                             </div>
                         `;
@@ -552,7 +552,6 @@ export const validateStep08 = (data, activityData) => {
     }
 
     let score = 0;
-    let maxScore = 0;
     const fieldStatus = {};
 
     // 1. Calculate Correct Closing Amounts
@@ -588,7 +587,23 @@ export const validateStep08 = (data, activityData) => {
     const netIncome = totalRev - totalExp;
 
     // 2. Validate Journal Entries (REID)
-    // Structure: 0=Rev, 1=Exp, 2=IncSum, 3=Draw
+    // Calculate Max Score first (Points for every required input)
+    // Structure: 
+    // Rev: 1 line per revenue + 1 line inc sum. Each line has (Acc + Dr/Cr + Date if first).
+    // Exp: 1 line inc sum + 1 line per expense.
+    // NI: 2 lines.
+    // Draw: 2 lines.
+    
+    // Each row worth 1 point? Request says "1 point for each input boxes... but amount should not receive point if not proper..."
+    // Simplified: 1 point if the entire row is "valid" (Acc + Amount + Side Correct).
+    
+    // Calculate expected rows count
+    const revRowsCount = revAccounts.length + 1; 
+    const expRowsCount = expAccounts.length + 1; 
+    const niRowsCount = 2; 
+    const drawRowsCount = 2;
+    
+    const maxScore = revRowsCount + expRowsCount + niRowsCount + drawRowsCount + (validAccounts.length * 2); // Journal Rows + (Ledger Bal + Type)
 
     // --- Block 0: Close Revenues ---
     const b0 = userJournal[0]?.rows || [];
@@ -596,23 +611,38 @@ export const validateStep08 = (data, activityData) => {
         ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
         { acc: 'Income Summary', dr: 0, cr: totalRev }
     ];
-    b0.forEach((row, rIdx) => {
-        const keyBase = `journal-0-${rIdx}`;
-        const match = expectedB0.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
+    
+    // Iterate expected to score found items
+    expectedB0.forEach(expected => {
+        // Try to find matching user row
+        // User row match criteria: Account Name matches
+        const userRowIndex = b0.findIndex(r => r.acc && r.acc.trim() === expected.acc);
         
-        const accOk = !!match;
-        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
-        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
-        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate); // Only check date on first row
+        if (userRowIndex !== -1) {
+            const row = b0[userRowIndex];
+            const rIdx = userRowIndex;
+            const keyBase = `journal-0-${rIdx}`;
 
-        fieldStatus[`${keyBase}-acc`] = accOk;
-        fieldStatus[`${keyBase}-dr`] = drOk;
-        fieldStatus[`${keyBase}-cr`] = crOk;
-        fieldStatus[`${keyBase}-pr`] = row.pr === true;
-        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+            const accOk = true; // Found by account name
+            // Strict check on side and amount
+            const drOk = Math.abs((Number(row.dr)||0) - expected.dr) < 1 && (expected.dr > 0 ? (Number(row.dr)||0) > 0 : true);
+            const crOk = Math.abs((Number(row.cr)||0) - expected.cr) < 1 && (expected.cr > 0 ? (Number(row.cr)||0) > 0 : true);
+            
+            // Date only matters on first visual row of the block (index 0), but we are iterating expected.
+            // Let's assume if the user put the correct date on the first row they typed, they get credit.
+            const dateVal = b0[0]?.date;
+            const dateOk = (Number(dateVal) === expectedDate); 
 
-        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
-        maxScore++;
+            fieldStatus[`${keyBase}-acc`] = accOk;
+            fieldStatus[`${keyBase}-dr`] = drOk;
+            fieldStatus[`${keyBase}-cr`] = crOk;
+            fieldStatus[`${keyBase}-pr`] = row.pr === true;
+            if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+
+            // Grant Point: If Account, Amount, Side, and Date (if applicable) are correct
+            // Note: If expected.dr is 0, user row.dr should be empty or 0.
+            if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
+        }
     });
 
     // --- Block 1: Close Expenses ---
@@ -621,23 +651,27 @@ export const validateStep08 = (data, activityData) => {
         { acc: 'Income Summary', dr: totalExp, cr: 0 },
         ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
     ];
-    b1.forEach((row, rIdx) => {
-        const keyBase = `journal-1-${rIdx}`;
-        const match = expectedB1.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
-        
-        const accOk = !!match;
-        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
-        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
-        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate);
+    expectedB1.forEach(expected => {
+        const userRowIndex = b1.findIndex(r => r.acc && r.acc.trim() === expected.acc);
+        if (userRowIndex !== -1) {
+            const row = b1[userRowIndex];
+            const rIdx = userRowIndex;
+            const keyBase = `journal-1-${rIdx}`;
 
-        fieldStatus[`${keyBase}-acc`] = accOk;
-        fieldStatus[`${keyBase}-dr`] = drOk;
-        fieldStatus[`${keyBase}-cr`] = crOk;
-        fieldStatus[`${keyBase}-pr`] = row.pr === true;
-        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+            const accOk = true;
+            const drOk = Math.abs((Number(row.dr)||0) - expected.dr) < 1 && (expected.dr > 0 ? (Number(row.dr)||0) > 0 : true);
+            const crOk = Math.abs((Number(row.cr)||0) - expected.cr) < 1 && (expected.cr > 0 ? (Number(row.cr)||0) > 0 : true);
+            const dateVal = b1[0]?.date;
+            const dateOk = (Number(dateVal) === expectedDate); 
 
-        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
-        maxScore++;
+            fieldStatus[`${keyBase}-acc`] = accOk;
+            fieldStatus[`${keyBase}-dr`] = drOk;
+            fieldStatus[`${keyBase}-cr`] = crOk;
+            fieldStatus[`${keyBase}-pr`] = row.pr === true;
+            if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+
+            if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
+        }
     });
 
     // --- Block 2: Close Income Summary (Net Income) ---
@@ -646,22 +680,27 @@ export const validateStep08 = (data, activityData) => {
         ? [ { acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome } ]
         : [ { acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) } ];
     
-    b2.forEach((row, rIdx) => {
-        const keyBase = `journal-2-${rIdx}`;
-        const match = expectedB2.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
-        const accOk = !!match;
-        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
-        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
-        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate);
+    expectedB2.forEach(expected => {
+        const userRowIndex = b2.findIndex(r => r.acc && r.acc.trim() === expected.acc);
+        if (userRowIndex !== -1) {
+            const row = b2[userRowIndex];
+            const rIdx = userRowIndex;
+            const keyBase = `journal-2-${rIdx}`;
+            
+            const accOk = true;
+            const drOk = Math.abs((Number(row.dr)||0) - expected.dr) < 1 && (expected.dr > 0 ? (Number(row.dr)||0) > 0 : true);
+            const crOk = Math.abs((Number(row.cr)||0) - expected.cr) < 1 && (expected.cr > 0 ? (Number(row.cr)||0) > 0 : true);
+            const dateVal = b2[0]?.date;
+            const dateOk = (Number(dateVal) === expectedDate);
 
-        fieldStatus[`${keyBase}-acc`] = accOk;
-        fieldStatus[`${keyBase}-dr`] = drOk;
-        fieldStatus[`${keyBase}-cr`] = crOk;
-        fieldStatus[`${keyBase}-pr`] = row.pr === true;
-        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+            fieldStatus[`${keyBase}-acc`] = accOk;
+            fieldStatus[`${keyBase}-dr`] = drOk;
+            fieldStatus[`${keyBase}-cr`] = crOk;
+            fieldStatus[`${keyBase}-pr`] = row.pr === true;
+            if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
 
-        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
-        maxScore++;
+            if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
+        }
     });
 
     // --- Block 3: Close Drawings ---
@@ -670,22 +709,27 @@ export const validateStep08 = (data, activityData) => {
         { acc: capitalAccName, dr: drawingAmt, cr: 0 },
         { acc: drawingAccName, dr: 0, cr: drawingAmt }
     ];
-    b3.forEach((row, rIdx) => {
-        const keyBase = `journal-3-${rIdx}`;
-        const match = expectedB3.find(e => e.acc === (row.acc ? row.acc.trim() : ''));
-        const accOk = !!match;
-        const drOk = accOk && Math.abs((Number(row.dr)||0) - match.dr) < 1;
-        const crOk = accOk && Math.abs((Number(row.cr)||0) - match.cr) < 1;
-        const dateOk = rIdx !== 0 || (Number(row.date) === expectedDate);
+    expectedB3.forEach(expected => {
+        const userRowIndex = b3.findIndex(r => r.acc && r.acc.trim() === expected.acc);
+        if (userRowIndex !== -1) {
+            const row = b3[userRowIndex];
+            const rIdx = userRowIndex;
+            const keyBase = `journal-3-${rIdx}`;
+            
+            const accOk = true;
+            const drOk = Math.abs((Number(row.dr)||0) - expected.dr) < 1 && (expected.dr > 0 ? (Number(row.dr)||0) > 0 : true);
+            const crOk = Math.abs((Number(row.cr)||0) - expected.cr) < 1 && (expected.cr > 0 ? (Number(row.cr)||0) > 0 : true);
+            const dateVal = b3[0]?.date;
+            const dateOk = (Number(dateVal) === expectedDate);
 
-        fieldStatus[`${keyBase}-acc`] = accOk;
-        fieldStatus[`${keyBase}-dr`] = drOk;
-        fieldStatus[`${keyBase}-cr`] = crOk;
-        fieldStatus[`${keyBase}-pr`] = row.pr === true;
-        if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
+            fieldStatus[`${keyBase}-acc`] = accOk;
+            fieldStatus[`${keyBase}-dr`] = drOk;
+            fieldStatus[`${keyBase}-cr`] = crOk;
+            fieldStatus[`${keyBase}-pr`] = row.pr === true;
+            if (rIdx === 0) fieldStatus[`${keyBase}-date`] = dateOk;
 
-        if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
-        maxScore++;
+            if (accOk && drOk && crOk && (rIdx !== 0 || dateOk)) score++;
+        }
     });
 
     // 3. Validate Ledger Post-Closing Balances
@@ -741,8 +785,8 @@ export const validateStep08 = (data, activityData) => {
         fieldStatus[`${keyBase}-drTotal`] = true; 
         fieldStatus[`${keyBase}-crTotal`] = true;
 
-        if (matchesAmt && matchesType) score += 2;
-        maxScore += 2;
+        if (matchesAmt) score++;
+        if (matchesType) score++;
     });
 
     return {
