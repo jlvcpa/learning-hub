@@ -541,7 +541,7 @@ const BalanceSheet = ({ data, onChange, isReadOnly, showFeedback, sceEndingCapit
                                 <div className="flex justify-between mb-1 text-gray-600">
                                     <span className="pl-4 flex-1">Less: <input type="text" className="inline-block bg-transparent outline-none w-3/4 italic" placeholder="[Accum. Depr.]" value=${block.contra} onChange=${(e)=>handleArrChange('depAssets', i, 'contra', e.target.value)} disabled=${isReadOnly}/></span>
                                     <div className="w-24 relative">
-                                         <${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected=${expAccum} isDeduction=${true} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="(Accum)" required=${true} />
+                                         <${FeedbackInput} value=${block.accum} onChange=${(e)=>handleArrChange('depAssets', i, 'accum', e.target.value)} expected=${expAccum} isDeduction=${false} showFeedback=${showFeedback} isReadOnly=${isReadOnly} placeholder="0" required=${true} />
                                     </div>
                                 </div>
                                 <div className="flex justify-between font-bold">
