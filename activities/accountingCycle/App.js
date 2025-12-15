@@ -15,7 +15,7 @@ import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.j
 import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
 import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js';
-import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
+import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
 import Step10ReversingEntries, { validateReversingEntry } from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
@@ -300,62 +300,13 @@ const App = () => {
              isCorrect = result.score === result.maxScore && result.maxScore > 0;
             
         } else if (stepId === 8) {
-             // ... (Step 8 validation remains unchanged)
-             const ledgers = currentAns.ledgers || [];
-             const journalData = currentAns.journal || {};
-             const { ledger, adjustments, validAccounts, config, beginningBalances } = activityData;
-
-             let allNominalClosed = true;
-             ledgers.forEach(l => {
-                 const type = getAccountType(l.account);
-                 const isNominal = ['Revenue', 'Expense'].includes(type) || l.account.includes('Drawing') || l.account === 'Income Summary';
-                 if (isNominal) {
-                     if (Number(l.balance) !== 0) allNominalClosed = false;
-                 }
-             });
-
-             const getBlockTotal = (blockId) => {
-                 const rows = journalData[blockId]?.rows || [];
-                 return rows.reduce((sum, r) => sum + (Number(r.dr) || 0) + (Number(r.cr) || 0), 0) / 2;
-             };
-
-             let totalRev = 0, totalExp = 0, totalDraw = 0;
-             validAccounts.forEach(acc => {
-                 const rawDr = ledger[acc]?.debit || 0;
-                 const rawCr = ledger[acc]?.credit || 0;
-                 let val = rawDr - rawCr; 
-                 adjustments.forEach(a => { if (a.drAcc === acc) val += a.amount; if (a.crAcc === acc) val -= a.amount; });
-                 const type = getAccountType(acc);
-                 if (type === 'Revenue') totalRev += Math.abs(val);
-                 if (type === 'Expense') totalExp += val;
-                 if (acc.includes('Drawing')) totalDraw += Math.abs(val);
-             });
-             const netIncome = totalRev - totalExp;
-
-             const revCorrect = Math.abs(getBlockTotal('closeRev') - totalRev) <= 1;
-             const expCorrect = Math.abs(getBlockTotal('closeExp') - totalExp) <= 1;
-             const incSumCorrect = Math.abs(getBlockTotal('closeInc') - Math.abs(netIncome)) <= 1;
-             const drawCorrect = Math.abs(getBlockTotal('closeDrw') - totalDraw) <= 1;
-             
-             const journalValid = revCorrect && expCorrect && incSumCorrect && drawCorrect;
-
-             let begCap = 0;
-             if (config.isSubsequentYear && beginningBalances) {
-                 const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
-                 if (capAcc && beginningBalances.balances[capAcc]) begCap = beginningBalances.balances[capAcc].cr;
-             } else {
-                 const capAccName = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
-                 const rawDr = ledger[capAccName]?.debit || 0;
-                 const rawCr = ledger[capAccName]?.credit || 0;
-                 begCap = Math.abs(rawDr - rawCr); 
-             }
-             
-             const endCap = begCap + netIncome - totalDraw;
-             const capAccName = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing'));
-             const userCap = ledgers.find(l => l.account === capAccName);
-             const capitalValid = userCap && Math.abs(Number(userCap.balance) - endCap) <= 1;
-
-             isCorrect = allNominalClosed && journalValid && capitalValid;
+            // --- UPDATED STEP 8 VALIDATION ---
+            // Use the new DRY validation method from the enhanced component
+            const currentAns = answers[8] || {};
+            const result = validateStep08(currentAns, activityData);
+            
+            // Strict check: User must get full points to mark as complete
+            isCorrect = result.score === result.maxScore && result.maxScore > 0;
 
         } else if (stepId === 9) {
              // ... (Step 9 validation remains unchanged)
