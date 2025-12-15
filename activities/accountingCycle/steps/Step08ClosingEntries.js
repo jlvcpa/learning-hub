@@ -69,7 +69,6 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
 const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validationResult }) => {
     const { fieldStatus } = validationResult || {};
 
-    // Default REID Structure
     const defaultStructure = [
         { id: 'closeRev', title: '1. Close Revenue', desc: 'To close the revenue accounts.' },
         { id: 'closeExp', title: '2. Close Expense', desc: 'To close the expense accounts.' },
@@ -102,7 +101,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
         updateBlock(blockIdx, rows);
     };
 
-    // Helper for validation styling
     const getInputClass = (isOk) => 
         `w-full h-full p-1 outline-none text-sm ${showFeedback && isOk === false ? 'bg-red-50' : ''}`;
 
@@ -361,7 +359,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative"><input type="text" className="w-full h-full text-center px-1 outline-none bg-transparent" placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="flex-1 border-r relative"><input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
-                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
+                                <div className="w-8 border-r relative"><input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/></div>
                                 <div className="w-16 relative"><input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/></div>
                             </div>
                         `;
@@ -425,8 +423,14 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
 };
 
 // --- MAIN COMPONENT ---
-export default function Step08ClosingEntries({ activityData, data, onChange, showFeedback, isReadOnly, validationResult }) {
+export default function Step08ClosingEntries({ activityData, data, onChange, showFeedback, isReadOnly }) {
     
+    // Internal Validation Calculation (DRY)
+    const validationResult = useMemo(() => {
+        if (!showFeedback && !isReadOnly) return null;
+        return validateStep08(data, activityData);
+    }, [data, activityData, showFeedback, isReadOnly]);
+
     // Ensure data structures exist
     const ledgers = data.ledgers || {}; 
     const handleJournalChange = (entries) => onChange('journal', entries);
@@ -629,7 +633,6 @@ export const validateStep08 = (data, activityData) => {
     });
 
     // 3. Validate Ledger Post-Closing Balances
-    // Calculate Post-Closing Values
     const postClosingVals = {};
     validAccounts.forEach(acc => {
         const type = getAccountType(acc);
@@ -645,14 +648,6 @@ export const validateStep08 = (data, activityData) => {
         if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') {
             postClosingVals[acc] = 0;
         } else if (acc === capitalAccName) {
-            // Capital = Old + NI - Drawings
-            // Original Net (Credit is negative in logic? No, let's keep Dr +, Cr -)
-            // Capital is Credit normal (-).
-            // Net Income adds to Credit (more negative).
-            // Drawings reduces Credit (positive Dr).
-            // Let's rely on absolute checks for this validator to be safe.
-            // Expected Capital = Adjusted Capital + Net Income - Drawings
-            // We'll calculate the final Number directly.
             let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); // Cr Balance
             capBal += netIncome;
             capBal -= drawingAmt;
@@ -666,17 +661,6 @@ export const validateStep08 = (data, activityData) => {
     validAccounts.forEach(acc => {
         const userL = userLedgers[acc] || {};
         const keyBase = `ledger-${acc}`;
-        
-        // 1. Calculate user totals from their rows
-        const uLeft = userL.leftRows || [];
-        const uRight = userL.rightRows || [];
-        // We trust the totals entered in the input boxes for validation grading usually, 
-        // or we sum the rows. Step 8 usually requires user to input totals.
-        const uDrTotal = Number(userL.drTotal) || 0;
-        const uCrTotal = Number(userL.crTotal) || 0;
-        
-        // Expected Totals? This is hard because Closing entries add lines.
-        // Instead, we validate the FINAL BALANCE match.
         
         const expectedBal = postClosingVals[acc];
         const userBal = Number(userL.balance) || 0;
@@ -700,8 +684,6 @@ export const validateStep08 = (data, activityData) => {
         fieldStatus[`${keyBase}-balType`] = matchesType;
         fieldStatus[`${keyBase}-overall`] = matchesAmt && matchesType;
         
-        // Dummy checks for totals to prevent undefined errors in UI, 
-        // or implement logic if we want to enforce summing.
         fieldStatus[`${keyBase}-drTotal`] = true; 
         fieldStatus[`${keyBase}-crTotal`] = true;
 
