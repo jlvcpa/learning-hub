@@ -13,7 +13,7 @@ import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
 import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js';
 import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
 import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
-import Step7AdjustingEntries from './steps/Step7AdjustingEntries.js';
+import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js'; // UPDATED IMPORT
 import Step8ClosingEntries from './steps/Step8ClosingEntries.js';
 import Step9PostClosingTB from './steps/Step9PostClosingTB.js';
 import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
@@ -63,7 +63,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         }
     };
     const handleStep06Change = (section, data) => updateAnswerFns.updateAnswer(6, { ...(answers[6] || {}), [section]: data });
-    const handleStep7Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
+    const handlestep07Change = (section, data) => updateAnswerFns.updateAnswer(7, { ...(answers[7] || {}), [section]: data });
     const handleStep8Change = (section, data) => updateAnswerFns.updateAnswer(8, { ...(answers[8] || {}), [section]: data });
     const handleStep9Change = (key, val) => updateAnswerFns.updateAnswer(9, { ...(answers[9] || {}), [key]: val });
     const handleStep10Change = (adjId, val) => updateAnswerFns.updateAnswer(10, { ...(answers[10] || {}), [adjId]: val });
@@ -120,6 +120,17 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         }
     }
 }
+
+    // --- UPDATED STEP 7 SCORE DISPLAY ---
+    else if (stepId === 7 && answers[7] && (status.completed || status.attempts < 3)) {
+        if (typeof validatestep07 === 'function') {
+            const res = validatestep07(activityData.adjustments, answers[7].journal || {}, answers[7].ledger || {}, activityData.transactions);
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
+        }
+    }
+    
     const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
         // Show feedback if attempts are used OR if the task is marked completed (perfect score)
@@ -133,7 +144,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
         if (stepId === 4) return html`<${Step04TrialBalance} activityData=${activityData} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} data=${answers[4] || {}} onChange=${handleStep04Change} showFeedback=${showFeedback} isReadOnly=${status.completed} expectedLedger=${activityData.ledger} />`;
         if (stepId === 5) return html`<${Step05Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} data=${answers[stepId] || {}} onChange=${handleStep05Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 6) return html`<${Step06FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep06Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
-        if (stepId === 7) return html`<${Step7AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep7Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+        if (stepId === 7) return html`<${Step07AdjustingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep07Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 8) return html`<${Step8ClosingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep8Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         if (stepId === 9) return html`<${Step9PostClosingTB} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`; 
         if (stepId === 10) return html`<${Step10ReversingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep10Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
