@@ -294,7 +294,7 @@ const App = () => {
              // Use the new DRY validation method
              const journalData = currentAns.journal || {};
              const ledgerData = currentAns.ledger || {};
-             const result = validateStep7(activityData.adjustments, journalData, ledgerData, activityData.transactions);
+             const result = validateStep07(activityData.adjustments, journalData, ledgerData, activityData.transactions);
              
              // Strict check: User must get full points (based on requirements)
              isCorrect = result.score === result.maxScore && result.maxScore > 0;
