@@ -14,7 +14,7 @@ const html = htm.bind(React.createElement);
  * 1. Journal: Date (end of month), Account, Amount, PR (checked + posted).
  * 2. Ledger: Correct Ending Balance.
  */
-const validateStep7 = (adjustments, journalData, ledgerData, transactions) => {
+const validateStep07 = (adjustments, journalData, ledgerData, transactions) => {
     // 1. Determine Correct Date (End of Month of the transaction period)
     // We assume all transactions are in the same month based on data generation
     const baseDate = new Date(transactions[0].date);
@@ -562,7 +562,7 @@ export default function Step07AdjustingEntries({ activityData, data, onChange, s
 
     // Calculate Validation Result using DRY method
     const validationResult = useMemo(() => {
-        return validateStep7(activityData.adjustments, journalData, ledgerData, activityData.transactions);
+        return validateStep07(activityData.adjustments, journalData, ledgerData, activityData.transactions);
     }, [activityData.adjustments, journalData, ledgerData, activityData.transactions]);
 
     const handleJournalChange = (id, val) => {
