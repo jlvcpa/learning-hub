@@ -439,14 +439,17 @@ const App = () => {
                 // 3. Process code: Strip imports/exports to make them work in one script scope
                 const mergedCode = fetchedCodes.map(code => {
                      // Remove imports relative to local files (./...)
-                     let c = code.replace(/import .* from '\.\/.*';/g, '');
+                     // Regex: match import lines that start with ./ or ../
+                     let c = code.replace(/import .* from ['"](\.\/|\.\.\/).*['"];/g, '');
+                     
                      // Clean up exports (turn them into simple variable declarations)
                      c = c.replace(/export default function/g, 'function');
                      c = c.replace(/export default const/g, 'const');
                      c = c.replace(/export const/g, 'const');
                      c = c.replace(/export function/g, 'function');
                      c = c.replace(/export default/g, '');
-                     // IMPORTANT: Escape closing script tags in source code to prevent HTML breakage
+                     
+                     // CRITICAL: Escape closing script tags in string literals (like in handlePrint)
                      c = c.replace(/<\/script>/g, '<\\/script>');
                      return c;
                 }).join('\n\n');
