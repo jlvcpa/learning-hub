@@ -63,7 +63,11 @@ const ReportView = ({ activityData, answers }) => {
                     let content = null;
                     if (stepId === 1) content = html`<${Step01Analysis} transactions=${activityData.transactions} ...${props} />`;
                     else if (stepId === 2) content = html`<${Step02Journalizing} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} ...${props} />`;
-                    else if (stepId === 3) content = html`<${Step03Posting} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} ...${props} />`;
+                    else if (stepId === 3) {
+                         // FIX: Explicitly pass journalPRs defaulting to {} to prevent crash
+                         const journalPRs = stepAnswer.journalPRs || {};
+                         content = html`<${Step03Posting} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} ...${props} journalPRs=${journalPRs} />`;
+                    }
                     else if (stepId === 4) content = html`<${Step04TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} expectedLedger=${activityData.ledger} ...${props} />`;
                     else if (stepId === 5) content = html`<${Step05Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} ...${props} />`;
                     else if (stepId === 6) content = html`<${Step06FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} ...${props} />`;
@@ -96,6 +100,7 @@ const ReportView = ({ activityData, answers }) => {
         </div>
     `;
 };
+
 
 const TeacherDashboard = ({ onGenerate, onResume }) => {
     // PERSISTENCE
@@ -184,7 +189,10 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer">
                     <span className="text-sm font-bold text-gray-700">Enable Auto-Save to Device</span>
-                    <input type="checkbox" checked=${enableAutoSave} onChange=${(e)=>setEnableAutoSave(e.target.checked)} className="rounded text-green-600 focus:ring-green-500 w-5 h-5"/>
+                    <div className="relative inline-block w-10 h-6 align-middle select-none transition duration-200 ease-in">
+                        <input type="checkbox" checked=${enableAutoSave} onChange=${(e)=>setEnableAutoSave(e.target.checked)} className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer ${enableAutoSave ? 'right-0 border-green-400' : 'left-0 border-gray-300'}"/>
+                        <label className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer ${enableAutoSave ? 'bg-green-400' : ''}"></label>
+                    </div>
                 </label>
             </div>
 
@@ -408,25 +416,16 @@ const App = () => {
     <script type="module">
         import React from 'https://esm.sh/react@18.2.0';
         import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-        // Note: In a real standalone file, you would need to bundle ALL the source code of your steps and utils here.
-        // For this demo context, we assume the user is still connected to the same source.
-        // To make it truly standalone, you would construct a Blob containing the text content of App.js, steps.js, utils.js etc.
-        // This is complex without a build tool. 
-        // As a fallback, we will just alert the user.
-        alert("To create a fully standalone file, you must bundle all source modules. This feature requires a backend or bundler.");
+        // Note: For a true standalone file, all JS logic needs to be bundled here.
+        // Currently, this function just alerts as it requires complex bundling of all utils/steps.
+        alert("To download a full standalone file, you must implement a build step that inlines all source modules. This demo simulates in-app generation.");
     </script>
 </head>
 <body>
     <div id="root"></div>
 </body>
 </html>`;
-            // NOTE: True standalone generation requires reading source files which we can't easily do in this snippet context without fetch.
-            // We will just alert for now, or trigger the in-app view.
-            
-            // However, to satisfy the requirement "Generate activity shall create a stand-alone html":
-            // We can serialize the `activityData` into a JSON file for students to load?
-            // Or we just proceed with the in-app generation.
-            alert("Standalone HTML generation requires bundling logic. Using in-app generation.");
+            alert("This feature requires a bundler to merge all modules into one file. Please use the 'Generate Activity' button to run it here.");
             return;
         }
 
