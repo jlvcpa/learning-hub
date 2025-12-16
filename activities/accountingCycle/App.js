@@ -440,7 +440,7 @@ const App = () => {
                 const mergedCode = fetchedCodes.map(code => {
                      // Remove imports relative to local files (./...)
                      // Regex: match import lines that start with ./ or ../
-                     let c = code.replace(/import .* from ['"](\.\/|\.\.\/).*['"];/g, '');
+                     let c = code.replace(/import\s+.*?;/g, ''); // Aggressive strip of ALL imports (even CDN ones)
                      
                      // Clean up exports (turn them into simple variable declarations)
                      c = c.replace(/export default function/g, 'function');
