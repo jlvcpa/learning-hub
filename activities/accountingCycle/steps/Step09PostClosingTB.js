@@ -1,215 +1,347 @@
-// --- Step9PostClosingTB.js ---
+// --- Step09PostClosingTB.js ---
 import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, X, ChevronDown, ChevronRight, Table, Trash2, Plus } from 'https://esm.sh/lucide-react@0.263.1';
-import { sortAccounts, getAccountType } from '../utils.js';
+import { Book, Check, X, Table, Trash2, Plus, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
+import { sortAccounts, getAccountType, getLetterGrade } from '../utils.js';
 
 const html = htm.bind(React.createElement);
+
+// --- HELPER FUNCTIONS ---
+
+const getLastDayOfMonth = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const lastDay = new Date(year, month + 1, 0);
+    return lastDay.toLocaleString('default', { month: 'long', day: 'numeric', year: 'numeric' });
+};
+
+// --- VALIDATION LOGIC ---
+export const validateStep09 = (data, activityData) => {
+    // 1. Calculate Expected Post-Closing Balances
+    const { validAccounts, ledger, adjustments, transactions } = activityData;
+    
+    let totalRev = 0, totalExp = 0, totalDraw = 0;
+    let capitalAccName = '';
+    const adjustedBalances = {};
+
+    // A. Calculate Adjusted Balances & Identify Nominal Totals
+    validAccounts.forEach(acc => {
+        const rawDr = ledger[acc]?.debit || 0;
+        const rawCr = ledger[acc]?.credit || 0;
+        let adjDr = 0, adjCr = 0;
+        adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
+        
+        // Net Balance (+Dr, -Cr)
+        const net = (rawDr + adjDr) - (rawCr + adjCr);
+        adjustedBalances[acc] = net;
+
+        const type = getAccountType(acc);
+        if (type === 'Revenue') totalRev += Math.abs(net); // Normal Cr
+        else if (type === 'Expense') totalExp += Math.abs(net); // Normal Dr
+        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net); // Normal Dr
+        else if (acc.includes('Capital') || acc.includes('Retained Earnings')) capitalAccName = acc;
+    });
+
+    const netIncome = totalRev - totalExp;
+
+    // B. Build Expected Post-Closing Ledger
+    const expBalances = {}; 
+    let expTotalDr = 0;
+    let expTotalCr = 0;
+    let expectedMaxScore = 3; // Start with Header points
+
+    validAccounts.forEach(acc => {
+        const type = getAccountType(acc);
+        let finalBal = 0;
+
+        if (['Revenue', 'Expense'].includes(type) || acc.includes('Drawing') || acc === 'Income Summary') {
+            finalBal = 0; // Closed
+        } else if (acc === capitalAccName) {
+            const oldCap = Math.abs(adjustedBalances[acc]); 
+            const newCap = oldCap + netIncome - totalDraw;
+            finalBal = -newCap; // Represent as Credit (negative)
+        } else {
+            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged
+        }
+
+        const absNet = Math.abs(finalBal);
+        
+        if (absNet > 0) { 
+            expBalances[acc] = { amount: absNet, side: finalBal >= 0 ? 'dr' : 'cr' };
+            if (finalBal >= 0) expTotalDr += absNet;
+            else expTotalCr += absNet;
+            expectedMaxScore += 2; // 1 for Acc Name, 1 for Amount
+        }
+    });
+
+    expectedMaxScore += 2; // Totals
+
+    // --- SCORING ---
+    let score = 0;
+    const feedback = { header: {}, rows: [], totals: {} };
+    const header = data.header || {};
+
+    // A. Company Name
+    const companyName = (header.company || '').trim();
+    const isCompanyValid = companyName.length > 3; 
+    if (isCompanyValid) score += 1;
+    feedback.header.company = isCompanyValid;
+
+    // B. Document Name
+    const docName = (header.doc || '').trim().toLowerCase();
+    const isDocValid = docName.includes('post-closing trial balance') || docName === 'post closing trial balance';
+    if (isDocValid) score += 1;
+    feedback.header.doc = isDocValid;
+
+    // C. Date
+    const targetDate = getLastDayOfMonth(transactions ? transactions[0]?.date : '');
+    const inputDate = (header.date || '').trim();
+    const isDateValid = targetDate && inputDate.toLowerCase() === targetDate.toLowerCase();
+    if (isDateValid) score += 1;
+    feedback.header.date = isDateValid;
+
+    // 2. BODY VALIDATION
+    const rows = data.rows || [];
+    const totals = data.totals || { dr: '', cr: '' };
+    const processedAccounts = new Set();
+
+    rows.forEach((row, idx) => {
+        const userAcc = (row.account || '').trim();
+        const userDr = Number(row.dr) || 0;
+        const userCr = Number(row.cr) || 0;
+        
+        const rowFeedback = { acc: false, amt: false };
+        
+        if (userAcc) {
+            const matchedKey = Object.keys(expBalances).find(k => k.toLowerCase() === userAcc.toLowerCase());
+            
+            if (matchedKey && !processedAccounts.has(matchedKey)) {
+                score += 1;
+                rowFeedback.acc = true;
+                processedAccounts.add(matchedKey);
+
+                const exp = expBalances[matchedKey];
+                const isDrCorrect = exp.side === 'dr' && Math.abs(userDr - exp.amount) <= 1 && userCr === 0;
+                const isCrCorrect = exp.side === 'cr' && Math.abs(userCr - exp.amount) <= 1 && userDr === 0;
+
+                if (isDrCorrect || isCrCorrect) {
+                    score += 1;
+                    rowFeedback.amt = true;
+                }
+            }
+        }
+        feedback.rows[idx] = rowFeedback;
+    });
+
+    // 3. TOTALS VALIDATION
+    const userTotalDrInput = Number(totals.dr) || 0;
+    const userTotalCrInput = Number(totals.cr) || 0;
+
+    const isTotalDrCorrect = Math.abs(userTotalDrInput - expTotalDr) <= 1;
+    const isTotalCrCorrect = Math.abs(userTotalCrInput - expTotalCr) <= 1;
+
+    if (isTotalDrCorrect) score += 1;
+    if (isTotalCrCorrect) score += 1;
+    
+    feedback.totals = { dr: isTotalDrCorrect, cr: isTotalCrCorrect };
+
+    return { 
+        score, 
+        maxScore: expectedMaxScore, 
+        isCorrect: score === expectedMaxScore, 
+        letterGrade: getLetterGrade(score, expectedMaxScore), 
+        feedback,
+        year: '20XX'
+    };
+};
 
 // --- INTERNAL COMPONENTS ---
 
 const StatusIcon = ({ correct, show }) => {
     if (!show) return null;
     return correct 
-        ? html`<${Check} size=${14} className="text-green-600 inline ml-1" />` 
-        : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
+        ? html`<${Check} size=${16} className="text-green-600 inline ml-1 flex-shrink-0" strokeWidth=${3} />` 
+        : html`<${X} size=${16} className="text-red-600 inline ml-1 flex-shrink-0" strokeWidth=${3} />`;
 };
 
-// --- SOURCE VIEW: GENERAL LEDGER (Fully Posted) ---
-const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, adjustments }) => {
+// --- UPDATED LEDGER VIEW FOR STEP 9 ---
+const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, adjustments, closingEntries }) => {
     const [expanded, setExpanded] = useState(true);
-    const sortedAccounts = sortAccounts(validAccounts);
+    const sortedAccounts = sortAccounts(validAccounts || []);
 
-    // Helper: Calculate nominal totals for closing to Capital/Income Summary
-    const closingData = useMemo(() => {
-        let totalRev = 0;
-        let totalExp = 0;
-        let totalDraw = 0;
+    // Helper to format date
+    const formatDate = (dateStr, isFirst) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr; 
         
-        // Temporary ledger to calculate adjusted balances
-        const tempLedger = {};
-        
-        validAccounts.forEach(acc => {
-            let dr = 0, cr = 0;
-            // BB
-            if (isSubsequentYear && beginningBalances?.balances[acc]) {
-                dr += beginningBalances.balances[acc].dr;
-                cr += beginningBalances.balances[acc].cr;
-            }
-            // Trans
-            transactions.forEach(t => {
-                t.debits.forEach(d => { if(d.account === acc) dr += d.amount; });
-                t.credits.forEach(c => { if(c.account === acc) cr += c.amount; });
-            });
-            // Adj
-            adjustments.forEach(a => {
-                if(a.drAcc === acc) dr += a.amount;
-                if(a.crAcc === acc) cr += a.amount;
-            });
-
-            const net = dr - cr;
-            const type = getAccountType(acc);
-            if (type === 'Revenue') totalRev += Math.abs(net); // Rev is Credit normal
-            if (type === 'Expense') totalExp += net; // Exp is Debit normal
-            if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += net; // Draw is Debit normal
-            
-            tempLedger[acc] = { dr, cr, net };
-        });
-
-        return { totalRev, totalExp, totalDraw, tempLedger };
-    }, [transactions, validAccounts, beginningBalances, isSubsequentYear, adjustments]);
+        if (isFirst) {
+            // Mmm d (e.g. Jan 1)
+            return d.toLocaleString('default', { month: 'short', day: 'numeric' });
+        } else {
+            // d (e.g. 15)
+            return d.getDate().toString();
+        }
+    };
 
     return html`
         <div className="mb-4 border rounded-lg shadow-sm bg-blue-50 overflow-hidden no-print h-full flex flex-col">
             <div className="bg-blue-100 p-2 font-bold text-blue-900 cursor-pointer flex justify-between items-center flex-shrink-0" onClick=${()=>setExpanded(!expanded)}>
                 <span><${Book} size=${16} className="inline mr-2"/>Source: General Ledger (Post-Closing)</span>
-                <div className="flex items-center gap-4">
-                    ${expanded ? html`<${ChevronDown} size=${16}/>` : html`<${ChevronRight} size=${16}/>`}
-                </div>
             </div>
             ${expanded && html`
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-6 bg-gray-50">
                     ${sortedAccounts.map(acc => {
                         const rowsL = [];
                         const rowsR = [];
-                        const type = getAccountType(acc);
                         
+                        // Determine Year
+                        const contextYear = transactions && transactions.length > 0 
+                            ? new Date(transactions[0].date).getFullYear() 
+                            : new Date().getFullYear();
+
+                        // Add Year Row (First Row) - Explicitly formatted for display
+                        rowsL.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
+                        rowsR.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
+
                         // 1. Beginning Balances
-                        if (isSubsequentYear && beginningBalances?.balances[acc]) {
+                        if (isSubsequentYear && beginningBalances && beginningBalances.balances[acc]) {
                             const b = beginningBalances.balances[acc];
-                            if (b.dr > 0) rowsL.push({ date: 'Jan 01', part: 'BB', pr: '✓', amount: b.dr });
-                            if (b.cr > 0) rowsR.push({ date: 'Jan 01', part: 'BB', pr: '✓', amount: b.cr });
-                        } else {
-                            // Spacer for layout consistency
-                            rowsL.push({ date: '2023', part: '', pr: '', amount: null, isSpacer: true });
-                            rowsR.push({ date: '2023', part: '', pr: '', amount: null, isSpacer: true });
+                            // BB is always "Jan 1" of context year
+                            const bbDate = `${contextYear}-01-01`;
+                            if (b.dr > 0) rowsL.push({ rawDate: bbDate, part: 'BB', pr: '✓', amount: b.dr });
+                            if (b.cr > 0) rowsR.push({ rawDate: bbDate, part: 'BB', pr: '✓', amount: b.cr });
                         }
-
+                        
                         // 2. Transactions
-                        transactions.forEach(t => {
-                            const dateObj = new Date(t.date);
-                            const dd = dateObj.getDate().toString().padStart(2, '0');
-                            const mmm = dateObj.toLocaleString('default', { month: 'short' });
-                            t.debits.forEach(d => { if(d.account === acc) rowsL.push({ date: `${mmm} ${dd}`, part: 'GJ', pr: '1', amount: d.amount }); });
-                            t.credits.forEach(c => { if(c.account === acc) rowsR.push({ date: `${mmm} ${dd}`, part: 'GJ', pr: '1', amount: c.amount }); });
-                        });
-
-                        // 3. Adjusting Entries
-                        adjustments.forEach(adj => {
-                            if (adj.drAcc === acc) rowsL.push({ date: 'Dec 31', part: 'Adj', pr: 'J2', amount: adj.amount });
-                            if (adj.crAcc === acc) rowsR.push({ date: 'Dec 31', part: 'Adj', pr: 'J2', amount: adj.amount });
-                        });
-
-                        // 4. Closing Entries (Calculated for Display)
-                        const accData = closingData.tempLedger[acc] || { net: 0 };
-                        // Balance before closing
-                        const preCloseBal = accData.net; // +Dr, -Cr
-
-                        if (type === 'Revenue') {
-                            // Close Revenue (Credit Bal) with Debit
-                            if (Math.abs(preCloseBal) > 0) rowsL.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: Math.abs(preCloseBal) });
-                        } else if (type === 'Expense') {
-                            // Close Expense (Debit Bal) with Credit
-                            if (preCloseBal > 0) rowsR.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: preCloseBal });
-                        } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
-                            // Close Drawing (Debit Bal) with Credit
-                            if (preCloseBal > 0) rowsR.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: preCloseBal });
-                        } else if (type === 'Equity') {
-                            // Capital Account receives Net Income/Loss and Drawings
-                            const netIncome = closingData.totalRev - closingData.totalExp;
-                            if (netIncome >= 0) {
-                                rowsR.push({ date: 'Dec 31', part: 'Close (NI)', pr: 'J3', amount: netIncome });
-                            } else {
-                                rowsL.push({ date: 'Dec 31', part: 'Close (NL)', pr: 'J3', amount: Math.abs(netIncome) });
-                            }
-                            if (closingData.totalDraw > 0) {
-                                rowsL.push({ date: 'Dec 31', part: 'Close (Drw)', pr: 'J3', amount: closingData.totalDraw });
-                            }
-                        } else if (acc === 'Income Summary') {
-                            // Income Summary:
-                            // 1. Credit Rev
-                            rowsR.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: closingData.totalRev });
-                            // 2. Debit Exp
-                            rowsL.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: closingData.totalExp });
-                            // 3. Close Net Income/Loss
-                            const netIncome = closingData.totalRev - closingData.totalExp;
-                             if (netIncome >= 0) {
-                                rowsL.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: netIncome });
-                            } else {
-                                rowsR.push({ date: 'Dec 31', part: 'Close', pr: 'J3', amount: Math.abs(netIncome) });
-                            }
+                        if (transactions) {
+                            transactions.forEach(t => {
+                                t.debits.forEach(d => { if(d.account === acc) rowsL.push({ rawDate: t.date, part: 'GJ', pr: '1', amount: d.amount }); });
+                                t.credits.forEach(c => { if(c.account === acc) rowsR.push({ rawDate: t.date, part: 'GJ', pr: '1', amount: c.amount }); });
+                            });
                         }
 
-                        // Calculate Final Display Totals
-                        const totalDr = rowsL.reduce((s, r) => s + (Number(r.amount)||0), 0);
-                        const totalCr = rowsR.reduce((s, r) => s + (Number(r.amount)||0), 0);
-                        const finalNet = totalDr - totalCr;
-                        const balance = Math.abs(finalNet);
-                        const isZero = balance === 0;
+                        // 3. Adjusting Entries (Step 7)
+                        if (adjustments) {
+                            adjustments.forEach(adj => {
+                                // Adjustments are Dec 31
+                                const adjDate = `${contextYear}-12-31`;
+                                if (adj.drAcc === acc) rowsL.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
+                                if (adj.crAcc === acc) rowsR.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
+                            });
+                        }
 
-                        const maxCount = Math.max(rowsL.length, rowsR.length, 3);
+                        // 4. Closing Entries (Step 8)
+                        // Use provided closing entries OR construct them if missing (fallback logic could be added here)
+                        if (closingEntries) {
+                            closingEntries.forEach(block => {
+                                if (block.rows) {
+                                    block.rows.forEach(row => {
+                                        if (row.acc && row.acc.trim() === acc) {
+                                            const dr = Number(row.dr) || 0;
+                                            const cr = Number(row.cr) || 0;
+                                            const closDate = `${contextYear}-12-31`;
+                                            if (dr > 0) rowsL.push({ rawDate: closDate, part: 'Clos', pr: 'J3', amount: dr });
+                                            if (cr > 0) rowsR.push({ rawDate: closDate, part: 'Clos', pr: 'J3', amount: cr });
+                                        }
+                                    });
+                                }
+                            });
+                        }
+
+                        const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
+                        const totalCr = rowsR.reduce((sum, r) => sum + (r.amount || 0), 0);
+                        const net = totalDr - totalCr;
+                        const balance = Math.abs(net);
+                        const maxCount = Math.max(rowsL.length, rowsR.length, 4);
                         const displayRows = Array.from({ length: maxCount }).map((_, i) => i);
 
                         return html`
                             <div key=${acc} className="border-y-2 border-gray-800 bg-white shadow-md">
-                                <div className="border-b-2 border-gray-800 p-2 bg-gray-100 font-bold text-center text-lg text-gray-800 flex justify-between items-center">
-                                    <span className="w-8"></span>
-                                    <span>${acc}</span>
-                                    <span className="w-8 text-xs font-normal text-gray-500">${getAccountType(acc)}</span>
-                                </div>
+                                <div className="border-b-2 border-gray-800 p-2 bg-gray-100 font-bold text-center text-lg text-gray-800">${acc}</div>
                                 <div className="flex">
                                     <div className="flex-1 border-r-2 border-gray-800">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">DEBIT</div>
-                                        <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
-                                            <div className="w-16 border-r p-1 text-center flex-shrink-0">Date</div>
+                                        <div className="flex text-xs font-bold border-b border-gray-400">
+                                            <div className="w-14 border-r p-1 text-center">Date</div>
                                             <div className="flex-1 border-r p-1 text-center">Particulars</div>
-                                            <div className="w-10 border-r p-1 text-center flex-shrink-0">PR</div>
-                                            <div className="w-20 p-1 text-center flex-shrink-0">Amount</div>
+                                            <div className="w-8 border-r p-1 text-center">PR</div>
+                                            <div className="w-16 p-1 text-center">Amount</div>
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsL[i] || {};
-                                            return html`
-                                                <div className="flex text-xs border-b border-gray-200 h-6 items-center">
-                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap flex-shrink-0">${r.date || ''}</div>
-                                                    <div className="flex-1 border-r px-1 truncate text-gray-800" title=${r.part}>${r.part || ''}</div>
-                                                    <div className="w-10 border-r text-center text-gray-500 flex-shrink-0">${r.pr || ''}</div>
-                                                    <div className="w-20 text-right px-1 text-gray-800 flex-shrink-0">${r.amount ? r.amount.toLocaleString() : ''}</div>
-                                                </div>
-                                            `;
-                                        })}
-                                        <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50 text-xs font-bold">
-                                            <span>Total</span>
-                                            <span>${totalDr.toLocaleString()}</span>
-                                        </div>
-                                    </div>
+                                            // Date Formatting Logic
+                                            let dateText = '';
+                                            if (r.isYear) {
+                                                dateText = r.displayDate; // First row: YYYY
+                                            } else if (r.rawDate) {
+                                                // Check if it's the very first data entry (index 1)
+                                                // OR if month changed from previous row? (Simple rule: Row 1 is Mmm d, others d)
+                                                // Let's stick to the requested rule: Row 2 (Index 1) is Mmm d. Row 3+ is d.
+                                                // BUT we also need to handle "Month change" logic usually. 
+                                                // Given the request: "The second row... must have Mmm d... In the third row and up the date format shall be d or dd."
+                                                const isFirstDataRow = i === 1;
+                                                // Check if month changed from previous data row
+                                                const prevRow = rowsL[i-1];
+                                                let isMonthChange = false;
+                                                if (i > 1 && prevRow && prevRow.rawDate && r.rawDate) {
+                                                    const d1 = new Date(prevRow.rawDate);
+                                                    const d2 = new Date(r.rawDate);
+                                                    if (d1.getMonth() !== d2.getMonth()) isMonthChange = true;
+                                                }
 
+                                                dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
+                                            }
+
+                                            return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
+                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black' : ''}">${dateText}</div>
+                                                <div className="flex-1 border-r mr-1">${r.part||''}</div>
+                                                <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
+                                                <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
+                                            </div>`;
+                                        })}
+                                        <div className="border-t border-gray-800 p-1 text-right text-xs font-bold">${totalDr.toLocaleString()}</div>
+                                    </div>
+                                    
                                     <div className="flex-1">
                                         <div className="text-center font-bold border-b border-gray-400 bg-gray-50 text-xs py-1">CREDIT</div>
-                                        <div className="flex text-xs font-bold border-b border-gray-400 bg-white">
-                                            <div className="w-16 border-r p-1 text-center flex-shrink-0">Date</div>
+                                        <div className="flex text-xs font-bold border-b border-gray-400">
+                                            <div className="w-14 border-r p-1 text-center">Date</div>
                                             <div className="flex-1 border-r p-1 text-center">Particulars</div>
-                                            <div className="w-10 border-r p-1 text-center flex-shrink-0">PR</div>
-                                            <div className="w-20 p-1 text-center flex-shrink-0">Amount</div>
+                                            <div className="w-8 border-r p-1 text-center">PR</div>
+                                            <div className="w-16 p-1 text-center">Amount</div>
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsR[i] || {};
-                                            return html`
-                                                <div className="flex text-xs border-b border-gray-200 h-6 items-center">
-                                                    <div className="w-16 border-r text-right px-1 text-gray-600 whitespace-nowrap flex-shrink-0">${r.date || ''}</div>
-                                                    <div className="flex-1 border-r px-1 truncate text-gray-800" title=${r.part}>${r.part || ''}</div>
-                                                    <div className="w-10 border-r text-center text-gray-500 flex-shrink-0">${r.pr || ''}</div>
-                                                    <div className="w-20 text-right px-1 text-gray-800 flex-shrink-0">${r.amount ? r.amount.toLocaleString() : ''}</div>
-                                                </div>
-                                            `;
+                                            let dateText = '';
+                                            if (r.isYear) {
+                                                dateText = r.displayDate;
+                                            } else if (r.rawDate) {
+                                                const isFirstDataRow = i === 1;
+                                                const prevRow = rowsR[i-1];
+                                                let isMonthChange = false;
+                                                if (i > 1 && prevRow && prevRow.rawDate && r.rawDate) {
+                                                    const d1 = new Date(prevRow.rawDate);
+                                                    const d2 = new Date(r.rawDate);
+                                                    if (d1.getMonth() !== d2.getMonth()) isMonthChange = true;
+                                                }
+                                                dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
+                                            }
+
+                                            return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
+                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black' : ''}">${dateText}</div>
+                                                <div className="flex-1 border-r mr-1">${r.part||''}</div>
+                                                <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
+                                                <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
+                                            </div>`;
                                         })}
-                                        <div className="border-t-2 border-gray-800 p-1 flex justify-between items-center bg-gray-50 text-xs font-bold">
-                                            <span>Total</span>
-                                            <span>${totalCr.toLocaleString()}</span>
-                                        </div>
+                                        <div className="border-t border-gray-800 p-1 text-right text-xs font-bold">${totalCr.toLocaleString()}</div>
                                     </div>
                                 </div>
-                                <div className=${`p-2 text-center border-t border-gray-300 text-sm font-bold ${isZero ? 'bg-gray-100 text-gray-400' : 'bg-yellow-50 text-gray-700'}`}>
-                                    ${isZero ? 'Account Closed' : html`End Balance: <span className="text-blue-700 ml-2 text-base">${balance.toLocaleString()}</span>`}
+                                <div className="bg-yellow-50 p-2 text-center border-t border-gray-300 text-sm font-bold text-gray-700">
+                                    Balance: <span className="text-blue-700 ml-2 text-base">${balance === 0 ? '-' : balance.toLocaleString()}</span>
                                 </div>
                             </div>
                         `;
@@ -220,193 +352,187 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
     `;
 };
 
-// --- FORM: Post-Closing Trial Balance (Same structure as Step 4) ---
-const PostClosingTBForm = ({ data, onChange, showFeedback, isReadOnly, expectedLedger }) => {
-    const rows = data.rows || [{ account: '', dr: '', cr: '' }, { account: '', dr: '', cr: '' }, { account: '', dr: '', cr: '' }];
-    
+const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validationResult }) => {
+    const rows = data.rows || Array(15).fill({ account: '', dr: '', cr: '' });
+    const header = data.header || { company: '', doc: '', date: '' };
+    const totals = data.totals || { dr: '', cr: '' };
+    const fb = validationResult?.feedback || { header: {}, rows: [], totals: {} };
+
+    const updateHeader = (field, val) => {
+        onChange('header', { ...header, [field]: val });
+    };
+
     const updateRow = (idx, field, val) => {
         const newRows = [...rows];
         newRows[idx] = { ...newRows[idx], [field]: val };
         onChange('rows', newRows);
     };
+    
+    const updateTotals = (field, val) => {
+        onChange('totals', { ...totals, [field]: val });
+    };
 
-    const addRow = () => onChange('rows', [...rows, { account: '', dr: '', cr: '' }]);
-    const deleteRow = (idx) => { if (rows.length > 1) onChange('rows', rows.filter((_, i) => i !== idx)); };
+    const addRow = () => {
+        onChange('rows', [...rows, { account: '', dr: '', cr: '' }]);
+    };
 
-    const totalDr = rows.reduce((sum, r) => sum + (Number(r.dr) || 0), 0);
-    const totalCr = rows.reduce((sum, r) => sum + (Number(r.cr) || 0), 0);
+    const deleteRow = (idx) => {
+        if (rows.length <= 1) return;
+        const newRows = rows.filter((_, i) => i !== idx);
+        onChange('rows', newRows);
+    };
 
-    const getRowFeedback = (row) => {
-        if (!showFeedback) return { acc: '', dr: '', cr: '' };
-        const accName = row.account.trim();
-        if (!accName) return { acc: '', dr: '', cr: '' };
-        
-        // Find expected value
-        const key = Object.keys(expectedLedger).find(k => k.toLowerCase() === accName.toLowerCase());
-        
-        // If account shouldn't exist (e.g., Nominal account), expectedLedger[key] might be 0 or undefined
-        if (!key) return { acc: 'bg-red-100', dr: 'bg-red-100', cr: 'bg-red-100' };
-        
-        const expData = expectedLedger[key];
-        const expDr = expData.debit;
-        const expCr = expData.credit;
-
-        // If it's a closed account (expDr & expCr are 0) and user entered it, that's wrong for a Post-Closing TB
-        if (expDr === 0 && expCr === 0) return { acc: 'text-red-600 font-bold', dr: 'text-red-600', cr: 'text-red-600' };
-
-        const usrDr = Number(row.dr) || 0;
-        const usrCr = Number(row.cr) || 0;
-
-        return {
-            acc: 'text-green-600 font-bold',
-            dr: Math.abs(usrDr - expDr) <= 1 ? (expDr > 0 ? 'text-green-600' : '') : 'text-red-600 font-bold',
-            cr: Math.abs(usrCr - expCr) <= 1 ? (expCr > 0 ? 'text-green-600' : '') : 'text-red-600 font-bold'
-        };
+    const getHeaderStyle = (isValid) => {
+        if (!showFeedback) return 'border-black';
+        return isValid ? 'border-green-600 bg-green-50 text-green-700' : 'border-red-600 bg-red-50';
     };
 
     return html`
-        <div>
-            <table className="w-full text-sm border-collapse">
-                <thead className="bg-gray-100 sticky top-0 z-10">
-                    <tr>
-                        <th className="p-2 border text-left">Account Title</th>
-                        <th className="p-2 border w-24 text-right">Debit</th>
-                        <th className="p-2 border w-24 text-right">Credit</th>
-                        <th className="p-2 border w-8"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows.map((row, idx) => {
-                        const styles = getRowFeedback(row);
-                        return html`
-                            <tr key=${idx} className="border-b">
-                                <td className="p-1 border">
-                                    <input type="text" className=${`w-full outline-none ${styles.acc}`} value=${row.account} onChange=${(e)=>updateRow(idx, 'account', e.target.value)} disabled=${isReadOnly} placeholder="Account Name" />
+        <div className="flex flex-col h-full">
+            
+            <div className="flex flex-col gap-2 mb-6 items-center px-8 mt-2">
+                <div className="w-3/4 flex items-center justify-center relative">
+                    <input type="text" placeholder="[StudentLastName] Accounting Services" className=${`text-center font-bold text-lg border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.company)}`} value=${header.company} onChange=${(e) => updateHeader('company', e.target.value)} disabled=${isReadOnly}/>
+                    <div className="absolute -right-6"><${StatusIcon} show=${showFeedback} correct=${fb.header.company} /></div>
+                </div>
+                <div className="w-1/2 flex items-center justify-center relative">
+                    <input type="text" placeholder="Post-Closing Trial Balance" className=${`text-center font-bold text-md border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.doc)}`} value=${header.doc} onChange=${(e) => updateHeader('doc', e.target.value)} disabled=${isReadOnly}/>
+                    <div className="absolute -right-6"><${StatusIcon} show=${showFeedback} correct=${fb.header.doc} /></div>
+                </div>
+                <div className="w-1/3 flex items-center justify-center relative">
+                    <input type="text" placeholder="Month DD, YYYY" className=${`text-center text-sm border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.date)}`} value=${header.date} onChange=${(e) => updateHeader('date', e.target.value)} disabled=${isReadOnly}/>
+                    <div className="absolute -right-6"><${StatusIcon} show=${showFeedback} correct=${fb.header.date} /></div>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-auto px-2">
+                <table className="w-full text-sm border-collapse">
+                    <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th className="p-2 border text-left">Account Title</th>
+                            <th className="p-2 border w-28 text-right">Debit</th>
+                            <th className="p-2 border w-28 text-right">Credit</th>
+                            <th className="p-2 border w-8"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row, idx) => {
+                            const rowFB = fb.rows[idx] || {};
+                            const hasAccInput = row.account && row.account.trim().length > 0;
+                            
+                            return html`
+                            <tr key=${idx} className="border-b hover:bg-gray-50">
+                                <td className="p-1 border relative">
+                                    <div className="flex items-center">
+                                        <input type="text" className="w-full outline-none bg-transparent" value=${row.account} onChange=${(e)=>updateRow(idx, 'account', e.target.value)} disabled=${isReadOnly} />
+                                        ${hasAccInput && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.acc} />`}
+                                    </div>
                                 </td>
-                                <td className="p-1 border">
-                                    <input type="number" className=${`w-full text-right outline-none ${styles.dr}`} value=${row.dr} onChange=${(e)=>updateRow(idx, 'dr', e.target.value)} disabled=${isReadOnly} />
+                                <td className="p-1 border relative">
+                                    <div className="flex items-center">
+                                        <input type="number" className="w-full text-right outline-none bg-transparent" value=${row.dr} onChange=${(e)=>updateRow(idx, 'dr', e.target.value)} disabled=${isReadOnly} />
+                                        ${Number(row.dr) > 0 && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.amt} />`}
+                                    </div>
                                 </td>
-                                <td className="p-1 border">
-                                    <input type="number" className=${`w-full text-right outline-none ${styles.cr}`} value=${row.cr} onChange=${(e)=>updateRow(idx, 'cr', e.target.value)} disabled=${isReadOnly} />
+                                <td className="p-1 border relative">
+                                    <div className="flex items-center">
+                                        <input type="number" className="w-full text-right outline-none bg-transparent" value=${row.cr} onChange=${(e)=>updateRow(idx, 'cr', e.target.value)} disabled=${isReadOnly} />
+                                        ${Number(row.cr) > 0 && html`<${StatusIcon} show=${showFeedback} correct=${rowFB.amt} />`}
+                                    </div>
                                 </td>
                                 <td className="p-1 border text-center">
                                     ${!isReadOnly && html`<button onClick=${() => deleteRow(idx)} className="text-gray-400 hover:text-red-600"><${Trash2} size=${14}/></button>`}
                                 </td>
                             </tr>
-                        `;
-                    })}
-                </tbody>
-                <tfoot className="bg-gray-100 font-bold">
-                    <tr>
-                        <td className="p-2 text-right">Total</td>
-                        <td className="p-2 text-right">${totalDr.toLocaleString()}</td>
-                        <td className="p-2 text-right">${totalCr.toLocaleString()}</td>
-                        <td></td>
-                    </tr>
-                </tfoot>
-            </table>
-            ${!isReadOnly && html`<button onClick=${addRow} className="mt-2 text-xs flex items-center gap-1 text-blue-600 hover:underline"><${Plus} size=${12}/> Add Row</button>`}
+                        `})} 
+                    </tbody>
+                    <tfoot className="bg-gray-100 font-bold sticky bottom-0 border-t-2 border-gray-300">
+                        <tr>
+                            <td className="p-2 text-right uppercase text-xs text-gray-600">Total</td>
+                            <td className="p-1 border-double border-gray-400 relative">
+                                <div className="flex items-center justify-end">
+                                    <input 
+                                        type="number" 
+                                        className=${`w-full text-right outline-none bg-transparent font-bold ${showFeedback ? (fb.totals.dr ? 'text-green-700' : 'text-red-600') : ''}`} 
+                                        value=${totals.dr} 
+                                        onChange=${(e) => updateTotals('dr', e.target.value)}
+                                        disabled=${isReadOnly}
+                                        placeholder="0"
+                                    />
+                                    ${(totals.dr !== '' && Number(totals.dr) > 0) && html`<${StatusIcon} show=${showFeedback} correct=${fb.totals.dr} />`}
+                                </div>
+                            </td>
+                            <td className="p-1 border-double border-gray-400 relative">
+                                <div className="flex items-center justify-end">
+                                    <input 
+                                        type="number" 
+                                        className=${`w-full text-right outline-none bg-transparent font-bold ${showFeedback ? (fb.totals.cr ? 'text-green-700' : 'text-red-600') : ''}`} 
+                                        value=${totals.cr} 
+                                        onChange=${(e) => updateTotals('cr', e.target.value)}
+                                        disabled=${isReadOnly}
+                                        placeholder="0"
+                                    />
+                                    ${(totals.cr !== '' && Number(totals.cr) > 0) && html`<${StatusIcon} show=${showFeedback} correct=${fb.totals.cr} />`}
+                                </div>
+                            </td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+             ${!isReadOnly && html`<button onClick=${addRow} className="mt-2 text-xs flex items-center gap-1 text-blue-600 hover:underline p-2"><${Plus} size=${12}/> Add Account Row</button>`}
         </div>
     `;
 };
 
 // --- MAIN COMPONENT ---
-export default function Step9PostClosingTB({ activityData, data, onChange, showFeedback, isReadOnly }) {
+export default function Step09PostClosingTB({ activityData, data, onChange, showFeedback, isReadOnly }) {
     
-    // Calculate Post-Closing Ledger State (Expected Values)
-    const expectedLedger = useMemo(() => {
-        const result = {};
-        const { ledger, adjustments, validAccounts } = activityData;
-        
-        // 1. Calculate Adjusted Balances
-        const adjBalances = {};
-        validAccounts.forEach(acc => {
-            const rawDr = ledger[acc]?.debit || 0;
-            const rawCr = ledger[acc]?.credit || 0;
-            let aDr = 0, aCr = 0;
-            adjustments.forEach(a => {
-                if (a.drAcc === acc) aDr += a.amount;
-                if (a.crAcc === acc) aCr += a.amount;
-            });
-            adjBalances[acc] = (rawDr + aDr) - (rawCr + aCr); // +Dr, -Cr
-        });
+    // DRY Validation Calculation
+    const validationResult = useMemo(() => {
+        if (!showFeedback && !isReadOnly) return null;
+        return validateStep09(data, activityData);
+    }, [data, activityData, showFeedback, isReadOnly]);
 
-        // 2. Simulate Closing
-        let netIncome = 0;
-        let totalDrawings = 0;
-        
-        validAccounts.forEach(acc => {
-            const type = getAccountType(acc);
-            const bal = adjBalances[acc];
-            
-            if (type === 'Revenue') {
-                netIncome += Math.abs(bal); // Add Rev to NI
-                result[acc] = { debit: 0, credit: 0 }; // Closed
-            } else if (type === 'Expense') {
-                netIncome -= bal; // Subtract Exp from NI
-                result[acc] = { debit: 0, credit: 0 }; // Closed
-            } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
-                totalDrawings += bal;
-                result[acc] = { debit: 0, credit: 0 }; // Closed
-            } else if (type === 'Asset' || type === 'Liability') {
-                // Real accounts remain
-                if (bal >= 0) result[acc] = { debit: bal, credit: 0 };
-                else result[acc] = { debit: 0, credit: Math.abs(bal) };
-            }
-        });
+    const result = validationResult || {};
 
-        // 3. Update Capital
-        const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing') && !a.includes('Dividends'));
-        if (capAcc) {
-            const oldCap = adjBalances[capAcc] || 0; // Likely a credit (negative in our math logic if using net, but here we used net as +Dr... wait)
-            // Correction: adjBalances logic above: (Dr - Cr). So Credit balance is Negative.
-            // Let's standardise: 
-            // Credit Balance of 1000 => -1000.
-            
-            // Net Income (Rev - Exp). Rev (Credit/Neg) - Exp (Debit/Pos). 
-            // If Rev=1000(Cr), Exp=500(Dr). Net = -1000 - 500?? No.
-            
-            // Recalculating NI cleanly:
-            let rev = 0, exp = 0;
-            validAccounts.forEach(acc => {
-                 const type = getAccountType(acc);
-                 const bal = adjBalances[acc]; // +Dr, -Cr
-                 if (type === 'Revenue') rev += Math.abs(bal); // Rev is Credit, so bal is negative.
-                 if (type === 'Expense') exp += bal; // Exp is Debit, bal is positive.
-            });
-            const NI = rev - exp;
-            
-            // Capital Logic
-            const startCap = Math.abs(adjBalances[capAcc]); // Assuming Credit balance
-            const finalCap = startCap + NI - totalDrawings;
-            
-            result[capAcc] = { debit: 0, credit: finalCap };
-        }
-
-        return result;
-    }, [activityData]);
+    const handleChange = (key, val) => {
+        onChange(key, val);
+    };
 
     return html`
-        <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-140px)] min-h-[600px]">
-            <div className="flex-1 lg:w-1/2 h-full min-h-0">
-                 <${LedgerSourceView} 
-                    transactions=${activityData.transactions} 
-                    validAccounts=${activityData.validAccounts} 
-                    beginningBalances=${activityData.beginningBalances} 
-                    isSubsequentYear=${activityData.config.isSubsequentYear}
-                    adjustments=${activityData.adjustments}
-                 /> 
-            </div>
-            <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
-                <div className="bg-green-100 p-2 font-bold text-green-900"><${Table} size=${16} className="inline mr-2"/>Post-Closing Trial Balance</div>
-                <div className="p-2 overflow-y-auto custom-scrollbar flex-1">
-                     <${PostClosingTBForm} 
-                        data=${data} 
-                        onChange=${onChange} 
-                        showFeedback=${showFeedback} 
-                        isReadOnly=${isReadOnly} 
-                        expectedLedger=${expectedLedger} 
-                     />
+        <div className="flex flex-col h-[calc(100vh-140px)] min-h-[600px]">
+            ${(showFeedback || isReadOnly) && validationResult && html`
+                <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-2 mb-4 flex justify-between items-center shadow-sm w-full flex-shrink-0">
+                    <span className="font-bold flex items-center gap-2"><${AlertCircle} size=${18}/> Validation Results:</span>
+                    <span className="font-mono font-bold text-lg">Score: ${result.score || 0} of ${result.maxScore || 0} - (${result.letterGrade || 'IR'})</span>
+                </div>
+            `}
+
+            <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+                <div className="flex-1 lg:w-1/2 h-full min-h-0">
+                     <${LedgerSourceView} 
+                        transactions=${activityData.transactions} 
+                        validAccounts=${activityData.validAccounts} 
+                        beginningBalances=${activityData.beginningBalances} 
+                        isSubsequentYear=${activityData.config.isSubsequentYear} 
+                        adjustments=${activityData.adjustments}
+                        closingEntries=${data.closingJournal /* Passed from parent or undefined */} 
+                     /> 
+                </div>
+                <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
+                    <div className="bg-green-100 p-2 font-bold text-green-900 flex justify-between items-center">
+                        <span><${Table} size=${16} className="inline mr-2"/>Post-Closing Trial Balance</span>
+                    </div>
+                    <div className="p-0 overflow-y-auto custom-scrollbar flex-1 bg-white">
+                         <${TrialBalanceForm} 
+                            data=${data} 
+                            onChange=${handleChange} 
+                            showFeedback=${showFeedback} 
+                            isReadOnly=${isReadOnly} 
+                            validationResult=${validationResult}
+                        />
+                    </div>
                 </div>
             </div>
         </div>
