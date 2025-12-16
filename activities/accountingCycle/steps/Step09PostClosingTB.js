@@ -19,51 +19,47 @@ const getLastDayOfMonth = (dateStr) => {
 
 // --- VALIDATION LOGIC ---
 export const validateStep09 = (data, activityData) => {
-    // 1. Calculate Expected Post-Closing Balances
     const { validAccounts, ledger, adjustments, transactions } = activityData;
     
     let totalRev = 0, totalExp = 0, totalDraw = 0;
     let capitalAccName = '';
     const adjustedBalances = {};
 
-    // A. Calculate Adjusted Balances & Identify Nominal Totals
     validAccounts.forEach(acc => {
         const rawDr = ledger[acc]?.debit || 0;
         const rawCr = ledger[acc]?.credit || 0;
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
-        // Net Balance (+Dr, -Cr)
         const net = (rawDr + adjDr) - (rawCr + adjCr);
         adjustedBalances[acc] = net;
 
         const type = getAccountType(acc);
-        if (type === 'Revenue') totalRev += Math.abs(net); // Normal Cr
-        else if (type === 'Expense') totalExp += Math.abs(net); // Normal Dr
-        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net); // Normal Dr
+        if (type === 'Revenue') totalRev += Math.abs(net);
+        else if (type === 'Expense') totalExp += Math.abs(net);
+        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net);
         else if (acc.includes('Capital') || acc.includes('Retained Earnings')) capitalAccName = acc;
     });
 
     const netIncome = totalRev - totalExp;
 
-    // B. Build Expected Post-Closing Ledger
     const expBalances = {}; 
     let expTotalDr = 0;
     let expTotalCr = 0;
-    let expectedMaxScore = 3; // Start with Header points
+    let expectedMaxScore = 3;
 
     validAccounts.forEach(acc => {
         const type = getAccountType(acc);
         let finalBal = 0;
 
         if (['Revenue', 'Expense'].includes(type) || acc.includes('Drawing') || acc === 'Income Summary') {
-            finalBal = 0; // Closed
+            finalBal = 0; 
         } else if (acc === capitalAccName) {
             const oldCap = Math.abs(adjustedBalances[acc]); 
             const newCap = oldCap + netIncome - totalDraw;
-            finalBal = -newCap; // Represent as Credit (negative)
+            finalBal = -newCap; 
         } else {
-            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged
+            finalBal = adjustedBalances[acc]; 
         }
 
         const absNet = Math.abs(finalBal);
@@ -72,37 +68,32 @@ export const validateStep09 = (data, activityData) => {
             expBalances[acc] = { amount: absNet, side: finalBal >= 0 ? 'dr' : 'cr' };
             if (finalBal >= 0) expTotalDr += absNet;
             else expTotalCr += absNet;
-            expectedMaxScore += 2; // 1 for Acc Name, 1 for Amount
+            expectedMaxScore += 2; 
         }
     });
 
-    expectedMaxScore += 2; // Totals
+    expectedMaxScore += 2; 
 
-    // --- SCORING ---
     let score = 0;
     const feedback = { header: {}, rows: [], totals: {} };
     const header = data.header || {};
 
-    // A. Company Name
     const companyName = (header.company || '').trim();
     const isCompanyValid = companyName.length > 3; 
     if (isCompanyValid) score += 1;
     feedback.header.company = isCompanyValid;
 
-    // B. Document Name
     const docName = (header.doc || '').trim().toLowerCase();
     const isDocValid = docName.includes('post-closing trial balance') || docName === 'post closing trial balance';
     if (isDocValid) score += 1;
     feedback.header.doc = isDocValid;
 
-    // C. Date
     const targetDate = getLastDayOfMonth(transactions ? transactions[0]?.date : '');
     const inputDate = (header.date || '').trim();
     const isDateValid = targetDate && inputDate.toLowerCase() === targetDate.toLowerCase();
     if (isDateValid) score += 1;
     feedback.header.date = isDateValid;
 
-    // 2. BODY VALIDATION
     const rows = data.rows || [];
     const totals = data.totals || { dr: '', cr: '' };
     const processedAccounts = new Set();
@@ -135,7 +126,6 @@ export const validateStep09 = (data, activityData) => {
         feedback.rows[idx] = rowFeedback;
     });
 
-    // 3. TOTALS VALIDATION
     const userTotalDrInput = Number(totals.dr) || 0;
     const userTotalCrInput = Number(totals.cr) || 0;
 
@@ -169,7 +159,86 @@ const StatusIcon = ({ correct, show }) => {
 // --- UPDATED LEDGER VIEW FOR STEP 9 ---
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, adjustments, closingEntries }) => {
     const [expanded, setExpanded] = useState(true);
-    const sortedAccounts = sortAccounts(validAccounts || []);
+    // Ensure all accounts, including those used only in adjustments (e.g. Supplies Expense), are included.
+    // We merge accounts from transactions and adjustments if needed, but validAccounts usually holds all.
+    // However, we explicitly add 'Income Summary' if not present for the view.
+    const allAccounts = useMemo(() => {
+        const set = new Set(validAccounts);
+        set.add('Income Summary'); 
+        return sortAccounts(Array.from(set));
+    }, [validAccounts]);
+
+    // Construct "Correct" Closing Entries if user input is missing
+    const computedClosingEntries = useMemo(() => {
+        if (closingEntries && closingEntries.length > 0 && closingEntries[0]?.rows) return closingEntries;
+        
+        // --- AUTO-GENERATE CLOSING ENTRIES (FALLBACK) ---
+        // This ensures the Ledger View is always complete even if Step 8 was skipped or empty.
+        
+        let totalRev = 0, totalExp = 0, totalDraw = 0;
+        let capitalAccName = '';
+        const tempLedger = {};
+
+        // Calculate balances including Adj
+        allAccounts.forEach(acc => {
+            let bal = 0;
+            // Beg Bal
+            if (isSubsequentYear && beginningBalances?.balances[acc]) {
+                bal += (beginningBalances.balances[acc].dr - beginningBalances.balances[acc].cr);
+            }
+            // Trans
+            transactions.forEach(t => {
+                t.debits.forEach(d => { if(d.account===acc) bal += d.amount; });
+                t.credits.forEach(c => { if(c.account===acc) bal -= c.amount; });
+            });
+            // Adj
+            adjustments.forEach(a => {
+                if(a.drAcc===acc) bal += a.amount;
+                if(a.crAcc===acc) bal -= a.amount;
+            });
+            tempLedger[acc] = bal;
+
+            const type = getAccountType(acc);
+            if(type==='Revenue') totalRev += Math.abs(bal);
+            else if(type==='Expense') totalExp += Math.abs(bal); // Expenses are usually positive Dr here
+            else if(acc.includes('Drawing') || acc.includes('Dividends')) { totalDraw += Math.abs(bal); }
+            else if(acc.includes('Capital') || acc.includes('Retained Earnings')) { capitalAccName = acc; }
+        });
+
+        const ni = totalRev - totalExp;
+        const entries = [];
+        const date = 'Dec 31';
+
+        // 1. Close Rev
+        allAccounts.forEach(acc => {
+            if (getAccountType(acc) === 'Revenue' && Math.abs(tempLedger[acc]) > 0) {
+                entries.push({ rows: [{acc: acc, dr: Math.abs(tempLedger[acc])}, {acc: 'Income Summary', cr: Math.abs(tempLedger[acc])}] });
+            }
+        });
+        
+        // 2. Close Exp
+        allAccounts.forEach(acc => {
+            if (getAccountType(acc) === 'Expense' && tempLedger[acc] > 0) {
+                entries.push({ rows: [{acc: 'Income Summary', dr: tempLedger[acc]}, {acc: acc, cr: tempLedger[acc]}] });
+            }
+        });
+
+        // 3. Close NI
+        if (ni !== 0) {
+             if (ni > 0) entries.push({ rows: [{acc: 'Income Summary', dr: ni}, {acc: capitalAccName, cr: ni}] });
+             else entries.push({ rows: [{acc: capitalAccName, dr: Math.abs(ni)}, {acc: 'Income Summary', cr: Math.abs(ni)}] });
+        }
+
+        // 4. Close Draw
+        allAccounts.forEach(acc => {
+            if ((acc.includes('Drawing') || acc.includes('Dividends')) && tempLedger[acc] > 0) {
+                 entries.push({ rows: [{acc: capitalAccName, dr: tempLedger[acc]}, {acc: acc, cr: tempLedger[acc]}] });
+            }
+        });
+
+        return entries;
+    }, [closingEntries, allAccounts, transactions, adjustments, beginningBalances, isSubsequentYear]);
+
 
     // Helper to format date
     const formatDate = (dateStr, isFirst) => {
@@ -178,10 +247,8 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
         if (isNaN(d.getTime())) return dateStr; 
         
         if (isFirst) {
-            // Mmm d (e.g. Jan 1)
             return d.toLocaleString('default', { month: 'short', day: 'numeric' });
         } else {
-            // d (e.g. 15)
             return d.getDate().toString();
         }
     };
@@ -193,7 +260,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
             </div>
             ${expanded && html`
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-6 bg-gray-50">
-                    ${sortedAccounts.map(acc => {
+                    ${allAccounts.map(acc => {
                         const rowsL = [];
                         const rowsR = [];
                         
@@ -202,14 +269,12 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             ? new Date(transactions[0].date).getFullYear() 
                             : new Date().getFullYear();
 
-                        // Add Year Row (First Row) - Explicitly formatted for display
                         rowsL.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
                         rowsR.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
 
                         // 1. Beginning Balances
                         if (isSubsequentYear && beginningBalances && beginningBalances.balances[acc]) {
                             const b = beginningBalances.balances[acc];
-                            // BB is always "Jan 1" of context year
                             const bbDate = `${contextYear}-01-01`;
                             if (b.dr > 0) rowsL.push({ rawDate: bbDate, part: 'BB', pr: '✓', amount: b.dr });
                             if (b.cr > 0) rowsR.push({ rawDate: bbDate, part: 'BB', pr: '✓', amount: b.cr });
@@ -226,19 +291,18 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         // 3. Adjusting Entries (Step 7)
                         if (adjustments) {
                             adjustments.forEach(adj => {
-                                // Adjustments are Dec 31
                                 const adjDate = `${contextYear}-12-31`;
                                 if (adj.drAcc === acc) rowsL.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
                                 if (adj.crAcc === acc) rowsR.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
                             });
                         }
 
-                        // 4. Closing Entries (Step 8)
-                        // Use provided closing entries OR construct them if missing (fallback logic could be added here)
-                        if (closingEntries) {
-                            closingEntries.forEach(block => {
+                        // 4. Closing Entries (Step 8 / Computed)
+                        if (computedClosingEntries) {
+                            computedClosingEntries.forEach(block => {
                                 if (block.rows) {
                                     block.rows.forEach(row => {
+                                        // Loose match for account name
                                         if (row.acc && row.acc.trim() === acc) {
                                             const dr = Number(row.dr) || 0;
                                             const cr = Number(row.cr) || 0;
@@ -250,6 +314,11 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                 }
                             });
                         }
+
+                        // Filter out accounts with absolutely NO activity in rows (except Year row)
+                        // Actually, we want to show everything that was valid, even if closed to zero.
+                        // But if an account has NO rows (meaning it was never touched in BB, Trans, Adj, or Close), we skip it.
+                        if (rowsL.length <= 1 && rowsR.length <= 1) return null;
 
                         const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
                         const totalCr = rowsR.reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -272,18 +341,11 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsL[i] || {};
-                                            // Date Formatting Logic
                                             let dateText = '';
                                             if (r.isYear) {
-                                                dateText = r.displayDate; // First row: YYYY
+                                                dateText = r.displayDate;
                                             } else if (r.rawDate) {
-                                                // Check if it's the very first data entry (index 1)
-                                                // OR if month changed from previous row? (Simple rule: Row 1 is Mmm d, others d)
-                                                // Let's stick to the requested rule: Row 2 (Index 1) is Mmm d. Row 3+ is d.
-                                                // BUT we also need to handle "Month change" logic usually. 
-                                                // Given the request: "The second row... must have Mmm d... In the third row and up the date format shall be d or dd."
                                                 const isFirstDataRow = i === 1;
-                                                // Check if month changed from previous data row
                                                 const prevRow = rowsL[i-1];
                                                 let isMonthChange = false;
                                                 if (i > 1 && prevRow && prevRow.rawDate && r.rawDate) {
@@ -291,7 +353,6 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                                     const d2 = new Date(r.rawDate);
                                                     if (d1.getMonth() !== d2.getMonth()) isMonthChange = true;
                                                 }
-
                                                 dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
                                             }
 
@@ -517,7 +578,7 @@ export default function Step09PostClosingTB({ activityData, data, onChange, show
                         beginningBalances=${activityData.beginningBalances} 
                         isSubsequentYear=${activityData.config.isSubsequentYear} 
                         adjustments=${activityData.adjustments}
-                        closingEntries=${data.closingJournal /* Passed from parent or undefined */} 
+                        closingEntries=${data.closingJournal} 
                      /> 
                 </div>
                 <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
