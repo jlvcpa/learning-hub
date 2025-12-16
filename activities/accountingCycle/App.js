@@ -2,8 +2,9 @@
 // --- App.js ------
 // -----------------
 import React, { useState, useCallback, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
+import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader } from 'https://esm.sh/lucide-react@0.263.1';
+import { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, FileCode } from 'https://esm.sh/lucide-react@0.263.1';
 import { APP_VERSION, STEPS, generateTransactions, generateBeginningBalances, sortAccounts, generateAdjustments, getAccountType } from './utils.js';
 import { TaskSection } from './steps.js';
 
@@ -23,6 +24,9 @@ import GenericStep from './steps/GenericStep.js';
 const html = htm.bind(React.createElement);
 
 // --- COMPONENT: Full Report View (Hidden, used for Printing) ---
+// This needs to be exported or defined in a way that the generated file can re-use it, 
+// OR we inject the code string for this component into the generated file.
+// For simplicity in this generator approach, we will inject the code string.
 const ReportView = ({ activityData, answers }) => {
     return html`
         <div id="full-report-container" className="hidden">
@@ -99,7 +103,7 @@ const ReportView = ({ activityData, answers }) => {
 };
 
 
-const TeacherDashboard = ({ onGenerate, onResume }) => {
+const TeacherDashboard = ({ onGenerate, onResume, onDownloadStudentFile }) => {
     // PERSISTENCE
     const [businessType, setBusinessType] = useState(() => localStorage.getItem('ac_businessType') || 'Service');
     const [ownership, setOwnership] = useState(() => localStorage.getItem('ac_ownership') || 'Sole Proprietorship');
@@ -109,7 +113,6 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
     const [fsFormat, setFsFormat] = useState(() => localStorage.getItem('ac_fsFormat') || 'Single');
     const [includeCashFlows, setIncludeCashFlows] = useState(() => localStorage.getItem('ac_includeCashFlows') === 'true');
     const [enableAutoSave, setEnableAutoSave] = useState(() => localStorage.getItem('ac_enableAutoSave') === 'true');
-    const [isGenerating, setIsGenerating] = useState(false);
 
     // Standard Options
     const [includeTradeDiscounts, setIncludeTradeDiscounts] = useState(false);
@@ -154,24 +157,14 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
         }
     };
 
-    const handleDownloadStandalone = async () => {
-        if (window.location.protocol === 'file:') {
-            alert("Security Restriction: Browsers block reading files directly from the hard drive (file:// protocol).\n\nPlease host this on GitHub Pages or use a local server.");
-            return;
-        }
-
-        setIsGenerating(true);
-        const config = { 
-            businessType, ownership, inventorySystem, 
-            numTransactions: Number(numTransactions) || 10, 
-            selectedSteps, numPartners: Number(numPartners) || 2, 
-            isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, 
-            fsFormat, includeCashFlows, enableAutoSave, 
-            options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } 
-        };
-        await onGenerate(config, true); 
-        setIsGenerating(false);
-    };
+    const getCurrentConfig = () => ({ 
+        businessType, ownership, inventorySystem, 
+        numTransactions: Number(numTransactions) || 10, 
+        selectedSteps, numPartners: Number(numPartners) || 2, 
+        isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, 
+        fsFormat, includeCashFlows, enableAutoSave, 
+        options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } 
+    });
 
     return html`
         <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto">
@@ -328,11 +321,8 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
             </div>
 
             <div className="flex gap-4">
-                <button onClick=${() => onGenerate({ businessType, ownership, inventorySystem, numTransactions: Number(numTransactions) || 10, selectedSteps, numPartners: Number(numPartners) || 2, isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, fsFormat, includeCashFlows, enableAutoSave, options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } })} className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-bold flex items-center justify-center gap-2"><${RefreshCw} size=${20} /> Generate Activity</button>
-                <button onClick=${handleDownloadStandalone} disabled=${isGenerating} className=${`bg-gray-800 text-white py-3 px-6 rounded-md hover:bg-black font-bold flex items-center justify-center gap-2 ${isGenerating ? 'opacity-70 cursor-wait' : ''}`}>
-                    ${isGenerating ? html`<${Loader} size=${20} className="animate-spin"/>` : html`<${Download} size=${20} />`}
-                    Download as HTML File
-                </button>
+                <button onClick=${() => onGenerate(getCurrentConfig())} className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-bold flex items-center justify-center gap-2"><${RefreshCw} size=${20} /> Generate Activity</button>
+                <button onClick=${() => onDownloadStudentFile(getCurrentConfig())} className="bg-indigo-700 text-white py-3 px-6 rounded-md hover:bg-indigo-900 font-bold flex items-center justify-center gap-2"><${FileCode} size=${20} /> Download Student App.js</button>
             </div>
             <div className="mt-4 pt-4 border-t text-xs text-gray-400 text-center">${APP_VERSION}</div>
         </div>
@@ -340,13 +330,10 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
 };
 
 const App = () => {
-    // STUDENT MODE CHECK
-    const preloadedData = window.STUDENT_CONFIG || null;
-
-    const [mode, setMode] = useState(preloadedData ? 'activity' : 'config');
-    const [activityData, setActivityData] = useState(preloadedData);
+    const [mode, setMode] = useState('config');
+    const [activityData, setActivityData] = useState(null);
     const [currentStepIndex, setCurrentStepIndex] = useState(0); 
-    const [stepStatus, setStepStatus] = useState(preloadedData ? preloadedData.initialStatus : {});
+    const [stepStatus, setStepStatus] = useState({});
     const [answers, setAnswers] = useState({});
     
     // Auto-Save Effect
@@ -383,7 +370,8 @@ const App = () => {
         setTimeout(() => document.getElementById(`task-${savedData.activityData.steps[savedData.currentStepIndex].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     };
 
-    const generateData = (config) => {
+    // Shared Data Generation Logic
+    const generateActivityData = (config) => {
         const transactions = generateTransactions(config.numTransactions, config.businessType, config.ownership, config.inventorySystem, config.options, config.isSubsequentYear, config.deferredExpenseMethod, config.deferredIncomeMethod);
         const usedAccounts = new Set();
         transactions.forEach(t => { t.debits.forEach(d => usedAccounts.add(d.account)); t.credits.forEach(c => usedAccounts.add(c.account)); });
@@ -404,141 +392,238 @@ const App = () => {
         const selectedSteps = STEPS.filter(s => config.selectedSteps.includes(s.id));
         selectedSteps.forEach((s) => { initialStatus[s.id] = { completed: false, attempts: 3, correct: false }; });
         
-        return { config, transactions, ledger: ledgerAgg, validAccounts: finalValidAccounts, beginningBalances, adjustments, steps: selectedSteps, initialStatus };
+        return { 
+            activityData: { config, transactions, ledger: ledgerAgg, validAccounts: finalValidAccounts, beginningBalances, adjustments, steps: selectedSteps },
+            initialStatus 
+        };
     };
 
-    // --- CLIENT-SIDE BUNDLER LOGIC ---
-    const handleGenerate = async (config, isDownload = false) => {
-        const data = generateData(config);
-        
-        if (isDownload) {
-            try {
-                // 1. Resolve Path Base
-                const baseUrl = new URL('.', import.meta.url).href;
+    const handleGenerate = (config) => {
+        if(config.enableAutoSave) localStorage.removeItem('ac_student_progress');
+        const { activityData, initialStatus } = generateActivityData(config);
 
-                // 2. Fetch files
-                const files = [
-                    'utils.js', 'steps.js', 'App.js',
-                    'steps/Step01Analysis.js', 'steps/Step02Journalizing.js',
-                    'steps/Step03Posting.js', 'steps/Step04TrialBalance.js',
-                    'steps/Step05Worksheet.js', 'steps/Step06FinancialStatements.js',
-                    'steps/Step07AdjustingEntries.js', 'steps/Step08ClosingEntries.js',
-                    'steps/Step09PostClosingTB.js', 'steps/Step10ReversingEntries.js',
-                    'steps/GenericStep.js'
-                ];
-                
-                const fetchedCodes = await Promise.all(files.map(async f => {
-                    const url = new URL(f, baseUrl).href;
-                    const res = await fetch(url);
-                    if (!res.ok) throw new Error(`Failed to load ${f}`);
-                    return await res.text();
-                }));
-
-                // 3. Process code: Strip ALL imports and exports
-                const mergedCode = fetchedCodes.map(code => {
-                     // Aggressively remove ANY import statement
-                     let c = code.replace(/import\s+.*?;/g, ''); 
-                     
-                     // Clean up exports (turn them into simple variable declarations)
-                     c = c.replace(/export default function/g, 'function');
-                     c = c.replace(/export default const/g, 'const');
-                     c = c.replace(/export const/g, 'const');
-                     c = c.replace(/export function/g, 'function');
-                     c = c.replace(/export default/g, '');
-                     
-                     // Remove 'const html = ...' from sub-files because we declare it globally in the wrapper
-                     c = c.replace(/const html = htm.bind\(React.createElement\);/g, '');
-
-                     // Escape closing script tags
-                     c = c.replace(/<\/script>/g, '<\\/script>');
-                     return c;
-                }).join('\n\n');
-
-                // 4. Construct HTML via ARRAY
-                const htmlParts = [
-                    '<!DOCTYPE html>',
-                    '<html lang="en">',
-                    '<head>',
-                    '    <meta charset="UTF-8">',
-                    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
-                    '    <title>Accounting Activity: ' + config.businessType + '</title>',
-                    '    <script src="https://cdn.tailwindcss.com"></script>',
-                    '    <script>window.STUDENT_CONFIG = ' + JSON.stringify(data) + ';</script>',
-                    '    <style>',
-                    '        @page { size: 8.5in 13in; margin: 0.5in; margin-bottom: 0.8in; }',
-                    '        @media print { ',
-                    '            body { -webkit-print-color-adjust: exact; } ',
-                    '            .page-break { page-break-after: always; }',
-                    '            .break-inside-avoid { break-inside: avoid; }',
-                    '            .hidden { display: block !important; }',
-                    '            button, .no-print { display: none !important; }',
-                    '            .print-footer { position: fixed; bottom: 0; left: 0; right: 0; height: 0.8in; }',
-                    '            .report-body { margin-bottom: 0.8in; }',
-                    '        }',
-                    '        ::-webkit-scrollbar { display: none; }',
-                    '        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }',
-                    '        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }',
-                    '        .custom-scrollbar::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }',
-                    '        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }',
-                    '    </style>',
-                    '</head>',
-                    '<body class="bg-gray-50 text-gray-900">',
-                    '    <div id="root"></div>',
-                    '    <script type="module">',
-                    '        import React, { useState, useCallback, useEffect, useMemo, useRef } from \'https://esm.sh/react@18.2.0\';',
-                    '        import { createRoot } from \'https://esm.sh/react-dom@18.2.0/client\';',
-                    '        import htm from \'https://esm.sh/htm\';',
-                    '        import * as Lucide from \'https://esm.sh/lucide-react@0.263.1\';',
-                    '        ',
-                    '        const { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader, Lock, ChevronDown, ChevronRight, Table, Plus, X } = Lucide;',
-                    '        const html = htm.bind(React.createElement);', // Single Declaration
-                    '',
-                    mergedCode,
-                    '',
-                    '        const root = createRoot(document.getElementById(\'root\'));',
-                    '        root.render(React.createElement(App));',
-                    '    </script>',
-                    '</body>',
-                    '</html>'
-                ];
-
-                // 5. Download Blob
-                const blob = new Blob(htmlParts, { type: 'text/html' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `Activity_${config.businessType}_${new Date().toISOString().slice(0,10)}.html`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-            } catch (err) {
-                console.error(err);
-                alert("Failed to bundle standalone file. \nError: " + err.message);
-            }
-            return;
-        }
-
-        // Clear old save if starting new
-        if(config.enableAutoSave) {
-             localStorage.removeItem('ac_student_progress');
-        }
-
-        setActivityData({ 
-            config: data.config, 
-            transactions: data.transactions, 
-            ledger: data.ledger, 
-            validAccounts: data.validAccounts, 
-            beginningBalances: data.beginningBalances, 
-            adjustments: data.adjustments, 
-            steps: data.steps 
-        });
-        setStepStatus(data.initialStatus);
+        setActivityData(activityData);
+        setStepStatus(initialStatus);
         setAnswers({});
         setCurrentStepIndex(0);
-        setTimeout(() => document.getElementById(`task-${data.steps[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); 
         setMode('activity');
+        setTimeout(() => document.getElementById(`task-${activityData.steps[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); 
+    };
+
+    // --- NEW: Download Student App.js Logic ---
+    const handleDownloadStudentFile = (config) => {
+        const { activityData, initialStatus } = generateActivityData(config);
+
+        // We use backticks to construct the file content string.
+        // We escape internal backticks with \` and variables with \${}
+        const fileContent = `
+import React, { useState, useCallback, useEffect } from 'https://esm.sh/react@18.2.0';
+import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+import htm from 'https://esm.sh/htm';
+import { Book, Check, ArrowLeft, Save, Printer, AlertCircle, Trash2 } from 'https://esm.sh/lucide-react@0.263.1';
+import { APP_VERSION } from './utils.js';
+import { TaskSection } from './steps.js';
+
+// Import all modular steps from the local folder
+import Step01Analysis, { validateStep01 } from './steps/Step01Analysis.js';
+import Step02Journalizing, { validateStep02 } from './steps/Step02Journalizing.js';
+import Step03Posting, { validateStep03 } from './steps/Step03Posting.js';
+import Step04TrialBalance, { validateStep04 } from './steps/Step04TrialBalance.js';
+import Step05Worksheet, { validateStep05 } from './steps/Step05Worksheet.js';
+import Step06FinancialStatements, { validateStep06 } from './steps/Step06FinancialStatements.js';
+import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js';
+import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js';
+import Step09PostClosingTB, { validateStep09 } from './steps/Step09PostClosingTB.js';
+import Step10ReversingEntries, { validateStep10 } from './steps/Step10ReversingEntries.js';
+import GenericStep from './steps/GenericStep.js';
+
+const html = htm.bind(React.createElement);
+
+// --- PRE-CALCULATED ACTIVITY DATA (INJECTED) ---
+const ACTIVITY_DATA = ${JSON.stringify(activityData)};
+const INITIAL_STATUS = ${JSON.stringify(initialStatus)};
+// -----------------------------------------------
+
+// --- REPORT VIEW (Copied logic) ---
+const ReportView = ({ activityData, answers }) => {
+    return html\`
+        <div id="full-report-container" className="hidden">
+            <div id="print-footer-template">
+                <div className="w-full px-8 pb-4 font-serif text-xs">
+                    <div className="flex justify-between items-end border-t border-gray-400 pt-2 mb-1">
+                        <span className="font-bold">FABM 2</span><span className="page-number-slot"></span> 
+                    </div>
+                    <div className="border border-gray-800 p-1 text-center font-bold">[4Cs: Christ-centeredness, Competence, Character, Compassion]</div>
+                </div>
+            </div>
+            <div className="p-8 space-y-8 report-body font-serif text-sm">
+                <div className="text-center border-b-2 border-gray-800 pb-4 mb-8">
+                    <h1 className="text-2xl font-bold text-blue-900 uppercase">Fundamentals of Accountancy, Business and Management 2</h1>
+                    <h2 className="text-xl font-bold text-gray-700 mt-2">Comprehensive Activity Report</h2>
+                    <div className="mt-4 flex justify-center gap-8">
+                        <p><strong>Company:</strong> \${activityData.config.businessType} - \${activityData.config.ownership}</p>
+                    </div>
+                </div>
+                \${activityData.steps.map(step => {
+                    const stepId = step.id;
+                    const stepAnswer = answers[stepId] || {};
+                    const props = { activityData, data: stepAnswer, isReadOnly: true, showFeedback: true, onChange: () => {} };
+                    let content = null;
+                    if (stepId === 1) content = html\`<\${Step01Analysis} transactions=\${activityData.transactions} ...\${props} />\`;
+                    else if (stepId === 2) content = html\`<\${Step02Journalizing} transactions=\${activityData.transactions} validAccounts=\${activityData.validAccounts} ...\${props} />\`;
+                    else if (stepId === 3) { const journalPRs = stepAnswer.journalPRs || {}; content = html\`<\${Step03Posting} validAccounts=\${activityData.validAccounts} ledgerKey=\${activityData.ledger} transactions=\${activityData.transactions} beginningBalances=\${activityData.beginningBalances} ...\${props} journalPRs=\${journalPRs} />\`; }
+                    else if (stepId === 4) content = html\`<\${Step04TrialBalance} transactions=\${activityData.transactions} validAccounts=\${activityData.validAccounts} beginningBalances=\${activityData.beginningBalances} isSubsequentYear=\${activityData.config.isSubsequentYear} expectedLedger=\${activityData.ledger} ...\${props} />\`;
+                    else if (stepId === 5) content = html\`<\${Step05Worksheet} ledgerData=\${activityData.ledger} adjustments=\${activityData.adjustments} ...\${props} />\`;
+                    else if (stepId === 6) content = html\`<\${Step06FinancialStatements} ledgerData=\${activityData.ledger} adjustments=\${activityData.adjustments} ...\${props} />\`;
+                    else if (stepId === 7) content = html\`<\${Step07AdjustingEntries} ...\${props} />\`;
+                    else if (stepId === 8) { let valRes = null; if(typeof validateStep08 === 'function') valRes = validateStep08(stepAnswer, activityData); content = html\`<\${Step08ClosingEntries} ...\${props} validationResult=\${valRes} />\`; }
+                    else if (stepId === 9) { const closingJournal = answers[8]?.journal; const step9Data = { ...stepAnswer, closingJournal }; content = html\`<\${Step09PostClosingTB} ...\${props} data=\${step9Data} />\`; }
+                    else if (stepId === 10) content = html\`<\${Step10ReversingEntries} ...\${props} />\`;
+                    else content = html\`<\${GenericStep} stepId=\${stepId} title=\${step.title} ...\${props} />\`;
+                    return html\`<div className="report-section mb-10 break-inside-avoid"><h3 className="text-lg font-bold text-gray-800 border-b border-gray-300 mb-4 pb-1 uppercase">Task \${stepId}: \${step.title}</h3>\${content}</div>\${(stepId===5||stepId===6||stepId===9)?html\`<div className="page-break"></div>\`:''}\`;
+                })}
+            </div>
+        </div>
+    \`;
+};
+
+const StudentApp = () => {
+    const [activityData] = useState(ACTIVITY_DATA);
+    const [currentStepIndex, setCurrentStepIndex] = useState(0); 
+    const [stepStatus, setStepStatus] = useState(INITIAL_STATUS);
+    const [answers, setAnswers] = useState({});
+
+    // Resume Logic
+    useEffect(() => {
+        if (activityData.config.enableAutoSave) {
+            const saved = localStorage.getItem('ac_student_progress');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    // Simple check if save is for this specific activity type/config could be added here
+                    if(confirm("Found saved progress on this device. Resume?")) {
+                        setStepStatus(data.stepStatus);
+                        setAnswers(data.answers);
+                        setCurrentStepIndex(data.currentStepIndex);
+                    }
+                } catch(e) {}
+            }
+        }
+    }, []);
+
+    // Auto-Save
+    useEffect(() => {
+        if (activityData.config.enableAutoSave) {
+            localStorage.setItem('ac_student_progress', JSON.stringify({ activityData, currentStepIndex, stepStatus, answers, timestamp: Date.now() }));
+        }
+    }, [answers, stepStatus, currentStepIndex]);
+
+    const clearSave = () => {
+        if(confirm("Are you sure? This deletes your local progress.")) {
+             localStorage.removeItem('ac_student_progress');
+             window.location.reload();
+        }
+    };
+
+    const updateAnswer = useCallback((stepId, data) => setAnswers(p => ({ ...p, [stepId]: data })), []);
+    const updateNestedAnswer = useCallback((stepId, key, subKey, value) => setAnswers(prev => { const stepData = prev[stepId] || {}; const keyData = stepData[key] || {}; return { ...prev, [stepId]: { ...stepData, [key]: { ...keyData, [subKey]: value } } }; }), []);
+    const updateTrialBalanceAnswer = useCallback((stepId, acc, side, val) => { setAnswers(prev => { const stepData = prev[stepId] || {}; const accData = stepData[acc] || {}; return { ...prev, [stepId]: { ...stepData, [acc]: { ...accData, [side]: val } } }; }); }, []);
+
+    const handlePrint = () => {
+        const content = document.getElementById('full-report-container');
+        if (!content) return;
+        const printWindow = window.open('', '', 'height=800,width=1000');
+        printWindow.document.write('<html><head><title>Activity Report</title><script src="https://cdn.tailwindcss.com"></' + 'script>');
+        printWindow.document.write(\`<style>@page{size:8.5in 13in;margin:0.5in;margin-bottom:0.8in}@media print{body{-webkit-print-color-adjust:exact}.page-break{page-break-after:always}.break-inside-avoid{break-inside:avoid}.hidden{display:block!important}button,.no-print{display:none!important}.print-footer{position:fixed;bottom:0;left:0;right:0;height:0.8in}.report-body{margin-bottom:0.8in}}::-webkit-scrollbar{display:none}</style>\`);
+        printWindow.document.write('</head><body class="bg-white">');
+        printWindow.document.write('<div class="report-body">' + content.innerHTML + '</div>');
+        const footerHTML = content.querySelector('#print-footer-template').innerHTML;
+        printWindow.document.write('<div class="print-footer">' + footerHTML + '</div>');
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 1000);
+    };
+
+    const handleValidateStepById = (stepId) => () => {
+        const status = stepStatus[stepId];
+        if (status.attempts <= 0 && status.completed) return;
+        const currentAns = answers[stepId] || {};
+        let isCorrect = false;
+
+        if (stepId === 1) isCorrect = validateStep01(activityData.transactions, currentAns).isCorrect;
+        else if (stepId === 2) isCorrect = validateStep02(activityData.transactions, currentAns).isCorrect;
+        else if (stepId === 3) isCorrect = validateStep03(activityData, currentAns).isCorrect;
+        else if (stepId === 4) isCorrect = validateStep04(activityData.transactions, currentAns, activityData.ledger).isCorrect;
+        else if (stepId === 5) isCorrect = validateStep05(activityData.ledger, activityData.adjustments, currentAns).isCorrect;
+        else if (stepId === 6) isCorrect = validateStep06(activityData.ledger, activityData.adjustments, activityData, currentAns).isCorrect;
+        else if (stepId === 7) { 
+            const r = validateStep07(activityData.adjustments, currentAns.journal, currentAns.ledger, activityData.transactions);
+            isCorrect = r.score === r.maxScore && r.maxScore > 0;
+        } else if (stepId === 8) {
+            const r = validateStep08(currentAns, activityData);
+            isCorrect = r.score === r.maxScore && r.maxScore > 0;
+        } else if (stepId === 9) isCorrect = validateStep09(currentAns, activityData).isCorrect;
+        else if (stepId === 10) isCorrect = validateStep10(currentAns, activityData).isCorrect;
+        else isCorrect = true;
+
+        setStepStatus(prev => {
+            const newStatus = { ...prev };
+            const curr = prev[stepId];
+            let nextCompleted = false;
+            if (isCorrect) { newStatus[stepId] = { ...curr, completed: true, correct: true }; nextCompleted = true; }
+            else { 
+                const rem = curr.attempts - 1;
+                if (rem <= 0) { newStatus[stepId] = { ...curr, completed: true, correct: false, attempts: 0 }; nextCompleted = true; }
+                else newStatus[stepId] = { ...curr, attempts: rem, correct: false };
+            }
+            if (nextCompleted) {
+                const nextIdx = activityData.steps.findIndex(s => s.id === stepId) + 1;
+                if (nextIdx < activityData.steps.length) setCurrentStepIndex(nextIdx);
+                else setCurrentStepIndex(activityData.steps.length);
+            }
+            return newStatus;
+        });
+    };
+
+    const isAllComplete = activityData.steps.every(s => stepStatus[s.id]?.completed);
+
+    return html\`
+        <div className="min-h-screen flex flex-col bg-gray-50">
+            <header className="bg-white border-b shadow-md p-4 flex justify-between items-center sticky top-0 z-50 no-print">
+                <div><h1 className="font-bold text-xl text-blue-900">\${activityData.config.businessType}</h1><p className="text-xs text-gray-500">\${activityData.config.ownership}</p></div>
+                <div className="text-right flex items-center gap-4">
+                    \${isAllComplete && html\`<button onClick=\${handlePrint} className="flex items-center gap-2 bg-blue-700 text-white px-4 py-2 rounded shadow hover:bg-blue-800 animate-pulse"><\${Printer} size=\${18}/> Print Report</button>\`}
+                    <div className="text-right">
+                         <div className="text-xs font-bold text-gray-500 uppercase">Status</div>
+                         <div className="font-semibold text-blue-700">\${activityData.steps[currentStepIndex] ? 'Task #' + activityData.steps[currentStepIndex].id : 'Complete'}</div>
+                    </div>
+                    \${activityData.config.enableAutoSave && html\`<button onClick=\${clearSave} className="ml-2 text-red-400 hover:text-red-600" title="Reset Data"><\${Trash2} size=\${16}/></button>\`}
+                </div>
+            </header>
+            <div className="bg-white border-b overflow-x-auto shadow-sm sticky top-[73px] z-40 no-print"><div className="flex min-w-max px-4">\${activityData.steps.map((s, idx) => html\`<div key=\${s.id} className={\`p-3 flex items-center gap-2 text-sm border-b-2 transition-colors \${idx === currentStepIndex ? 'border-blue-600 text-blue-700 font-bold' : 'border-transparent text-gray-500'} \${stepStatus[s.id].completed ? 'text-green-600' : ''} cursor-pointer hover:bg-gray-50\`} onClick=\${() => setCurrentStepIndex(idx)}><div className={\`w-6 h-6 rounded-full flex items-center justify-center text-xs border \${stepStatus[s.id].completed ? 'bg-green-100 border-green-300 text-green-700' : idx === currentStepIndex ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200'}\`}>\${stepStatus[s.id].completed ? html\`<\${Check} size=\${14}/>\` : s.id}</div><span>\${s.title}</span></div>\`)}</div></div>
+            <main className="flex-1 p-6"><div className="max-w-7xl mx-auto">\${activityData.steps.map((step, idx) => html\`<\${TaskSection} key=\${step.id} step=\${step} activityData=\${activityData} answers=\${answers} stepStatus=\${stepStatus} onValidate=\${handleValidateStepById} updateAnswerFns=\${{ updateNestedAnswer, updateTrialBalanceAnswer, updateAnswer }} isCurrentActiveTask=\${idx === currentStepIndex} isPrevStepCompleted=\${idx === 0 || stepStatus[activityData.steps[idx - 1].id]?.completed} />\`)}</div></main>
+            <footer className="bg-gray-100 border-t p-2 text-center text-sm text-gray-500 no-print">\${APP_VERSION}</footer>
+            <\${ReportView} activityData=\${activityData} answers=\${answers} />
+        </div>
+    \`;
+};
+
+// Default Export to be called by the LMS
+export default function mount(containerId) {
+    const root = createRoot(document.getElementById(containerId));
+    root.render(React.createElement(StudentApp));
+}
+        `;
+
+        const blob = new Blob([fileContent], { type: 'text/javascript' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "StudentApp.js"; 
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
     const handlePrint = () => {
@@ -547,7 +632,6 @@ const App = () => {
         const printWindow = window.open('', '', 'height=800,width=1000');
         
         printWindow.document.write('<html><head><title>Activity Report</title>');
-        // Escaped script tag to prevent closing the string early
         printWindow.document.write('<script src="https://cdn.tailwindcss.com"></' + 'script>');
         printWindow.document.write(`
             <style>
@@ -578,13 +662,10 @@ const App = () => {
             </style>
         `);
         printWindow.document.write('</head><body class="bg-white">');
-        
-        // Wrap content
         printWindow.document.write('<div class="report-body">');
         printWindow.document.write(content.innerHTML);
         printWindow.document.write('</div>');
 
-        // Extract Footer Template and inject as Fixed Footer
         const footerHTML = content.querySelector('#print-footer-template').innerHTML;
         printWindow.document.write(`<div class="print-footer">${footerHTML}</div>`);
 
@@ -671,7 +752,7 @@ const App = () => {
     
     const isAllComplete = activityData?.steps.every(s => stepStatus[s.id]?.completed);
 
-    if (mode === 'config') return html`<div className="min-h-screen bg-gray-50 p-8"><div className="max-w-4xl mx-auto mb-8 text-center"><h1 className="text-4xl font-extrabold text-blue-900 flex justify-center items-center gap-3"><${Book} size=${40} /> Accounting Cycle Simulator</h1><p className="text-gray-600 mt-2">Generate unique accounting scenarios and practice every step of the cycle.</p></div><${TeacherDashboard} onGenerate=${handleGenerate} onResume=${handleResume} /></div>`;
+    if (mode === 'config') return html`<div className="min-h-screen bg-gray-50 p-8"><div className="max-w-4xl mx-auto mb-8 text-center"><h1 className="text-4xl font-extrabold text-blue-900 flex justify-center items-center gap-3"><${Book} size=${40} /> Accounting Cycle Simulator</h1><p className="text-gray-600 mt-2">Generate unique accounting scenarios and practice every step of the cycle.</p></div><${TeacherDashboard} onGenerate=${handleGenerate} onResume=${handleResume} onDownloadStudentFile=${handleDownloadStudentFile} /></div>`;
 
     return html`
         <div className="min-h-screen flex flex-col bg-gray-50">
