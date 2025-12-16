@@ -1,9 +1,9 @@
 // -----------------
 // --- App.js ------
 // -----------------
-import React, { useState, useCallback, useEffect } from 'https://esm.sh/react@18.2.0';
+import React, { useState, useCallback, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, RefreshCw, ArrowLeft } from 'https://esm.sh/lucide-react@0.263.1';
+import { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle } from 'https://esm.sh/lucide-react@0.263.1';
 import { APP_VERSION, STEPS, generateTransactions, generateBeginningBalances, sortAccounts, generateAdjustments, getAccountType } from './utils.js';
 import { TaskSection } from './steps.js';
 
@@ -22,29 +22,93 @@ import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
 
-// ... (TeacherDashboard remains unchanged) ...
-const TeacherDashboard = ({ onGenerate }) => {
-    // PERSISTENCE: Initialize state from localStorage if available, otherwise default
+// --- COMPONENT: Full Report View (Hidden, used for Printing) ---
+const ReportView = ({ activityData, answers }) => {
+    return html`
+        <div id="full-report-container" className="hidden">
+            <div className="p-8 space-y-8 report-body">
+                <div className="text-center border-b-2 border-gray-800 pb-4 mb-8">
+                    <h1 className="text-2xl font-bold text-blue-900 uppercase">Fundamentals of Accountancy, Business and Management 2</h1>
+                    <h2 className="text-xl font-bold text-gray-700 mt-2">Comprehensive Activity Report</h2>
+                    <div className="mt-4 text-sm text-gray-600 flex justify-center gap-8">
+                        <p><strong>Company:</strong> ${activityData.config.businessType} - ${activityData.config.ownership}</p>
+                        <p><strong>Period:</strong> ${activityData.config.isSubsequentYear ? 'Subsequent Year' : 'First Year'}</p>
+                    </div>
+                </div>
+
+                ${activityData.steps.map(step => {
+                    const stepId = step.id;
+                    const stepAnswer = answers[stepId] || {};
+                    const props = {
+                        activityData, 
+                        data: stepAnswer, 
+                        isReadOnly: true, 
+                        showFeedback: true, 
+                        onChange: () => {} 
+                    };
+
+                    let content = null;
+                    // Render specific steps based on ID
+                    if (stepId === 1) content = html`<${Step01Analysis} transactions=${activityData.transactions} ...${props} />`;
+                    else if (stepId === 2) content = html`<${Step02Journalizing} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} ...${props} />`;
+                    else if (stepId === 3) content = html`<${Step03Posting} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} ...${props} />`;
+                    else if (stepId === 4) content = html`<${Step04TrialBalance} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} beginningBalances=${activityData.beginningBalances} isSubsequentYear=${activityData.config.isSubsequentYear} expectedLedger=${activityData.ledger} ...${props} />`;
+                    else if (stepId === 5) content = html`<${Step05Worksheet} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} ...${props} />`;
+                    else if (stepId === 6) content = html`<${Step06FinancialStatements} ledgerData=${activityData.ledger} adjustments=${activityData.adjustments} ...${props} />`;
+                    else if (stepId === 7) content = html`<${Step07AdjustingEntries} ...${props} />`;
+                    else if (stepId === 8) {
+                        let valRes = null;
+                        if(typeof validateStep08 === 'function') valRes = validateStep08(stepAnswer, activityData);
+                        content = html`<${Step08ClosingEntries} ...${props} validationResult=${valRes} />`;
+                    }
+                    else if (stepId === 9) {
+                        const closingJournal = answers[8]?.journal;
+                        const step9Data = { ...stepAnswer, closingJournal };
+                        content = html`<${Step09PostClosingTB} ...${props} data=${step9Data} />`;
+                    }
+                    else if (stepId === 10) content = html`<${Step10ReversingEntries} ...${props} />`;
+                    else content = html`<${GenericStep} stepId=${stepId} title=${step.title} ...${props} />`;
+
+                    return html`
+                        <div key=${stepId} className="report-section mb-10 break-inside-avoid">
+                            <h3 className="text-lg font-bold text-gray-800 border-b border-gray-300 mb-4 pb-1 uppercase">
+                                Task ${stepId}: ${step.title}
+                            </h3>
+                            ${content}
+                        </div>
+                        ${(stepId === 5 || stepId === 6 || stepId === 9) ? html`<div className="page-break"></div>` : ''}
+                    `;
+                })}
+            </div>
+            
+            <div id="print-footer-template" className="hidden">
+                <div className="print-footer-content w-full px-8 pb-4">
+                    <div className="flex justify-between items-end border-t border-gray-400 pt-2 mb-2 text-xs font-serif">
+                        <span className="font-bold">FABM 2</span>
+                        <span></span> 
+                    </div>
+                    <div className="border border-gray-800 p-1 text-center text-xs font-serif">
+                        [4Cs: Christ-centeredness, Competence, Character, Compassion]
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+};
+
+
+const TeacherDashboard = ({ onGenerate, onResume }) => {
+    // PERSISTENCE
     const [businessType, setBusinessType] = useState(() => localStorage.getItem('ac_businessType') || 'Service');
     const [ownership, setOwnership] = useState(() => localStorage.getItem('ac_ownership') || 'Sole Proprietorship');
     const [inventorySystem, setInventorySystem] = useState(() => localStorage.getItem('ac_inventorySystem') || 'Periodic');
-    
-    // PERSISTENCE: Initialize state from localStorage
-    const [numTransactions, setNumTransactions] = useState(() => {
-        const saved = localStorage.getItem('ac_numTransactions');
-        return saved ? Number(saved) : 10;
-    });
-    
-    const [selectedSteps, setSelectedSteps] = useState(() => {
-        const saved = localStorage.getItem('ac_selectedSteps');
-        return saved ? JSON.parse(saved) : STEPS.map(s => s.id);
-    });
-
-    // New Persistence for Financial Statement Options
+    const [numTransactions, setNumTransactions] = useState(() => Number(localStorage.getItem('ac_numTransactions')) || 10);
+    const [selectedSteps, setSelectedSteps] = useState(() => localStorage.getItem('ac_selectedSteps') ? JSON.parse(localStorage.getItem('ac_selectedSteps')) : STEPS.map(s => s.id));
     const [fsFormat, setFsFormat] = useState(() => localStorage.getItem('ac_fsFormat') || 'Single');
     const [includeCashFlows, setIncludeCashFlows] = useState(() => localStorage.getItem('ac_includeCashFlows') === 'true');
+    const [enableAutoSave, setEnableAutoSave] = useState(() => localStorage.getItem('ac_enableAutoSave') === 'true');
 
-    // Standard Options (Not currently persisted, but can be if needed)
+    // Standard Options
     const [includeTradeDiscounts, setIncludeTradeDiscounts] = useState(false);
     const [includeCashDiscounts, setIncludeCashDiscounts] = useState(false);
     const [includeFreight, setIncludeFreight] = useState(false);
@@ -53,7 +117,19 @@ const TeacherDashboard = ({ onGenerate }) => {
     const [deferredExpenseMethod, setDeferredExpenseMethod] = useState('Asset');
     const [deferredIncomeMethod, setDeferredIncomeMethod] = useState('Liability');
     
-    // PERSISTENCE EFFECTS: Save to localStorage on change
+    // Check for saved progress
+    const [savedProgress, setSavedProgress] = useState(null);
+
+    useEffect(() => { 
+        const saved = localStorage.getItem('ac_student_progress');
+        if (saved) {
+            try {
+                setSavedProgress(JSON.parse(saved));
+            } catch (e) { console.error("Error loading progress", e); }
+        }
+    }, []);
+
+    // PERSISTENCE EFFECTS
     useEffect(() => { localStorage.setItem('ac_businessType', businessType); }, [businessType]);
     useEffect(() => { localStorage.setItem('ac_ownership', ownership); }, [ownership]);
     useEffect(() => { localStorage.setItem('ac_inventorySystem', inventorySystem); }, [inventorySystem]);
@@ -61,18 +137,47 @@ const TeacherDashboard = ({ onGenerate }) => {
     useEffect(() => { localStorage.setItem('ac_selectedSteps', JSON.stringify(selectedSteps)); }, [selectedSteps]);
     useEffect(() => { localStorage.setItem('ac_fsFormat', fsFormat); }, [fsFormat]);
     useEffect(() => { localStorage.setItem('ac_includeCashFlows', includeCashFlows); }, [includeCashFlows]);
+    useEffect(() => { localStorage.setItem('ac_enableAutoSave', enableAutoSave); }, [enableAutoSave]);
 
     const toggleStep = (id) => setSelectedSteps(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const handleSelectAll = (e) => e.target.checked ? setSelectedSteps(STEPS.map(s => s.id)) : setSelectedSteps([]);
     const isAllSelected = selectedSteps.length === STEPS.length;
     const isMerchOrMfg = businessType === 'Merchandising' || businessType === 'Manufacturing';
 
+    const clearSave = () => {
+        if(confirm("Are you sure you want to delete the saved progress?")) {
+            localStorage.removeItem('ac_student_progress');
+            setSavedProgress(null);
+        }
+    };
+
     return html`
         <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto">
             <div className="flex justify-between items-center mb-6 border-b pb-2">
                  <h2 className="text-2xl font-bold text-gray-800">Activity Configuration</h2>
+                 ${savedProgress && html`
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Resume Available</span>
+                        <button onClick=${() => onResume(savedProgress)} className="bg-green-600 text-white text-xs px-3 py-1 rounded hover:bg-green-700 flex items-center gap-1"><${FileText} size=${14}/> Resume Activity</button>
+                        <button onClick=${clearSave} className="text-red-500 hover:bg-red-50 p-1 rounded"><${Trash2} size=${14}/></button>
+                    </div>
+                 `}
             </div>
             
+            <div className="mb-6 bg-yellow-50 p-3 rounded border border-yellow-200 flex items-center justify-between">
+                <div>
+                    <h3 className="font-bold text-yellow-900 text-sm">Student Session Settings</h3>
+                    <p className="text-xs text-yellow-700">Enable this to allow students to close the browser and continue later on the same device.</p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-sm font-bold text-gray-700">Enable Auto-Save to Device</span>
+                    <div className="relative inline-block w-10 h-6 align-middle select-none transition duration-200 ease-in">
+                        <input type="checkbox" checked=${enableAutoSave} onChange=${(e)=>setEnableAutoSave(e.target.checked)} className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer ${enableAutoSave ? 'right-0 border-green-400' : 'left-0 border-gray-300'}"/>
+                        <label className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer ${enableAutoSave ? 'bg-green-400' : ''}"></label>
+                    </div>
+                </label>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 items-end">
                 <div className="text-left">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Business Organization</label>
@@ -203,7 +308,7 @@ const TeacherDashboard = ({ onGenerate }) => {
                 </div>
             </div>
 
-            <button onClick=${() => onGenerate({ businessType, ownership, inventorySystem, numTransactions: Number(numTransactions) || 10, selectedSteps, numPartners: Number(numPartners) || 2, isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, fsFormat, includeCashFlows, options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } })} className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-bold flex items-center justify-center gap-2"><${RefreshCw} size=${20} /> Generate Activity</button>
+            <button onClick=${() => onGenerate({ businessType, ownership, inventorySystem, numTransactions: Number(numTransactions) || 10, selectedSteps, numPartners: Number(numPartners) || 2, isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, fsFormat, includeCashFlows, enableAutoSave, options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } })} className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-bold flex items-center justify-center gap-2"><${RefreshCw} size=${20} /> Generate Activity</button>
             <div className="mt-4 pt-4 border-t text-xs text-gray-400 text-center">${APP_VERSION}</div>
         </div>
     `;
@@ -216,6 +321,20 @@ const App = () => {
     const [stepStatus, setStepStatus] = useState({});
     const [answers, setAnswers] = useState({});
     
+    // Auto-Save Effect
+    useEffect(() => {
+        if (activityData?.config?.enableAutoSave && mode === 'activity') {
+            const progress = {
+                activityData,
+                currentStepIndex,
+                stepStatus,
+                answers,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('ac_student_progress', JSON.stringify(progress));
+        }
+    }, [answers, stepStatus, currentStepIndex, activityData, mode]);
+
     const updateAnswer = useCallback((stepId, data) => setAnswers(p => ({ ...p, [stepId]: data })), []);
     const updateNestedAnswer = useCallback((stepId, key, subKey, value) => setAnswers(prev => { const stepData = prev[stepId] || {}; const keyData = stepData[key] || {}; return { ...prev, [stepId]: { ...stepData, [key]: { ...keyData, [subKey]: value } } }; }), []);
     
@@ -226,6 +345,15 @@ const App = () => {
             return { ...prev, [stepId]: { ...stepData, [acc]: { ...accData, [side]: val } } };
         });
     }, []);
+
+    const handleResume = (savedData) => {
+        setActivityData(savedData.activityData);
+        setStepStatus(savedData.stepStatus);
+        setAnswers(savedData.answers);
+        setCurrentStepIndex(savedData.currentStepIndex);
+        setMode('activity');
+        setTimeout(() => document.getElementById(`task-${savedData.activityData.steps[savedData.currentStepIndex].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    };
 
     const handleGenerate = (config) => {
         const transactions = generateTransactions(config.numTransactions, config.businessType, config.ownership, config.inventorySystem, config.options, config.isSubsequentYear, config.deferredExpenseMethod, config.deferredIncomeMethod);
@@ -247,12 +375,77 @@ const App = () => {
         const initialStatus = {};
         const selectedSteps = STEPS.filter(s => config.selectedSteps.includes(s.id));
         selectedSteps.forEach((s) => { initialStatus[s.id] = { completed: false, attempts: 3, correct: false }; });
+        
+        // Clear old save if starting new to prevent conflict
+        if(config.enableAutoSave) {
+             localStorage.removeItem('ac_student_progress');
+        }
+
         setActivityData({ config, transactions, ledger: ledgerAgg, validAccounts: finalValidAccounts, beginningBalances, adjustments, steps: selectedSteps });
         setStepStatus(initialStatus);
         setAnswers({});
         setCurrentStepIndex(0);
         setTimeout(() => document.getElementById(`task-${selectedSteps[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); 
         setMode('activity');
+    };
+
+    const handlePrint = () => {
+        const content = document.getElementById('full-report-container');
+        if (!content) return;
+        const printWindow = window.open('', '', 'height=800,width=1000');
+        
+        printWindow.document.write('<html><head><title>Activity Report</title>');
+        printWindow.document.write('<script src="https://cdn.tailwindcss.com"></script>');
+        printWindow.document.write(`
+            <style>
+                @page {
+                    size: 8.5in 13in; /* Folio Size */
+                    margin: 0.5in;
+                    margin-bottom: 1in; /* Allowance for Footer */
+                }
+                @media print {
+                    body { -webkit-print-color-adjust: exact; }
+                    .page-break { page-break-after: always; }
+                    .break-inside-avoid { break-inside: avoid; }
+                    .hidden { display: block !important; } /* Force show report */
+                    
+                    /* Hide non-print elements inside the report if any accidentally crept in */
+                    button, .no-print { display: none !important; }
+
+                    /* Custom Footer Logic */
+                    .print-footer {
+                        position: fixed;
+                        bottom: 0;
+                        left: 0;
+                        right: 0;
+                        height: 0.8in;
+                    }
+                    /* Add padding to bottom of content so it doesn't overlap fixed footer */
+                    .report-body { margin-bottom: 0.8in; }
+                }
+                /* Hide Scrollbars */
+                ::-webkit-scrollbar { display: none; }
+            </style>
+        `);
+        printWindow.document.write('</head><body class="bg-white">');
+        
+        // Wrap content
+        printWindow.document.write('<div class="report-body">');
+        printWindow.document.write(content.innerHTML);
+        printWindow.document.write('</div>');
+
+        // Extract Footer Template and inject as Fixed Footer
+        const footerHTML = content.querySelector('#print-footer-template').innerHTML;
+        printWindow.document.write(`<div class="print-footer">${footerHTML}</div>`);
+
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        
+        setTimeout(() => { 
+            printWindow.focus(); 
+            printWindow.print(); 
+            printWindow.close(); 
+        }, 1000);
     };
 
     const handleValidateStepById = (stepId) => () => {
@@ -262,64 +455,38 @@ const App = () => {
         let isCorrect = false;
 
         if (stepId === 1) {
-            // Step 1 Validation
             const result = validateStep01(activityData.transactions, currentAns);
             isCorrect = result.isCorrect;
-        
         } else if (stepId === 2) {
-            // Step 2 Validation
             const result = validateStep02(activityData.transactions, currentAns);
             isCorrect = result.isCorrect;
-            
         } else if (stepId === 3) {
-            // Step 3 Validation
             const result = validateStep03(activityData, currentAns);
             isCorrect = result.isCorrect;
-            
         } else if (stepId === 4) {
-            // --- UPDATED STEP 4 VALIDATION ---
             const result = validateStep04(activityData.transactions, currentAns, activityData.ledger);
             isCorrect = result.isCorrect;
-
         } else if (stepId === 5) {
              const result = validateStep05(activityData.ledger, activityData.adjustments, currentAns);
              isCorrect = result.isCorrect;
-            
         } else if (stepId === 6) {
              const result = validateStep06(activityData.ledger, activityData.adjustments, activityData, currentAns);
              isCorrect = result.isCorrect;
-            
         } else if (stepId === 7) {
-             // --- UPDATED STEP 7 VALIDATION ---
-             // Use the new DRY validation method
              const journalData = currentAns.journal || {};
              const ledgerData = currentAns.ledger || {};
              const result = validateStep07(activityData.adjustments, journalData, ledgerData, activityData.transactions);
-             
-             // Strict check: User must get full points (based on requirements)
              isCorrect = result.score === result.maxScore && result.maxScore > 0;
-            
         } else if (stepId === 8) {
-            // --- UPDATED STEP 8 VALIDATION ---
-            // Use the new DRY validation method from the enhanced component
-            const currentAns = answers[8] || {};
+            // Use Step 8 Validation Logic
             const result = validateStep08(currentAns, activityData);
-            
-            // Strict check: User must get full points to mark as complete
             isCorrect = result.score === result.maxScore && result.maxScore > 0;
-
         } else if (stepId === 9) {
-             // --- UPDATED STEP 9 VALIDATION ---
-             const currentAns = answers[9] || {};
              const result = validateStep09(currentAns, activityData);
              isCorrect = result.isCorrect;
-
         } else if (stepId === 10) {
-            // --- UPDATED STEP 10 VALIDATION ---
-            const currentAns = answers[10] || {};
             const result = validateStep10(currentAns, activityData);
             isCorrect = result.isCorrect;
-
         } else {
              isCorrect = true;
         }
@@ -352,22 +519,37 @@ const App = () => {
             return newStatus;
         });
     };
+    
+    // Check if ALL steps are completed to show Print Button
+    const isAllComplete = activityData?.steps.every(s => stepStatus[s.id]?.completed);
 
-    if (mode === 'config') return html`<div className="min-h-screen bg-gray-50 p-8"><div className="max-w-4xl mx-auto mb-8 text-center"><h1 className="text-4xl font-extrabold text-blue-900 flex justify-center items-center gap-3"><${Book} size=${40} /> Accounting Cycle Simulator</h1><p className="text-gray-600 mt-2">Generate unique accounting scenarios and practice every step of the cycle.</p></div><${TeacherDashboard} onGenerate=${handleGenerate} /></div>`;
+    if (mode === 'config') return html`<div className="min-h-screen bg-gray-50 p-8"><div className="max-w-4xl mx-auto mb-8 text-center"><h1 className="text-4xl font-extrabold text-blue-900 flex justify-center items-center gap-3"><${Book} size=${40} /> Accounting Cycle Simulator</h1><p className="text-gray-600 mt-2">Generate unique accounting scenarios and practice every step of the cycle.</p></div><${TeacherDashboard} onGenerate=${handleGenerate} onResume=${handleResume} /></div>`;
 
     return html`
         <div className="min-h-screen flex flex-col bg-gray-50">
             <header id="main-header" className="bg-white border-b shadow-md p-4 flex justify-between items-center sticky top-0 z-50 no-print">
                 <div className="flex items-center gap-4"><button onClick=${() => setMode('config')} className="p-2 hover:bg-gray-100 rounded-full text-gray-600"><${ArrowLeft} size=${20} /></button><div><h1 id="company-name" className="font-bold text-xl text-blue-900">${activityData.config.businessType} - ${activityData.config.ownership}</h1><p className="text-xs text-gray-500">Inventory: ${activityData.config.inventorySystem} • ${activityData.config.isSubsequentYear ? 'Subsequent Year' : 'New Business'}</p></div></div>
-                <div className="text-right"><div className="text-xs font-bold text-gray-500 uppercase">First Uncompleted Task</div><div className="font-semibold text-blue-700">${activityData.steps[currentStepIndex] ? `Task #${activityData.steps[currentStepIndex].id}: ${activityData.steps[currentStepIndex].title}` : 'All Tasks Complete'}</div></div>
+                <div className="text-right flex items-center gap-4">
+                    ${isAllComplete && html`
+                        <button onClick=${handlePrint} className="flex items-center gap-2 bg-blue-700 text-white px-4 py-2 rounded shadow hover:bg-blue-800 transition-colors animate-pulse">
+                            <${Printer} size=${18} /> Print / Save PDF
+                        </button>
+                    `}
+                    <div>
+                        <div className="text-xs font-bold text-gray-500 uppercase">First Uncompleted Task</div>
+                        <div className="font-semibold text-blue-700">${activityData.steps[currentStepIndex] ? `Task #${activityData.steps[currentStepIndex].id}: ${activityData.steps[currentStepIndex].title}` : 'All Tasks Complete'}</div>
+                    </div>
+                </div>
             </header>
             <div className="bg-white border-b overflow-x-auto shadow-sm sticky top-[73px] z-40 no-print"><div className="flex min-w-max px-4">${activityData.steps.map((s, idx) => html`<div key=${s.id} className=${`p-3 flex items-center gap-2 text-sm border-b-2 transition-colors ${idx === currentStepIndex ? 'border-blue-600 text-blue-700 font-bold' : 'border-transparent text-gray-500'} ${stepStatus[s.id].completed ? 'text-green-600' : ''} cursor-pointer hover:bg-gray-50`} onClick=${() => setCurrentStepIndex(idx)}><div className=${`w-6 h-6 rounded-full flex items-center justify-center text-xs border ${stepStatus[s.id].completed ? 'bg-green-100 border-green-300 text-green-700' : idx === currentStepIndex ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200'}`}><${stepStatus[s.id].completed ? Check : 'span'} size=${14}>${stepStatus[s.id].completed ? '' : s.id}</${stepStatus[s.id].completed ? Check : 'span'}></div><span>${s.title}</span></div>`)}</div></div>
             <main className="flex-1 p-6"><div className="max-w-7xl mx-auto">${activityData.steps.map((step, idx) => html`<${TaskSection} key=${step.id} step=${step} activityData=${activityData} answers=${answers} stepStatus=${stepStatus} onValidate=${handleValidateStepById} updateAnswerFns=${{ updateNestedAnswer, updateTrialBalanceAnswer, updateAnswer }} isCurrentActiveTask=${idx === currentStepIndex} isPrevStepCompleted=${idx === 0 || stepStatus[activityData.steps[idx - 1].id]?.completed} />`)}</div></main>
             <footer className="bg-gray-100 border-t p-2 text-center text-sm text-gray-500 no-print flex justify-between items-center px-6">
                 <span className="text-xs text-gray-400">${APP_VERSION}</span>
-                ${activityData.steps.every(s => stepStatus[s.id]?.completed) ? html`<span className="font-bold text-green-700">Accounting Cycle Activity Fully Completed! 🎉</span>` : html`<span>Scroll up to continue the exercise.</span>`}
+                ${isAllComplete ? html`<span className="font-bold text-green-700">Accounting Cycle Activity Fully Completed! 🎉</span>` : html`<span>Scroll up to continue the exercise.</span>`}
                 <span className="w-20"></span>
             </footer>
+            
+            <${ReportView} activityData=${activityData} answers=${answers} />
         </div>
     `;
 };
