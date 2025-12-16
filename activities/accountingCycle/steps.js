@@ -145,6 +145,15 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             }
         }
     }
+
+    else if (stepId === 10 && answers[10] && (status.completed || status.attempts < 3)) {
+        if (typeof validateStep10 === 'function') {
+            const res = validateStep10(answers[10], activityData);
+            if (res.maxScore > 0) {
+                scoreDisplay = html`<span className="ml-3 font-mono text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Score: ${res.score} of ${res.maxScore} - ([${res.letterGrade}])</span>`;
+            }
+        }
+    }
     
     const renderStepContent = () => {
         if (isLocked) return html`<div className="p-8 text-center bg-gray-100 rounded text-gray-500"><${Lock} size=${32} className="mx-auto mb-2" /> Task Locked (Complete previous task to unlock)</div>`;
