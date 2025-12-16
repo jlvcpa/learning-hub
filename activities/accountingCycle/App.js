@@ -51,7 +51,6 @@ const ReportView = ({ activityData, answers }) => {
                 ${activityData.steps.map(step => {
                     const stepId = step.id;
                     const stepAnswer = answers[stepId] || {};
-                    // Force read-only and feedback to show checkmarks/scores
                     const props = {
                         activityData, 
                         data: stepAnswer, 
@@ -64,7 +63,6 @@ const ReportView = ({ activityData, answers }) => {
                     if (stepId === 1) content = html`<${Step01Analysis} transactions=${activityData.transactions} ...${props} />`;
                     else if (stepId === 2) content = html`<${Step02Journalizing} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} ...${props} />`;
                     else if (stepId === 3) {
-                         // FIX: Explicitly pass journalPRs defaulting to {} to prevent crash in ReportView
                          const journalPRs = stepAnswer.journalPRs || {};
                          content = html`<${Step03Posting} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} ...${props} journalPRs=${journalPRs} />`;
                     }
@@ -78,7 +76,6 @@ const ReportView = ({ activityData, answers }) => {
                         content = html`<${Step08ClosingEntries} ...${props} validationResult=${valRes} />`;
                     }
                     else if (stepId === 9) {
-                         // Pass closing entries from Step 8 to Step 9 view
                          const closingJournal = answers[8]?.journal;
                          const step9Data = { ...stepAnswer, closingJournal };
                          content = html`<${Step09PostClosingTB} ...${props} data=${step9Data} />`;
@@ -157,7 +154,13 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
         }
     };
 
-    const handleDownloadStandalone = () => {
+    const handleDownloadStandalone = async () => {
+        // SECURITY CHECK
+        if (window.location.protocol === 'file:') {
+            alert("Security Restriction: Browsers block reading files directly from the hard drive (file:// protocol).\n\nPlease host this on GitHub Pages or use a local server.");
+            return;
+        }
+
         setIsGenerating(true);
         const config = { 
             businessType, ownership, inventorySystem, 
@@ -168,8 +171,8 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
             options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } 
         };
         // Trigger generic generation first to get the data
-        onGenerate(config, true); // true = isDownloadMode
-        setTimeout(() => setIsGenerating(false), 1000);
+        await onGenerate(config, true); 
+        setIsGenerating(false);
     };
 
     return html`
@@ -192,10 +195,7 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer">
                     <span className="text-sm font-bold text-gray-700">Enable Auto-Save to Device</span>
-                    <div className="relative inline-block w-10 h-6 align-middle select-none transition duration-200 ease-in">
-                        <input type="checkbox" checked=${enableAutoSave} onChange=${(e)=>setEnableAutoSave(e.target.checked)} className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer ${enableAutoSave ? 'right-0 border-green-400' : 'left-0 border-gray-300'}"/>
-                        <label className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer ${enableAutoSave ? 'bg-green-400' : ''}"></label>
-                    </div>
+                    <input type="checkbox" checked=${enableAutoSave} onChange=${(e)=>setEnableAutoSave(e.target.checked)} className="rounded text-green-600 focus:ring-green-500 w-5 h-5"/>
                 </label>
             </div>
 
@@ -409,64 +409,115 @@ const App = () => {
         return { config, transactions, ledger: ledgerAgg, validAccounts: finalValidAccounts, beginningBalances, adjustments, steps: selectedSteps, initialStatus };
     };
 
-    const handleGenerate = (config, isDownload = false) => {
+    // --- CLIENT-SIDE BUNDLER LOGIC ---
+    const handleGenerate = async (config, isDownload = false) => {
         const data = generateData(config);
         
         if (isDownload) {
-            // HTML Generation Logic
-            const scriptPayload = `window.STUDENT_CONFIG = ${JSON.stringify(data)};`;
-            
-            // Generate HTML content specifically designed to be standalone
-            // We use 'import.meta.url' logic to find where App.js is, and assume index.html loaded it.
-            // But since we want a truly portable file, we will re-construct a minimal HTML shell that loads App.js from the same relative path.
-            
-            const htmlContent = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Activity: ${config.businessType}</title>
-    <script src="https://cdn.tailwindcss.com"><\/script>
-    <style>
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
-        @media print { .no-print { display: none; } }
-    </style>
-    <script>
-        ${scriptPayload}
-    <\/script>
-</head>
-<body class="bg-gray-50 text-gray-900">
-    <div id="root"></div>
-    <script type="module">
-        import React from 'https://esm.sh/react@18.2.0';
-        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-        // IMPORTANT: In the downloaded file, we assume 'App.js' is in the SAME FOLDER.
-        // If you move the HTML file, you must move the JS files with it.
-        import App from './App.js';
+            try {
+                // 1. Resolve Path Base using import.meta.url
+                const baseUrl = new URL('.', import.meta.url).href;
 
-        const root = createRoot(document.getElementById('root'));
-        root.render(React.createElement(App));
-    <\/script>
-</body>
-</html>`;
+                // 2. Fetch all source files (Relative to App.js location)
+                const files = [
+                    'utils.js', 'steps.js', 'App.js',
+                    'steps/Step01Analysis.js', 'steps/Step02Journalizing.js',
+                    'steps/Step03Posting.js', 'steps/Step04TrialBalance.js',
+                    'steps/Step05Worksheet.js', 'steps/Step06FinancialStatements.js',
+                    'steps/Step07AdjustingEntries.js', 'steps/Step08ClosingEntries.js',
+                    'steps/Step09PostClosingTB.js', 'steps/Step10ReversingEntries.js',
+                    'steps/GenericStep.js'
+                ];
+                
+                const fetchedCodes = await Promise.all(files.map(async f => {
+                    const url = new URL(f, baseUrl).href;
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`Failed to load ${f}`);
+                    return await res.text();
+                }));
 
-            const blob = new Blob([htmlContent], { type: 'text/html' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Activity_${config.businessType}_${new Date().toISOString().slice(0,10)}.html`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+                // 3. Process code: Strip imports/exports to make them work in one script scope
+                const mergedCode = fetchedCodes.map(code => {
+                     // Remove imports relative to local files (./...)
+                     let c = code.replace(/import .* from '\.\/.*';/g, '');
+                     // Clean up exports (turn them into simple variable declarations)
+                     c = c.replace(/export default function/g, 'function');
+                     c = c.replace(/export default const/g, 'const');
+                     c = c.replace(/export const/g, 'const');
+                     c = c.replace(/export function/g, 'function');
+                     c = c.replace(/export default/g, '');
+                     // IMPORTANT: Escape closing script tags in source code to prevent HTML breakage
+                     c = c.replace(/<\/script>/g, '<\\/script>');
+                     return c;
+                }).join('\n\n');
+
+                // 4. Construct HTML via ARRAY (NOT template literal) to avoid nesting issues
+                const htmlParts = [
+                    '<!DOCTYPE html>',
+                    '<html lang="en">',
+                    '<head>',
+                    '    <meta charset="UTF-8">',
+                    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+                    '    <title>Accounting Activity: ' + config.businessType + '</title>',
+                    '    <script src="https://cdn.tailwindcss.com"></script>',
+                    '    <script>window.STUDENT_CONFIG = ' + JSON.stringify(data) + ';</script>',
+                    '    <style>',
+                    '        @page { size: 8.5in 13in; margin: 0.5in; margin-bottom: 0.8in; }',
+                    '        @media print { ',
+                    '            body { -webkit-print-color-adjust: exact; } ',
+                    '            .page-break { page-break-after: always; }',
+                    '            .break-inside-avoid { break-inside: avoid; }',
+                    '            .hidden { display: block !important; }',
+                    '            button, .no-print { display: none !important; }',
+                    '            .print-footer { position: fixed; bottom: 0; left: 0; right: 0; height: 0.8in; }',
+                    '            .report-body { margin-bottom: 0.8in; }',
+                    '        }',
+                    '        ::-webkit-scrollbar { display: none; }',
+                    '        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }',
+                    '        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }',
+                    '        .custom-scrollbar::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }',
+                    '        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }',
+                    '    </style>',
+                    '</head>',
+                    '<body class="bg-gray-50 text-gray-900">',
+                    '    <div id="root"></div>',
+                    '    <script type="module">',
+                    '        import React, { useState, useCallback, useEffect, useMemo, useRef } from \'https://esm.sh/react@18.2.0\';',
+                    '        import { createRoot } from \'https://esm.sh/react-dom@18.2.0/client\';',
+                    '        import htm from \'https://esm.sh/htm\';',
+                    '        import * as Lucide from \'https://esm.sh/lucide-react@0.263.1\';',
+                    '        ',
+                    '        // Expose icons globally for merged code',
+                    '        const { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader, Lock, ChevronDown, ChevronRight, Table, Plus, X } = Lucide;',
+                    '',
+                    mergedCode,
+                    '',
+                    '        const root = createRoot(document.getElementById(\'root\'));',
+                    '        root.render(React.createElement(App));',
+                    '    </script>',
+                    '</body>',
+                    '</html>'
+                ];
+
+                // 5. Download Blob
+                const blob = new Blob(htmlParts, { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Activity_${config.businessType}_${new Date().toISOString().slice(0,10)}.html`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (err) {
+                console.error(err);
+                alert("Failed to bundle standalone file. \nError: " + err.message);
+            }
             return;
         }
 
-        // Normal In-App Generation
+        // Clear old save if starting new
         if(config.enableAutoSave) {
              localStorage.removeItem('ac_student_progress');
         }
@@ -493,8 +544,8 @@ const App = () => {
         const printWindow = window.open('', '', 'height=800,width=1000');
         
         printWindow.document.write('<html><head><title>Activity Report</title>');
-        // FIX: Escape script tags to prevent raw code display
-        printWindow.document.write('<script src="https://cdn.tailwindcss.com"><\/script>');
+        // Escaped script tag to prevent closing the string early
+        printWindow.document.write('<script src="https://cdn.tailwindcss.com"></' + 'script>');
         printWindow.document.write(`
             <style>
                 @page {
