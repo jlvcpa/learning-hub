@@ -22,12 +22,21 @@ export const validateStep09 = (data, activityData) => {
     // 1. Calculate Expected Post-Closing Balances
     const { validAccounts, ledger, adjustments, transactions } = activityData;
     
+    // BUILD COMPREHENSIVE ACCOUNT LIST
+    // Accounts might be in validAccounts OR introduced in adjustments
+    const allUniqueAccounts = new Set([...validAccounts]);
+    adjustments.forEach(a => {
+        if (a.drAcc) allUniqueAccounts.add(a.drAcc);
+        if (a.crAcc) allUniqueAccounts.add(a.crAcc);
+    });
+    const completeAccountList = Array.from(allUniqueAccounts);
+
     let totalRev = 0, totalExp = 0, totalDraw = 0;
     let capitalAccName = '';
     const adjustedBalances = {};
 
     // A. Calculate Adjusted Balances & Identify Nominal Totals
-    validAccounts.forEach(acc => {
+    completeAccountList.forEach(acc => {
         const rawDr = ledger[acc]?.debit || 0;
         const rawCr = ledger[acc]?.credit || 0;
         let adjDr = 0, adjCr = 0;
@@ -52,18 +61,19 @@ export const validateStep09 = (data, activityData) => {
     let expTotalCr = 0;
     let expectedMaxScore = 3; // Start with Header points
 
-    validAccounts.forEach(acc => {
+    completeAccountList.forEach(acc => {
         const type = getAccountType(acc);
         let finalBal = 0;
 
         if (['Revenue', 'Expense'].includes(type) || acc.includes('Drawing') || acc === 'Income Summary') {
             finalBal = 0; // Closed
         } else if (acc === capitalAccName) {
-            const oldCap = Math.abs(adjustedBalances[acc]); 
+            // Capital = Old + NetIncome - Drawings
+            const oldCap = Math.abs(adjustedBalances[acc] || 0); 
             const newCap = oldCap + netIncome - totalDraw;
             finalBal = -newCap; // Represent as Credit (negative)
         } else {
-            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged
+            finalBal = adjustedBalances[acc] || 0; // Assets/Liabilities unchanged
         }
 
         const absNet = Math.abs(finalBal);
@@ -119,6 +129,7 @@ export const validateStep09 = (data, activityData) => {
             const matchedKey = Object.keys(expBalances).find(k => k.toLowerCase() === userAcc.toLowerCase());
             
             if (matchedKey && !processedAccounts.has(matchedKey)) {
+                // Found a valid real account
                 score += 1;
                 rowFeedback.acc = true;
                 processedAccounts.add(matchedKey);
@@ -174,18 +185,19 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
     // CRITICAL FIX: Ensure all accounts, including those appearing ONLY in adjustments (e.g. Supplies Expense), are included.
     const allAccounts = useMemo(() => {
         const set = new Set();
-        // 1. Add validAccounts (from Step 1 Analysis)
+        
+        // 1. Base Accounts
         if (validAccounts) validAccounts.forEach(a => set.add(a));
         
-        // 2. Add accounts from Transactions (just in case)
+        // 2. Transactions
         if (transactions) {
             transactions.forEach(t => {
                 t.debits.forEach(d => set.add(d.account));
                 t.credits.forEach(c => set.add(c.account));
             });
         }
-        
-        // 3. Add accounts from Adjustments (this catches Supplies Expense, etc.)
+
+        // 3. Adjustments (Catches Supplies Expense, Depr. Expense, etc.)
         if (adjustments) {
             adjustments.forEach(adj => {
                 if (adj.drAcc) set.add(adj.drAcc);
@@ -193,13 +205,26 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
             });
         }
         
-        // 4. Ensure Income Summary is present
-        set.add('Income Summary');
+        // 4. Closing Entries (In case user created distinct accounts, rare but possible)
+        if (closingEntries) {
+             closingEntries.forEach(block => {
+                if (block.rows) {
+                    block.rows.forEach(r => {
+                        if (r.acc) set.add(r.acc.trim());
+                    });
+                }
+             });
+        }
         
-        return sortAccounts(Array.from(set));
-    }, [validAccounts, transactions, adjustments]);
+        // 5. Ensure Income Summary is present
+        set.add('Income Summary');
 
-    // Construct "Correct" Closing Entries if user input is missing
+        return sortAccounts(Array.from(set));
+    }, [validAccounts, transactions, adjustments, closingEntries]);
+
+
+    // Construct "Correct" Closing Entries if user input is missing OR to visualize flow
+    // We use 'allAccounts' here to ensure we close everything found.
     const computedClosingEntries = useMemo(() => {
         if (closingEntries && closingEntries.length > 0 && closingEntries[0]?.rows) return closingEntries;
         
@@ -297,6 +322,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             ? new Date(transactions[0].date).getFullYear() 
                             : new Date().getFullYear();
 
+                        // Add Year Row (First Row)
                         rowsL.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
                         rowsR.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
 
@@ -330,7 +356,6 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             computedClosingEntries.forEach(block => {
                                 if (block.rows) {
                                     block.rows.forEach(row => {
-                                        // Loose match for account name
                                         if (row.acc && row.acc.trim() === acc) {
                                             const dr = Number(row.dr) || 0;
                                             const cr = Number(row.cr) || 0;
@@ -343,8 +368,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             });
                         }
 
-                        // Filter out empty ledgers only if there is TRULY no activity.
-                        // We check length > 1 because index 0 is always the Year Row.
+                        // Filter out accounts with NO activity in rows (except Year row)
+                        // If an account has activity (even if it closes to zero), we show it.
+                        // rowsL/rowsR always have at least 1 row (Year). If length > 1, there is data.
                         if (rowsL.length <= 1 && rowsR.length <= 1) return null;
 
                         const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -605,7 +631,7 @@ export default function Step09PostClosingTB({ activityData, data, onChange, show
                         beginningBalances=${activityData.beginningBalances} 
                         isSubsequentYear=${activityData.config.isSubsequentYear} 
                         adjustments=${activityData.adjustments}
-                        closingEntries=${data.closingJournal} 
+                        closingEntries=${data.closingJournal /* Passed from parent or undefined */} 
                      /> 
                 </div>
                 <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
