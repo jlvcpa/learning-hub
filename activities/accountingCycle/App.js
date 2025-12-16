@@ -3,7 +3,7 @@
 // -----------------
 import React, { useState, useCallback, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
-import { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download } from 'https://esm.sh/lucide-react@0.263.1';
+import { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader } from 'https://esm.sh/lucide-react@0.263.1';
 import { APP_VERSION, STEPS, generateTransactions, generateBeginningBalances, sortAccounts, generateAdjustments, getAccountType } from './utils.js';
 import { TaskSection } from './steps.js';
 
@@ -64,7 +64,7 @@ const ReportView = ({ activityData, answers }) => {
                     if (stepId === 1) content = html`<${Step01Analysis} transactions=${activityData.transactions} ...${props} />`;
                     else if (stepId === 2) content = html`<${Step02Journalizing} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} ...${props} />`;
                     else if (stepId === 3) {
-                         // FIX: Explicitly pass journalPRs defaulting to {} to prevent crash
+                         // FIX: Explicitly pass journalPRs defaulting to {} to prevent crash in ReportView
                          const journalPRs = stepAnswer.journalPRs || {};
                          content = html`<${Step03Posting} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} ...${props} journalPRs=${journalPRs} />`;
                     }
@@ -112,6 +112,7 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
     const [fsFormat, setFsFormat] = useState(() => localStorage.getItem('ac_fsFormat') || 'Single');
     const [includeCashFlows, setIncludeCashFlows] = useState(() => localStorage.getItem('ac_includeCashFlows') === 'true');
     const [enableAutoSave, setEnableAutoSave] = useState(() => localStorage.getItem('ac_enableAutoSave') === 'true');
+    const [isGenerating, setIsGenerating] = useState(false); // Loading state for bundling
 
     // Standard Options
     const [includeTradeDiscounts, setIncludeTradeDiscounts] = useState(false);
@@ -156,7 +157,8 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
         }
     };
 
-    const handleDownloadStandalone = () => {
+    const handleDownloadStandalone = async () => {
+        setIsGenerating(true);
         const config = { 
             businessType, ownership, inventorySystem, 
             numTransactions: Number(numTransactions) || 10, 
@@ -166,7 +168,8 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
             options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } 
         };
         // Trigger generic generation first to get the data
-        onGenerate(config, true); // true = isDownloadMode
+        await onGenerate(config, true); // true = isDownloadMode
+        setIsGenerating(false);
     };
 
     return html`
@@ -328,7 +331,10 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
 
             <div className="flex gap-4">
                 <button onClick=${() => onGenerate({ businessType, ownership, inventorySystem, numTransactions: Number(numTransactions) || 10, selectedSteps, numPartners: Number(numPartners) || 2, isSubsequentYear, deferredExpenseMethod, deferredIncomeMethod, fsFormat, includeCashFlows, enableAutoSave, options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } })} className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-bold flex items-center justify-center gap-2"><${RefreshCw} size=${20} /> Generate Activity</button>
-                <button onClick=${handleDownloadStandalone} className="bg-gray-800 text-white py-3 px-6 rounded-md hover:bg-black font-bold flex items-center justify-center gap-2"><${Download} size=${20} /> Download as HTML File</button>
+                <button onClick=${handleDownloadStandalone} disabled=${isGenerating} className=${`bg-gray-800 text-white py-3 px-6 rounded-md hover:bg-black font-bold flex items-center justify-center gap-2 ${isGenerating ? 'opacity-70 cursor-wait' : ''}`}>
+                    ${isGenerating ? html`<${Loader} size=${20} className="animate-spin"/>` : html`<${Download} size=${20} />`}
+                    Download as HTML File
+                </button>
             </div>
             <div className="mt-4 pt-4 border-t text-xs text-gray-400 text-center">${APP_VERSION}</div>
         </div>
@@ -336,10 +342,13 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
 };
 
 const App = () => {
-    const [mode, setMode] = useState('config');
-    const [activityData, setActivityData] = useState(null);
+    // STUDENT MODE CHECK: If "window.STUDENT_CONFIG" exists, we use that data and skip the dashboard.
+    const preloadedData = window.STUDENT_CONFIG || null;
+
+    const [mode, setMode] = useState(preloadedData ? 'activity' : 'config');
+    const [activityData, setActivityData] = useState(preloadedData);
     const [currentStepIndex, setCurrentStepIndex] = useState(0); 
-    const [stepStatus, setStepStatus] = useState({});
+    const [stepStatus, setStepStatus] = useState(preloadedData ? preloadedData.initialStatus : {});
     const [answers, setAnswers] = useState({});
     
     // Auto-Save Effect
@@ -400,12 +409,45 @@ const App = () => {
         return { config, transactions, ledger: ledgerAgg, validAccounts: finalValidAccounts, beginningBalances, adjustments, steps: selectedSteps, initialStatus };
     };
 
-    const handleGenerate = (config, isDownload = false) => {
+    // --- CLIENT-SIDE BUNDLER LOGIC ---
+    const handleGenerate = async (config, isDownload = false) => {
         const data = generateData(config);
         
         if (isDownload) {
-            // Generate Stand-alone HTML File
-            const htmlContent = `
+            // Bundle all modules into a single HTML file
+            try {
+                // 1. Fetch all source files
+                const files = [
+                    './utils.js', './steps.js', './App.js',
+                    './steps/Step01Analysis.js', './steps/Step02Journalizing.js',
+                    './steps/Step03Posting.js', './steps/Step04TrialBalance.js',
+                    './steps/Step05Worksheet.js', './steps/Step06FinancialStatements.js',
+                    './steps/Step07AdjustingEntries.js', './steps/Step08ClosingEntries.js',
+                    './steps/Step09PostClosingTB.js', './steps/Step10ReversingEntries.js',
+                    './steps/GenericStep.js'
+                ];
+                
+                const fetchedCodes = await Promise.all(files.map(async f => {
+                    const res = await fetch(f);
+                    if (!res.ok) throw new Error(`Failed to load ${f}`);
+                    return await res.text();
+                }));
+
+                // 2. Process code: Strip imports/exports
+                const mergedCode = fetchedCodes.map(code => {
+                     // Remove imports relative to local files
+                     let c = code.replace(/import .* from '\.\/.*';/g, '');
+                     // Clean up exports
+                     c = c.replace(/export default function/g, 'function');
+                     c = c.replace(/export default const/g, 'const');
+                     c = c.replace(/export const/g, 'const');
+                     c = c.replace(/export function/g, 'function');
+                     c = c.replace(/export default/g, '');
+                     return c;
+                }).join('\n\n');
+
+                // 3. Construct HTML
+                const htmlContent = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -413,19 +455,58 @@ const App = () => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Accounting Activity: ${config.businessType}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module">
-        import React from 'https://esm.sh/react@18.2.0';
-        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-        // Note: For a true standalone file, all JS logic needs to be bundled here.
-        // Currently, this function just alerts as it requires complex bundling of all utils/steps.
-        alert("To download a full standalone file, you must implement a build step that inlines all source modules. This demo simulates in-app generation.");
-    </script>
+    <script>window.STUDENT_CONFIG = ${JSON.stringify(data)};</script>
+    <style>
+        @page { size: 8.5in 13in; margin: 0.5in; margin-bottom: 0.8in; }
+        @media print { 
+            body { -webkit-print-color-adjust: exact; } 
+            .page-break { page-break-after: always; }
+            .break-inside-avoid { break-inside: avoid; }
+            .hidden { display: block !important; }
+            button, .no-print { display: none !important; }
+            .print-footer { position: fixed; bottom: 0; left: 0; right: 0; height: 0.8in; }
+            .report-body { margin-bottom: 0.8in; }
+        }
+        ::-webkit-scrollbar { display: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
 </head>
-<body>
+<body class="bg-gray-50 text-gray-900">
     <div id="root"></div>
+    <script type="module">
+        import React, { useState, useCallback, useEffect, useMemo, useRef } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import htm from 'https://esm.sh/htm';
+        import * as Lucide from 'https://esm.sh/lucide-react@0.263.1';
+        
+        // Expose icons globally
+        const { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader, Lock, ChevronDown, ChevronRight, Table, Plus, X } = Lucide;
+
+        ${mergedCode}
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
 </body>
 </html>`;
-            alert("This feature requires a bundler to merge all modules into one file. Please use the 'Generate Activity' button to run it here.");
+
+                // 4. Download
+                const blob = new Blob([htmlContent], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Activity_${config.businessType}_${new Date().toISOString().slice(0,10)}.html`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (err) {
+                alert("Failed to bundle standalone file. Ensure all files are served correctly via HTTP/HTTPS (not file://). Error: " + err.message);
+            }
             return;
         }
 
