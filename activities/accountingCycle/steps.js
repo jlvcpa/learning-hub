@@ -16,7 +16,7 @@ import Step06FinancialStatements, { validateStep06 } from './steps/Step06Financi
 import Step07AdjustingEntries, { validateStep07 } from './steps/Step07AdjustingEntries.js'; 
 import Step08ClosingEntries, { validateStep08 } from './steps/Step08ClosingEntries.js'; 
 import Step09PostClosingTB, { validateStep09 } from './steps/Step09PostClosingTB.js'; 
-import Step10ReversingEntries from './steps/Step10ReversingEntries.js';
+import Step10ReversingEntries, { validateStep10 } from './steps/Step10ReversingEntries.js';
 import GenericStep from './steps/GenericStep.js';
 
 const html = htm.bind(React.createElement);
