@@ -22,9 +22,6 @@ export const validateStep09 = (data, activityData) => {
     // 1. Calculate Expected Post-Closing Balances
     const { validAccounts, ledger, adjustments, transactions } = activityData;
     
-    // We need to calculate what the Post-Closing Balances SHOULD be
-    // based on the correct math, regardless of what the user did in previous steps.
-    
     let totalRev = 0, totalExp = 0, totalDraw = 0;
     let capitalAccName = '';
     const adjustedBalances = {};
@@ -50,10 +47,7 @@ export const validateStep09 = (data, activityData) => {
     const netIncome = totalRev - totalExp;
 
     // B. Build Expected Post-Closing Ledger
-    // Only Real Accounts (Asset, Liability, Equity) appear here. 
-    // Nominal accounts are zeroed out.
-    
-    const expBalances = {}; // Format: { 'Cash': { amount: 1000, side: 'dr' } }
+    const expBalances = {}; 
     let expTotalDr = 0;
     let expTotalCr = 0;
     let expectedMaxScore = 3; // Start with Header points
@@ -65,21 +59,15 @@ export const validateStep09 = (data, activityData) => {
         if (['Revenue', 'Expense'].includes(type) || acc.includes('Drawing') || acc === 'Income Summary') {
             finalBal = 0; // Closed
         } else if (acc === capitalAccName) {
-            // Capital = Old + NetIncome - Drawings
-            // Note: In our math, Credit is Negative. 
-            // Old(Cr) + NetIncome(Cr is negative addition) - Drawings(Dr is positive removal)
-            // Easier way: Absolute Calc
             const oldCap = Math.abs(adjustedBalances[acc]); 
-            // New Cap = Old + NI - Draw
             const newCap = oldCap + netIncome - totalDraw;
             finalBal = -newCap; // Represent as Credit (negative)
         } else {
-            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged from Adjusted
+            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged
         }
 
         const absNet = Math.abs(finalBal);
         
-        // Only include in Expected TB if balance > 0
         if (absNet > 0) { 
             expBalances[acc] = { amount: absNet, side: finalBal >= 0 ? 'dr' : 'cr' };
             if (finalBal >= 0) expTotalDr += absNet;
@@ -90,8 +78,7 @@ export const validateStep09 = (data, activityData) => {
 
     expectedMaxScore += 2; // Totals
 
-    // --- SCORING (IDENTICAL LOGIC TO STEP 4) ---
-    
+    // --- SCORING ---
     let score = 0;
     const feedback = { header: {}, rows: [], totals: {} };
     const header = data.header || {};
@@ -131,12 +118,10 @@ export const validateStep09 = (data, activityData) => {
             const matchedKey = Object.keys(expBalances).find(k => k.toLowerCase() === userAcc.toLowerCase());
             
             if (matchedKey && !processedAccounts.has(matchedKey)) {
-                // Point 1: Account Name Match
                 score += 1;
                 rowFeedback.acc = true;
                 processedAccounts.add(matchedKey);
 
-                // Point 2: Correct Amount AND Side
                 const exp = expBalances[matchedKey];
                 const isDrCorrect = exp.side === 'dr' && Math.abs(userDr - exp.amount) <= 1 && userCr === 0;
                 const isCrCorrect = exp.side === 'cr' && Math.abs(userCr - exp.amount) <= 1 && userDr === 0;
@@ -190,13 +175,13 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
     const formatDate = (dateStr, isFirst) => {
         if (!dateStr) return '';
         const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return dateStr; // Fallback if string is not date
+        if (isNaN(d.getTime())) return dateStr; 
         
         if (isFirst) {
-            // Mmm d
+            // Mmm d (e.g. Jan 1)
             return d.toLocaleString('default', { month: 'short', day: 'numeric' });
         } else {
-            // d
+            // d (e.g. 15)
             return d.getDate().toString();
         }
     };
@@ -217,17 +202,17 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             ? new Date(transactions[0].date).getFullYear() 
                             : new Date().getFullYear();
 
-                        // Add Year Row (First Row)
-                        rowsL.push({ date: contextYear, part: '', pr: '', amount: null, isYear: true });
-                        rowsR.push({ date: contextYear, part: '', pr: '', amount: null, isYear: true });
+                        // Add Year Row (First Row) - Explicitly formatted for display
+                        rowsL.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
+                        rowsR.push({ isYear: true, displayDate: contextYear, part: '', pr: '', amount: null });
 
                         // 1. Beginning Balances
-                        let bbDr = 0, bbCr = 0;
                         if (isSubsequentYear && beginningBalances && beginningBalances.balances[acc]) {
                             const b = beginningBalances.balances[acc];
-                            // BB is always "Jan 1"
-                            if (b.dr > 0) { rowsL.push({ rawDate: `${contextYear}-01-01`, part: 'BB', pr: '✓', amount: b.dr }); bbDr = b.dr; }
-                            if (b.cr > 0) { rowsR.push({ rawDate: `${contextYear}-01-01`, part: 'BB', pr: '✓', amount: b.cr }); bbCr = b.cr; }
+                            // BB is always "Jan 1" of context year
+                            const bbDate = `${contextYear}-01-01`;
+                            if (b.dr > 0) rowsL.push({ rawDate: bbDate, part: 'BB', pr: '✓', amount: b.dr });
+                            if (b.cr > 0) rowsR.push({ rawDate: bbDate, part: 'BB', pr: '✓', amount: b.cr });
                         }
                         
                         // 2. Transactions
@@ -241,13 +226,15 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         // 3. Adjusting Entries (Step 7)
                         if (adjustments) {
                             adjustments.forEach(adj => {
-                                // Adjustments are usually Dec 31
-                                if (adj.drAcc === acc) rowsL.push({ rawDate: `${contextYear}-12-31`, part: 'Adj', pr: 'J2', amount: adj.amount });
-                                if (adj.crAcc === acc) rowsR.push({ rawDate: `${contextYear}-12-31`, part: 'Adj', pr: 'J2', amount: adj.amount });
+                                // Adjustments are Dec 31
+                                const adjDate = `${contextYear}-12-31`;
+                                if (adj.drAcc === acc) rowsL.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
+                                if (adj.crAcc === acc) rowsR.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
                             });
                         }
 
                         // 4. Closing Entries (Step 8)
+                        // Use provided closing entries OR construct them if missing (fallback logic could be added here)
                         if (closingEntries) {
                             closingEntries.forEach(block => {
                                 if (block.rows) {
@@ -255,9 +242,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         if (row.acc && row.acc.trim() === acc) {
                                             const dr = Number(row.dr) || 0;
                                             const cr = Number(row.cr) || 0;
-                                            // Closing Entries are Dec 31
-                                            if (dr > 0) rowsL.push({ rawDate: `${contextYear}-12-31`, part: 'Clos', pr: 'J3', amount: dr });
-                                            if (cr > 0) rowsR.push({ rawDate: `${contextYear}-12-31`, part: 'Clos', pr: 'J3', amount: cr });
+                                            const closDate = `${contextYear}-12-31`;
+                                            if (dr > 0) rowsL.push({ rawDate: closDate, part: 'Clos', pr: 'J3', amount: dr });
+                                            if (cr > 0) rowsR.push({ rawDate: closDate, part: 'Clos', pr: 'J3', amount: cr });
                                         }
                                     });
                                 }
@@ -285,17 +272,31 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsL[i] || {};
-                                            // Formatting Date: First entry (index 1 because index 0 is Year) gets Full Date
-                                            const isYearRow = i === 0;
-                                            const isFirstDataRow = i === 1;
-                                            
-                                            let dateText = r.date || ''; // Default if pre-set
-                                            if (!isYearRow && r.rawDate) {
-                                                dateText = formatDate(r.rawDate, isFirstDataRow);
+                                            // Date Formatting Logic
+                                            let dateText = '';
+                                            if (r.isYear) {
+                                                dateText = r.displayDate; // First row: YYYY
+                                            } else if (r.rawDate) {
+                                                // Check if it's the very first data entry (index 1)
+                                                // OR if month changed from previous row? (Simple rule: Row 1 is Mmm d, others d)
+                                                // Let's stick to the requested rule: Row 2 (Index 1) is Mmm d. Row 3+ is d.
+                                                // BUT we also need to handle "Month change" logic usually. 
+                                                // Given the request: "The second row... must have Mmm d... In the third row and up the date format shall be d or dd."
+                                                const isFirstDataRow = i === 1;
+                                                // Check if month changed from previous data row
+                                                const prevRow = rowsL[i-1];
+                                                let isMonthChange = false;
+                                                if (i > 1 && prevRow && prevRow.rawDate && r.rawDate) {
+                                                    const d1 = new Date(prevRow.rawDate);
+                                                    const d2 = new Date(r.rawDate);
+                                                    if (d1.getMonth() !== d2.getMonth()) isMonthChange = true;
+                                                }
+
+                                                dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
                                             }
 
                                             return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
-                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium">${dateText}</div>
+                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black' : ''}">${dateText}</div>
                                                 <div className="flex-1 border-r mr-1">${r.part||''}</div>
                                                 <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
                                                 <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
@@ -314,16 +315,23 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         </div>
                                         ${displayRows.map(i => {
                                             const r = rowsR[i] || {};
-                                            const isYearRow = i === 0;
-                                            const isFirstDataRow = i === 1;
-                                            
-                                            let dateText = r.date || '';
-                                            if (!isYearRow && r.rawDate) {
-                                                dateText = formatDate(r.rawDate, isFirstDataRow);
+                                            let dateText = '';
+                                            if (r.isYear) {
+                                                dateText = r.displayDate;
+                                            } else if (r.rawDate) {
+                                                const isFirstDataRow = i === 1;
+                                                const prevRow = rowsR[i-1];
+                                                let isMonthChange = false;
+                                                if (i > 1 && prevRow && prevRow.rawDate && r.rawDate) {
+                                                    const d1 = new Date(prevRow.rawDate);
+                                                    const d2 = new Date(r.rawDate);
+                                                    if (d1.getMonth() !== d2.getMonth()) isMonthChange = true;
+                                                }
+                                                dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
                                             }
 
                                             return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
-                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium">${dateText}</div>
+                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black' : ''}">${dateText}</div>
                                                 <div className="flex-1 border-r mr-1">${r.part||''}</div>
                                                 <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
                                                 <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
