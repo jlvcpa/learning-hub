@@ -19,81 +19,91 @@ const getLastDayOfMonth = (dateStr) => {
 
 // --- VALIDATION LOGIC ---
 export const validateStep09 = (data, activityData) => {
+    // 1. Calculate Expected Post-Closing Balances
     const { validAccounts, ledger, adjustments, transactions } = activityData;
     
     let totalRev = 0, totalExp = 0, totalDraw = 0;
     let capitalAccName = '';
     const adjustedBalances = {};
 
+    // A. Calculate Adjusted Balances & Identify Nominal Totals
     validAccounts.forEach(acc => {
         const rawDr = ledger[acc]?.debit || 0;
         const rawCr = ledger[acc]?.credit || 0;
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
+        // Net Balance (+Dr, -Cr)
         const net = (rawDr + adjDr) - (rawCr + adjCr);
         adjustedBalances[acc] = net;
 
         const type = getAccountType(acc);
-        if (type === 'Revenue') totalRev += Math.abs(net);
-        else if (type === 'Expense') totalExp += Math.abs(net);
-        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net);
+        if (type === 'Revenue') totalRev += Math.abs(net); // Normal Cr
+        else if (type === 'Expense') totalExp += Math.abs(net); // Normal Dr
+        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net); // Normal Dr
         else if (acc.includes('Capital') || acc.includes('Retained Earnings')) capitalAccName = acc;
     });
 
     const netIncome = totalRev - totalExp;
 
+    // B. Build Expected Post-Closing Ledger
     const expBalances = {}; 
     let expTotalDr = 0;
     let expTotalCr = 0;
-    let expectedMaxScore = 3;
+    let expectedMaxScore = 3; // Start with Header points
 
     validAccounts.forEach(acc => {
         const type = getAccountType(acc);
         let finalBal = 0;
 
         if (['Revenue', 'Expense'].includes(type) || acc.includes('Drawing') || acc === 'Income Summary') {
-            finalBal = 0; 
+            finalBal = 0; // Closed
         } else if (acc === capitalAccName) {
             const oldCap = Math.abs(adjustedBalances[acc]); 
             const newCap = oldCap + netIncome - totalDraw;
-            finalBal = -newCap; 
+            finalBal = -newCap; // Represent as Credit (negative)
         } else {
-            finalBal = adjustedBalances[acc]; 
+            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged
         }
 
         const absNet = Math.abs(finalBal);
         
+        // Only include in Expected TB if balance > 0
         if (absNet > 0) { 
             expBalances[acc] = { amount: absNet, side: finalBal >= 0 ? 'dr' : 'cr' };
             if (finalBal >= 0) expTotalDr += absNet;
             else expTotalCr += absNet;
-            expectedMaxScore += 2; 
+            expectedMaxScore += 2; // 1 for Acc Name, 1 for Amount
         }
     });
 
-    expectedMaxScore += 2; 
+    expectedMaxScore += 2; // Totals
 
+    // --- SCORING ---
     let score = 0;
     const feedback = { header: {}, rows: [], totals: {} };
     const header = data.header || {};
 
+    // A. Company Name
     const companyName = (header.company || '').trim();
     const isCompanyValid = companyName.length > 3; 
     if (isCompanyValid) score += 1;
     feedback.header.company = isCompanyValid;
 
+    // B. Document Name
     const docName = (header.doc || '').trim().toLowerCase();
     const isDocValid = docName.includes('post-closing trial balance') || docName === 'post closing trial balance';
     if (isDocValid) score += 1;
     feedback.header.doc = isDocValid;
 
+    // C. Date
     const targetDate = getLastDayOfMonth(transactions ? transactions[0]?.date : '');
     const inputDate = (header.date || '').trim();
     const isDateValid = targetDate && inputDate.toLowerCase() === targetDate.toLowerCase();
     if (isDateValid) score += 1;
     feedback.header.date = isDateValid;
 
+    // 2. BODY VALIDATION
     const rows = data.rows || [];
     const totals = data.totals || { dr: '', cr: '' };
     const processedAccounts = new Set();
@@ -126,6 +136,7 @@ export const validateStep09 = (data, activityData) => {
         feedback.rows[idx] = rowFeedback;
     });
 
+    // 3. TOTALS VALIDATION
     const userTotalDrInput = Number(totals.dr) || 0;
     const userTotalCrInput = Number(totals.cr) || 0;
 
@@ -159,22 +170,40 @@ const StatusIcon = ({ correct, show }) => {
 // --- UPDATED LEDGER VIEW FOR STEP 9 ---
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, adjustments, closingEntries }) => {
     const [expanded, setExpanded] = useState(true);
-    // Ensure all accounts, including those used only in adjustments (e.g. Supplies Expense), are included.
-    // We merge accounts from transactions and adjustments if needed, but validAccounts usually holds all.
-    // However, we explicitly add 'Income Summary' if not present for the view.
+    
+    // CRITICAL FIX: Ensure all accounts, including those appearing ONLY in adjustments (e.g. Supplies Expense), are included.
     const allAccounts = useMemo(() => {
-        const set = new Set(validAccounts);
-        set.add('Income Summary'); 
+        const set = new Set();
+        // 1. Add validAccounts (from Step 1 Analysis)
+        if (validAccounts) validAccounts.forEach(a => set.add(a));
+        
+        // 2. Add accounts from Transactions (just in case)
+        if (transactions) {
+            transactions.forEach(t => {
+                t.debits.forEach(d => set.add(d.account));
+                t.credits.forEach(c => set.add(c.account));
+            });
+        }
+        
+        // 3. Add accounts from Adjustments (this catches Supplies Expense, etc.)
+        if (adjustments) {
+            adjustments.forEach(adj => {
+                if (adj.drAcc) set.add(adj.drAcc);
+                if (adj.crAcc) set.add(adj.crAcc);
+            });
+        }
+        
+        // 4. Ensure Income Summary is present
+        set.add('Income Summary');
+        
         return sortAccounts(Array.from(set));
-    }, [validAccounts]);
+    }, [validAccounts, transactions, adjustments]);
 
     // Construct "Correct" Closing Entries if user input is missing
     const computedClosingEntries = useMemo(() => {
         if (closingEntries && closingEntries.length > 0 && closingEntries[0]?.rows) return closingEntries;
         
         // --- AUTO-GENERATE CLOSING ENTRIES (FALLBACK) ---
-        // This ensures the Ledger View is always complete even if Step 8 was skipped or empty.
-        
         let totalRev = 0, totalExp = 0, totalDraw = 0;
         let capitalAccName = '';
         const tempLedger = {};
@@ -200,14 +229,13 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
 
             const type = getAccountType(acc);
             if(type==='Revenue') totalRev += Math.abs(bal);
-            else if(type==='Expense') totalExp += Math.abs(bal); // Expenses are usually positive Dr here
+            else if(type==='Expense') totalExp += Math.abs(bal); 
             else if(acc.includes('Drawing') || acc.includes('Dividends')) { totalDraw += Math.abs(bal); }
             else if(acc.includes('Capital') || acc.includes('Retained Earnings')) { capitalAccName = acc; }
         });
 
         const ni = totalRev - totalExp;
         const entries = [];
-        const date = 'Dec 31';
 
         // 1. Close Rev
         allAccounts.forEach(acc => {
@@ -315,9 +343,8 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             });
                         }
 
-                        // Filter out accounts with absolutely NO activity in rows (except Year row)
-                        // Actually, we want to show everything that was valid, even if closed to zero.
-                        // But if an account has NO rows (meaning it was never touched in BB, Trans, Adj, or Close), we skip it.
+                        // Filter out empty ledgers only if there is TRULY no activity.
+                        // We check length > 1 because index 0 is always the Year Row.
                         if (rowsL.length <= 1 && rowsR.length <= 1) return null;
 
                         const totalDr = rowsL.reduce((sum, r) => sum + (r.amount || 0), 0);
