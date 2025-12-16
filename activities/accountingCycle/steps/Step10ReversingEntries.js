@@ -209,8 +209,6 @@ const ReversingEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeedb
                 </div>
             </div>
             
-            
-
             <div className="bg-yellow-50 p-2 text-xs border-b border-yellow-200 text-yellow-800 flex items-start gap-2">
                 <${AlertCircle} size=${14} className="mt-0.5 flex-shrink-0"/>
                 <span>
@@ -306,23 +304,8 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
     const validationResult = useMemo(() => {
         if (!showFeedback && !isReadOnly) return null;
         
-        let score = 0;
-        let maxScore = 0;
-        
-        activityData.adjustments.forEach((adj, idx) => {
-            const entry = data[adj.id] || {};
-            const isFirst = idx === 0;
-            const res = validateReversingEntry(entry, adj, activityData.config, isFirst);
-            
-            maxScore += 1;
-            if (res.isEntryCorrect) score += 1;
-        });
-
-        return {
-            score,
-            maxScore,
-            letterGrade: getLetterGrade(score, maxScore)
-        };
+        // This relies on the helper function validateStep10 at the bottom of the file
+        return validateStep10(data, activityData);
     }, [data, activityData, showFeedback, isReadOnly]);
 
     // Combine all historical entries for the Left Panel View
@@ -452,3 +435,25 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
         </div>
     `;
 }
+
+// Add to bottom of Step10ReversingEntries.js
+export const validateStep10 = (data, activityData) => {
+    let score = 0;
+    let maxScore = 0;
+    
+    activityData.adjustments.forEach((adj, idx) => {
+        const entry = data[adj.id] || {};
+        const isFirst = idx === 0;
+        const res = validateReversingEntry(entry, adj, activityData.config, isFirst);
+        
+        maxScore += 1;
+        if (res.isEntryCorrect) score += 1;
+    });
+
+    return {
+        score,
+        maxScore,
+        isCorrect: score === maxScore,
+        letterGrade: getLetterGrade(score, maxScore)
+    };
+};
