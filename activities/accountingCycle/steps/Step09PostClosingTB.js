@@ -19,103 +19,80 @@ const getLastDayOfMonth = (dateStr) => {
 
 // --- VALIDATION LOGIC ---
 export const validateStep09 = (data, activityData) => {
-    // 1. Calculate Expected Post-Closing Balances
     const { validAccounts, ledger, adjustments, transactions } = activityData;
     
-    // We need to calculate what the Post-Closing Balances SHOULD be
-    // based on the correct math, regardless of what the user did in previous steps.
-    
+    // 1. Calculate Post-Closing Balances
     let totalRev = 0, totalExp = 0, totalDraw = 0;
     let capitalAccName = '';
     const adjustedBalances = {};
 
-    // A. Calculate Adjusted Balances & Identify Nominal Totals
     validAccounts.forEach(acc => {
         const rawDr = ledger[acc]?.debit || 0;
         const rawCr = ledger[acc]?.credit || 0;
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
-        // Net Balance (+Dr, -Cr)
         const net = (rawDr + adjDr) - (rawCr + adjCr);
         adjustedBalances[acc] = net;
 
         const type = getAccountType(acc);
-        if (type === 'Revenue') totalRev += Math.abs(net); // Normal Cr
-        else if (type === 'Expense') totalExp += Math.abs(net); // Normal Dr
-        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net); // Normal Dr
+        if (type === 'Revenue') totalRev += Math.abs(net);
+        else if (type === 'Expense') totalExp += Math.abs(net);
+        else if (acc.includes('Drawing') || acc.includes('Dividends')) totalDraw += Math.abs(net);
         else if (acc.includes('Capital') || acc.includes('Retained Earnings')) capitalAccName = acc;
     });
 
     const netIncome = totalRev - totalExp;
 
-    // B. Build Expected Post-Closing Ledger
-    // Only Real Accounts (Asset, Liability, Equity) appear here. 
-    // Nominal accounts are zeroed out.
-    
-    const expBalances = {}; // Format: { 'Cash': { amount: 1000, side: 'dr' } }
+    const expBalances = {}; 
     let expTotalDr = 0;
     let expTotalCr = 0;
-    let expectedMaxScore = 3; // Start with Header points
+    let expectedMaxScore = 3; // Header points
 
     validAccounts.forEach(acc => {
         const type = getAccountType(acc);
         let finalBal = 0;
 
         if (['Revenue', 'Expense'].includes(type) || acc.includes('Drawing') || acc === 'Income Summary') {
-            finalBal = 0; // Closed
+            finalBal = 0; // Nominal accounts closed
         } else if (acc === capitalAccName) {
-            // Capital = Old + NetIncome - Drawings
-            // Note: In our math, Credit is Negative. 
-            // Old(Cr) + NetIncome(Cr is negative addition) - Drawings(Dr is positive removal)
-            // Easier way: Absolute Calc
+            // Capital (Cr) = Old(Cr) + NI(Cr) - Draw(Dr)
             const oldCap = Math.abs(adjustedBalances[acc]); 
-            // New Cap = Old + NI - Draw
             const newCap = oldCap + netIncome - totalDraw;
             finalBal = -newCap; // Represent as Credit (negative)
         } else {
-            finalBal = adjustedBalances[acc]; // Assets/Liabilities unchanged from Adjusted
+            finalBal = adjustedBalances[acc]; 
         }
 
         const absNet = Math.abs(finalBal);
         
-        // Only include in Expected TB if balance > 0
         if (absNet > 0) { 
             expBalances[acc] = { amount: absNet, side: finalBal >= 0 ? 'dr' : 'cr' };
             if (finalBal >= 0) expTotalDr += absNet;
             else expTotalCr += absNet;
-            expectedMaxScore += 2; // 1 for Acc Name, 1 for Amount
+            expectedMaxScore += 2; 
         }
     });
 
     expectedMaxScore += 2; // Totals
 
-    // --- SCORING (IDENTICAL LOGIC TO STEP 4) ---
-    
+    // --- SCORING ---
     let score = 0;
     const feedback = { header: {}, rows: [], totals: {} };
     const header = data.header || {};
 
-    // A. Company Name
+    // Header
     const companyName = (header.company || '').trim();
-    const isCompanyValid = companyName.length > 3; 
-    if (isCompanyValid) score += 1;
-    feedback.header.company = isCompanyValid;
+    if (companyName.length > 3) { score += 1; feedback.header.company = true; } else feedback.header.company = false;
 
-    // B. Document Name
     const docName = (header.doc || '').trim().toLowerCase();
-    const isDocValid = docName.includes('post-closing trial balance') || docName === 'post closing trial balance';
-    if (isDocValid) score += 1;
-    feedback.header.doc = isDocValid;
+    if (docName.includes('post-closing trial balance') || docName === 'post closing trial balance') { score += 1; feedback.header.doc = true; } else feedback.header.doc = false;
 
-    // C. Date
     const targetDate = getLastDayOfMonth(transactions ? transactions[0]?.date : '');
     const inputDate = (header.date || '').trim();
-    const isDateValid = targetDate && inputDate.toLowerCase() === targetDate.toLowerCase();
-    if (isDateValid) score += 1;
-    feedback.header.date = isDateValid;
+    if (targetDate && inputDate.toLowerCase() === targetDate.toLowerCase()) { score += 1; feedback.header.date = true; } else feedback.header.date = false;
 
-    // 2. BODY VALIDATION
+    // Body
     const rows = data.rows || [];
     const totals = data.totals || { dr: '', cr: '' };
     const processedAccounts = new Set();
@@ -124,19 +101,16 @@ export const validateStep09 = (data, activityData) => {
         const userAcc = (row.account || '').trim();
         const userDr = Number(row.dr) || 0;
         const userCr = Number(row.cr) || 0;
-        
         const rowFeedback = { acc: false, amt: false };
         
         if (userAcc) {
             const matchedKey = Object.keys(expBalances).find(k => k.toLowerCase() === userAcc.toLowerCase());
             
             if (matchedKey && !processedAccounts.has(matchedKey)) {
-                // Point 1: Account Name Match
                 score += 1;
                 rowFeedback.acc = true;
                 processedAccounts.add(matchedKey);
 
-                // Point 2: Correct Amount AND Side
                 const exp = expBalances[matchedKey];
                 const isDrCorrect = exp.side === 'dr' && Math.abs(userDr - exp.amount) <= 1 && userCr === 0;
                 const isCrCorrect = exp.side === 'cr' && Math.abs(userCr - exp.amount) <= 1 && userDr === 0;
@@ -150,16 +124,14 @@ export const validateStep09 = (data, activityData) => {
         feedback.rows[idx] = rowFeedback;
     });
 
-    // 3. TOTALS VALIDATION
+    // Totals
     const userTotalDrInput = Number(totals.dr) || 0;
     const userTotalCrInput = Number(totals.cr) || 0;
-
     const isTotalDrCorrect = Math.abs(userTotalDrInput - expTotalDr) <= 1;
     const isTotalCrCorrect = Math.abs(userTotalCrInput - expTotalCr) <= 1;
 
     if (isTotalDrCorrect) score += 1;
     if (isTotalCrCorrect) score += 1;
-    
     feedback.totals = { dr: isTotalDrCorrect, cr: isTotalCrCorrect };
 
     return { 
@@ -181,7 +153,7 @@ const StatusIcon = ({ correct, show }) => {
         : html`<${X} size=${16} className="text-red-600 inline ml-1 flex-shrink-0" strokeWidth=${3} />`;
 };
 
-// --- UPDATED LEDGER VIEW FOR STEP 9 ---
+// --- UPDATED LEDGER VIEW ---
 const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSubsequentYear, adjustments, closingEntries }) => {
     const [expanded, setExpanded] = useState(true);
     const sortedAccounts = sortAccounts(validAccounts || []);
@@ -198,11 +170,10 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         const rowsR = [];
                         
                         // 1. Beginning Balances
-                        let bbDr = 0, bbCr = 0;
                         if (isSubsequentYear && beginningBalances && beginningBalances.balances[acc]) {
                             const b = beginningBalances.balances[acc];
-                            if (b.dr > 0) { rowsL.push({ date: 'Jan 01', part: 'BB', pr: '✓', amount: b.dr }); bbDr = b.dr; }
-                            if (b.cr > 0) { rowsR.push({ date: 'Jan 01', part: 'BB', pr: '✓', amount: b.cr }); bbCr = b.cr; }
+                            if (b.dr > 0) rowsL.push({ date: 'Jan 01', part: 'BB', pr: '✓', amount: b.dr });
+                            if (b.cr > 0) rowsR.push({ date: 'Jan 01', part: 'BB', pr: '✓', amount: b.cr });
                         }
                         
                         // 2. Transactions
@@ -212,13 +183,12 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                 const mm = dateObj.toLocaleString('default', { month: 'short' });
                                 const dd = dateObj.getDate().toString().padStart(2, '0');
                                 const dateStr = `${mm} ${dd}`;
-
                                 t.debits.forEach(d => { if(d.account === acc) rowsL.push({ date: dateStr, part: 'GJ', pr: '1', amount: d.amount }); });
                                 t.credits.forEach(c => { if(c.account === acc) rowsR.push({ date: dateStr, part: 'GJ', pr: '1', amount: c.amount }); });
                             });
                         }
 
-                        // 3. Adjusting Entries (Step 7)
+                        // 3. Adjusting Entries
                         if (adjustments) {
                             adjustments.forEach(adj => {
                                 if (adj.drAcc === acc) rowsL.push({ date: 'Dec 31', part: 'Adj', pr: 'J2', amount: adj.amount });
@@ -226,13 +196,13 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                             });
                         }
 
-                        // 4. Closing Entries (Step 8)
-                        if (closingEntries) {
-                            // closingEntries is typically [{rows:[]}, {rows:[]}] (REID blocks)
+                        // 4. Closing Entries (UPDATED LOGIC)
+                        if (closingEntries && Array.isArray(closingEntries)) {
+                            // closingEntries is an array of "Blocks" (REID structure from Step 8)
                             closingEntries.forEach(block => {
-                                if (block.rows) {
+                                if (block.rows && Array.isArray(block.rows)) {
                                     block.rows.forEach(row => {
-                                        // Match by account name loosely
+                                        // Loose match on account name to be forgiving
                                         if (row.acc && row.acc.trim() === acc) {
                                             const dr = Number(row.dr) || 0;
                                             const cr = Number(row.cr) || 0;
@@ -333,7 +303,6 @@ const TrialBalanceForm = ({ data, onChange, showFeedback, isReadOnly, validation
 
     return html`
         <div className="flex flex-col h-full">
-            
             <div className="flex flex-col gap-2 mb-6 items-center px-8 mt-2">
                 <div className="w-3/4 flex items-center justify-center relative">
                     <input type="text" placeholder="[StudentLastName] Accounting Services" className=${`text-center font-bold text-lg border-b-2 outline-none w-full transition-colors ${getHeaderStyle(fb.header.company)}`} value=${header.company} onChange=${(e) => updateHeader('company', e.target.value)} disabled=${isReadOnly}/>
@@ -444,23 +413,6 @@ export default function Step09PostClosingTB({ activityData, data, onChange, show
         onChange(key, val);
     };
 
-    // Extract correct closing entry data (from Step 8 answers, passed usually via answers prop in App.js)
-    // IMPORTANT: In App.js, we need to ensure answers[8].journal is passed to this component or accessible via activityData context if stored there.
-    // However, sticking to the props provided in the prompt, we likely need to fetch Closing Entries from `activityData.closingEntries` if App.js persists it there,
-    // OR we might need to assume the parent passes it. 
-    // Since Step09 usually depends on Step08, and App.js manages state, 
-    // we will access `activityData.closingEntries` if the architecture supports it, 
-    // otherwise we assume the user has to look at their own work or we calculate it.
-    // For this implementation, we will RE-CALCULATE the expected closing entries to display them in the Ledger View 
-    // IF actual user input from Step 8 isn't available props.
-    // BETTER APPROACH: We'll assume the App passes the Step 8 answers into `activityData` or we accept an extra prop.
-    // Given the constraints, we will extract Step 8 data from `data` prop if it was passed, or fallback.
-    // Actually, looking at App.js structure, `activityData` usually only holds the 'source of truth' (ledger, adjustments).
-    // The previous steps' answers are in `answers`.
-    // To make this work seamlessly without modifying App.js significantly to pass `answers[8]`, 
-    // we will assume `activityData.closingJournal` is populated, OR we will just show the ledger without closing entries if missing.
-    // However, to fulfill the request "include closing entries", we will assume they are passed as a prop `closingJournal`.
-    
     return html`
         <div className="flex flex-col h-[calc(100vh-140px)] min-h-[600px]">
             ${(showFeedback || isReadOnly) && validationResult && html`
@@ -478,7 +430,7 @@ export default function Step09PostClosingTB({ activityData, data, onChange, show
                         beginningBalances=${activityData.beginningBalances} 
                         isSubsequentYear=${activityData.config.isSubsequentYear} 
                         adjustments=${activityData.adjustments}
-                        closingEntries=${data.closingJournal /* Passed from parent or undefined */} 
+                        closingEntries=${data.closingJournal} 
                      /> 
                 </div>
                 <div className="flex-1 lg:w-1/2 border rounded bg-white flex flex-col shadow-sm overflow-hidden min-h-0">
