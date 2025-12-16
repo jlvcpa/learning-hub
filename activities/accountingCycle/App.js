@@ -64,7 +64,7 @@ const ReportView = ({ activityData, answers }) => {
                     if (stepId === 1) content = html`<${Step01Analysis} transactions=${activityData.transactions} ...${props} />`;
                     else if (stepId === 2) content = html`<${Step02Journalizing} transactions=${activityData.transactions} validAccounts=${activityData.validAccounts} ...${props} />`;
                     else if (stepId === 3) {
-                         // FIX: Explicitly pass journalPRs defaulting to {} to prevent crash in ReportView
+                         // FIX: Explicitly pass journalPRs defaulting to {} to prevent crash
                          const journalPRs = stepAnswer.journalPRs || {};
                          content = html`<${Step03Posting} validAccounts=${activityData.validAccounts} ledgerKey=${activityData.ledger} transactions=${activityData.transactions} beginningBalances=${activityData.beginningBalances} ...${props} journalPRs=${journalPRs} />`;
                     }
@@ -112,7 +112,7 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
     const [fsFormat, setFsFormat] = useState(() => localStorage.getItem('ac_fsFormat') || 'Single');
     const [includeCashFlows, setIncludeCashFlows] = useState(() => localStorage.getItem('ac_includeCashFlows') === 'true');
     const [enableAutoSave, setEnableAutoSave] = useState(() => localStorage.getItem('ac_enableAutoSave') === 'true');
-    const [isGenerating, setIsGenerating] = useState(false); // Loading state for bundling
+    const [isGenerating, setIsGenerating] = useState(false);
 
     // Standard Options
     const [includeTradeDiscounts, setIncludeTradeDiscounts] = useState(false);
@@ -158,6 +158,12 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
     };
 
     const handleDownloadStandalone = async () => {
+        // SECURITY CHECK: Browsers block fetch from file:// protocol
+        if (window.location.protocol === 'file:') {
+            alert("Security Restriction: Browsers block reading files directly from the hard drive (file:// protocol) for bundling.\n\nPlease run this activity using a local web server (e.g., VS Code 'Live Server' extension, Python http.server) or host it on GitHub Pages to use the Download feature.");
+            return;
+        }
+
         setIsGenerating(true);
         const config = { 
             businessType, ownership, inventorySystem, 
@@ -416,28 +422,34 @@ const App = () => {
         if (isDownload) {
             // Bundle all modules into a single HTML file
             try {
-                // 1. Fetch all source files
+                // 1. Resolve Path Base (Handles GitHub Pages / Server Subfolders)
+                // import.meta.url gives us the full absolute path of App.js. We need the directory.
+                const baseUrl = new URL('.', import.meta.url).href;
+
+                // 2. Fetch all source files
+                // Note: We use simple file names relative to baseUrl
                 const files = [
-                    './utils.js', './steps.js', './App.js',
-                    './steps/Step01Analysis.js', './steps/Step02Journalizing.js',
-                    './steps/Step03Posting.js', './steps/Step04TrialBalance.js',
-                    './steps/Step05Worksheet.js', './steps/Step06FinancialStatements.js',
-                    './steps/Step07AdjustingEntries.js', './steps/Step08ClosingEntries.js',
-                    './steps/Step09PostClosingTB.js', './steps/Step10ReversingEntries.js',
-                    './steps/GenericStep.js'
+                    'utils.js', 'steps.js', 'App.js',
+                    'steps/Step01Analysis.js', 'steps/Step02Journalizing.js',
+                    'steps/Step03Posting.js', 'steps/Step04TrialBalance.js',
+                    'steps/Step05Worksheet.js', 'steps/Step06FinancialStatements.js',
+                    'steps/Step07AdjustingEntries.js', 'steps/Step08ClosingEntries.js',
+                    'steps/Step09PostClosingTB.js', 'steps/Step10ReversingEntries.js',
+                    'steps/GenericStep.js'
                 ];
                 
                 const fetchedCodes = await Promise.all(files.map(async f => {
-                    const res = await fetch(f);
-                    if (!res.ok) throw new Error(`Failed to load ${f}`);
+                    const url = new URL(f, baseUrl).href;
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`Failed to load ${f} (Status: ${res.status}). Ensure files are served via HTTP.`);
                     return await res.text();
                 }));
 
-                // 2. Process code: Strip imports/exports
+                // 3. Process code: Strip imports/exports to make them work in one script scope
                 const mergedCode = fetchedCodes.map(code => {
-                     // Remove imports relative to local files
+                     // Remove imports relative to local files (./...)
                      let c = code.replace(/import .* from '\.\/.*';/g, '');
-                     // Clean up exports
+                     // Clean up exports (turn them into simple variable declarations)
                      c = c.replace(/export default function/g, 'function');
                      c = c.replace(/export default const/g, 'const');
                      c = c.replace(/export const/g, 'const');
@@ -446,7 +458,7 @@ const App = () => {
                      return c;
                 }).join('\n\n');
 
-                // 3. Construct HTML
+                // 4. Construct HTML
                 const htmlContent = `
 <!DOCTYPE html>
 <html lang="en">
@@ -482,10 +494,12 @@ const App = () => {
         import htm from 'https://esm.sh/htm';
         import * as Lucide from 'https://esm.sh/lucide-react@0.263.1';
         
-        // Expose icons globally
+        // Expose icons globally for merged code
         const { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader, Lock, ChevronDown, ChevronRight, Table, Plus, X } = Lucide;
 
+        // --- MERGED CODE START ---
         ${mergedCode}
+        // --- MERGED CODE END ---
 
         const root = createRoot(document.getElementById('root'));
         root.render(React.createElement(App));
@@ -493,7 +507,7 @@ const App = () => {
 </body>
 </html>`;
 
-                // 4. Download
+                // 5. Download Blob
                 const blob = new Blob([htmlContent], { type: 'text/html' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -505,7 +519,8 @@ const App = () => {
                 URL.revokeObjectURL(url);
 
             } catch (err) {
-                alert("Failed to bundle standalone file. Ensure all files are served correctly via HTTP/HTTPS (not file://). Error: " + err.message);
+                console.error(err);
+                alert("Failed to bundle standalone file. \nError: " + err.message + "\n\nNote: If you are running this file locally (file://), this feature is blocked by browser security. Please use a local web server (like VS Code Live Server) or host on GitHub Pages.");
             }
             return;
         }
