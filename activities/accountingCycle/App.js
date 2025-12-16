@@ -155,7 +155,6 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
     };
 
     const handleDownloadStandalone = async () => {
-        // SECURITY CHECK
         if (window.location.protocol === 'file:') {
             alert("Security Restriction: Browsers block reading files directly from the hard drive (file:// protocol).\n\nPlease host this on GitHub Pages or use a local server.");
             return;
@@ -170,7 +169,6 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
             fsFormat, includeCashFlows, enableAutoSave, 
             options: { includeTradeDiscounts, includeCashDiscounts, includeFreight } 
         };
-        // Trigger generic generation first to get the data
         await onGenerate(config, true); 
         setIsGenerating(false);
     };
@@ -342,7 +340,7 @@ const TeacherDashboard = ({ onGenerate, onResume }) => {
 };
 
 const App = () => {
-    // STUDENT MODE CHECK: If "window.STUDENT_CONFIG" exists, we use that data and skip the dashboard.
+    // STUDENT MODE CHECK
     const preloadedData = window.STUDENT_CONFIG || null;
 
     const [mode, setMode] = useState(preloadedData ? 'activity' : 'config');
@@ -415,10 +413,10 @@ const App = () => {
         
         if (isDownload) {
             try {
-                // 1. Resolve Path Base using import.meta.url
+                // 1. Resolve Path Base
                 const baseUrl = new URL('.', import.meta.url).href;
 
-                // 2. Fetch all source files (Relative to App.js location)
+                // 2. Fetch files
                 const files = [
                     'utils.js', 'steps.js', 'App.js',
                     'steps/Step01Analysis.js', 'steps/Step02Journalizing.js',
@@ -436,11 +434,10 @@ const App = () => {
                     return await res.text();
                 }));
 
-                // 3. Process code: Strip imports/exports to make them work in one script scope
+                // 3. Process code: Strip ALL imports and exports
                 const mergedCode = fetchedCodes.map(code => {
-                     // Remove imports relative to local files (./...)
-                     // Regex: match import lines that start with ./ or ../
-                     let c = code.replace(/import\s+.*?;/g, ''); // Aggressive strip of ALL imports (even CDN ones)
+                     // Aggressively remove ANY import statement
+                     let c = code.replace(/import\s+.*?;/g, ''); 
                      
                      // Clean up exports (turn them into simple variable declarations)
                      c = c.replace(/export default function/g, 'function');
@@ -449,12 +446,15 @@ const App = () => {
                      c = c.replace(/export function/g, 'function');
                      c = c.replace(/export default/g, '');
                      
-                     // CRITICAL: Escape closing script tags in string literals (like in handlePrint)
+                     // Remove 'const html = ...' from sub-files because we declare it globally in the wrapper
+                     c = c.replace(/const html = htm.bind\(React.createElement\);/g, '');
+
+                     // Escape closing script tags
                      c = c.replace(/<\/script>/g, '<\\/script>');
                      return c;
                 }).join('\n\n');
 
-                // 4. Construct HTML via ARRAY (NOT template literal) to avoid nesting issues
+                // 4. Construct HTML via ARRAY
                 const htmlParts = [
                     '<!DOCTYPE html>',
                     '<html lang="en">',
@@ -490,8 +490,8 @@ const App = () => {
                     '        import htm from \'https://esm.sh/htm\';',
                     '        import * as Lucide from \'https://esm.sh/lucide-react@0.263.1\';',
                     '        ',
-                    '        // Expose icons globally for merged code',
                     '        const { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download, Loader, Lock, ChevronDown, ChevronRight, Table, Plus, X } = Lucide;',
+                    '        const html = htm.bind(React.createElement);', // Single Declaration
                     '',
                     mergedCode,
                     '',
