@@ -423,11 +423,9 @@ const App = () => {
             // Bundle all modules into a single HTML file
             try {
                 // 1. Resolve Path Base (Handles GitHub Pages / Server Subfolders)
-                // import.meta.url gives us the full absolute path of App.js. We need the directory.
                 const baseUrl = new URL('.', import.meta.url).href;
 
                 // 2. Fetch all source files
-                // Note: We use simple file names relative to baseUrl
                 const files = [
                     'utils.js', 'steps.js', 'App.js',
                     'steps/Step01Analysis.js', 'steps/Step02Journalizing.js',
@@ -447,9 +445,7 @@ const App = () => {
 
                 // 3. Process code: Strip imports/exports to make them work in one script scope
                 const mergedCode = fetchedCodes.map(code => {
-                     // Remove imports relative to local files (./...)
                      let c = code.replace(/import .* from '\.\/.*';/g, '');
-                     // Clean up exports (turn them into simple variable declarations)
                      c = c.replace(/export default function/g, 'function');
                      c = c.replace(/export default const/g, 'const');
                      c = c.replace(/export const/g, 'const');
@@ -552,7 +548,8 @@ const App = () => {
         const printWindow = window.open('', '', 'height=800,width=1000');
         
         printWindow.document.write('<html><head><title>Activity Report</title>');
-        printWindow.document.write('<script src="https://cdn.tailwindcss.com"></script>');
+        // FIX: Break the closing script tag so it doesn't terminate the main script block when bundled into the single HTML file.
+        printWindow.document.write('<script src="https://cdn.tailwindcss.com"></' + 'script>');
         printWindow.document.write(`
             <style>
                 @page {
