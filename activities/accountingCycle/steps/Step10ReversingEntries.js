@@ -92,9 +92,7 @@ export const validateReversingEntry = (entry, adj, config, isFirst) => {
         }
 
     } else {
-        // [SCENARIO B] NO ENTRY REQUIRED (Standard Deferrals, Depreciation, Bad Debts)
-        
-        // If user entered ANY data, it is incorrect.
+        // [SCENARIO B] NO ENTRY REQUIRED
         const hasData = entry.drAcc || entry.drAmt || entry.crAcc || entry.crAmt;
         
         isDrCorrect = !hasData;
@@ -111,8 +109,6 @@ export const validateReversingEntry = (entry, adj, config, isFirst) => {
 // --- LEFT PANEL: HISTORICAL JOURNAL VIEW ---
 const HistoricalJournalView = ({ entries }) => {
     const [expanded, setExpanded] = useState(true);
-    
-    // Get Year from the first entry
     const firstDate = entries.length > 0 ? new Date(entries[0].rawDate || Date.now()) : new Date();
     const year = firstDate.getFullYear();
 
@@ -213,6 +209,8 @@ const ReversingEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeedb
                 </div>
             </div>
             
+            
+
             <div className="bg-yellow-50 p-2 text-xs border-b border-yellow-200 text-yellow-800 flex items-start gap-2">
                 <${AlertCircle} size=${14} className="mt-0.5 flex-shrink-0"/>
                 <span>
@@ -233,7 +231,6 @@ const ReversingEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeedb
                     const entry = data[adj.id] || {};
                     const isFirst = idx === 0;
                     
-                    // USE SHARED VALIDATION LOGIC
                     const { 
                         isDrCorrect, isCrCorrect, isDescCorrect, isDateCorrect, isYearCorrect, shouldReverse 
                     } = validateReversingEntry(entry, adj, activityData.config, isFirst);
@@ -305,7 +302,7 @@ const ReversingEntryForm = ({ adjustments, data, onChange, isReadOnly, showFeedb
 // --- MAIN COMPONENT ---
 export default function Step10ReversingEntries({ activityData, data, onChange, showFeedback, isReadOnly }) {
     
-    // Internal Validation Calculation (DRY)
+    // DRY Validation Calculation
     const validationResult = useMemo(() => {
         if (!showFeedback && !isReadOnly) return null;
         
@@ -317,8 +314,6 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
             const isFirst = idx === 0;
             const res = validateReversingEntry(entry, adj, activityData.config, isFirst);
             
-            // Score Calculation Logic
-            // 1 point per adjustment correctly handled
             maxScore += 1;
             if (res.isEntryCorrect) score += 1;
         });
@@ -355,10 +350,8 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
         });
 
         // 3. Closing Entries
-        // Nominal Totals
-        let totalRev = 0, totalExp = 0, totalDraw = 0;
+        let totalRev = 0, totalExp = 0;
         
-        // Use a temporary map to sum accurately including BB and Trans and Adj
         const tempLedger = {};
         const getBal = (acc) => {
              if (tempLedger[acc] !== undefined) return tempLedger[acc];
@@ -405,7 +398,6 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
         const ni = totalRev - totalExp;
         const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing') && !a.includes('Dividends'));
         
-        // Close Income Summary
         if (ni !== 0) {
              const rows = ni >= 0 
                 ? [{account: 'Income Summary', amount: ni, type: 'dr'}, {account: capAcc, amount: ni, type: 'cr'}]
@@ -418,7 +410,6 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
             });
         }
 
-        // Close Drawings
         validAccounts.forEach(acc => {
             const net = getBal(acc);
             if ((acc.includes('Drawing') || acc.includes('Dividends')) && net > 0) {
