@@ -315,23 +315,10 @@ const App = () => {
              isCorrect = result.isCorrect;
 
         } else if (stepId === 10) {
-            // ... (Step 10 validation remains unchanged)
-            const { adjustments, config } = activityData;
+            // --- UPDATED STEP 10 VALIDATION ---
             const currentAns = answers[10] || {};
-            
-            let allCorrect = true;
-            adjustments.forEach((adj, idx) => {
-                const entry = currentAns[adj.id] || {};
-                const isFirst = idx === 0;
-                
-                const result = validateReversingEntry(entry, adj, config, isFirst);
-                
-                if (!result.isEntryCorrect) {
-                    allCorrect = false;
-                }
-            });
-            
-            isCorrect = allCorrect;
+            const result = validateStep10(currentAns, activityData);
+            isCorrect = result.isCorrect;
 
         } else {
              isCorrect = true;
