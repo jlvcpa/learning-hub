@@ -1,6 +1,3 @@
-// -----------------
-// --- App.js ------
-// -----------------
 import React, { useState, useCallback, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
 import { Book, Check, RefreshCw, ArrowLeft, Save, Printer, FileText, Trash2, AlertCircle, Download } from 'https://esm.sh/lucide-react@0.263.1';
@@ -598,7 +595,7 @@ const App = () => {
                 </div>
             </header>
             <div className="bg-white border-b overflow-x-auto shadow-sm sticky top-[73px] z-40 no-print"><div className="flex min-w-max px-4">${activityData.steps.map((s, idx) => html`<div key=${s.id} className=${`p-3 flex items-center gap-2 text-sm border-b-2 transition-colors ${idx === currentStepIndex ? 'border-blue-600 text-blue-700 font-bold' : 'border-transparent text-gray-500'} ${stepStatus[s.id].completed ? 'text-green-600' : ''} cursor-pointer hover:bg-gray-50`} onClick=${() => setCurrentStepIndex(idx)}><div className=${`w-6 h-6 rounded-full flex items-center justify-center text-xs border ${stepStatus[s.id].completed ? 'bg-green-100 border-green-300 text-green-700' : idx === currentStepIndex ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200'}`}><${stepStatus[s.id].completed ? Check : 'span'} size=${14}>${stepStatus[s.id].completed ? '' : s.id}</${stepStatus[s.id].completed ? Check : 'span'}></div><span>${s.title}</span></div>`)}</div></div>
-            <main className="flex-1 p-6"><div className="max-w-7xl mx-auto">${activityData.steps.map((step, idx) => html`<${TaskSection} key=${step.id} step=${step} activityData=${activityData} answers=${answers} stepStatus=${stepStatus} onValidate=${handleValidateStepById} updateAnswerFns=${{ updateNestedAnswer, updateTrialBalanceAnswer, updateAnswer }} isCurrentActiveTask=${idx === currentStepIndex} isPrevStepCompleted=${idx === 0 || stepStatus[activityData.steps[idx - 1].id]?.completed} />`)}</div></main>
+            <main className="flex-1 p-6"><div className="max-w-7xl mx-auto">${activityData.steps.map((step, idx) => html`<${TaskSection} key=${step.id} step=${step} activityData=${activityData} answers=${answers} stepStatus=${stepStatus} onValidate=${handleValidateStepById} updateAnswerFns=${{ updateNestedAnswer, updateTrialBalanceAnswer, updateAnswer }} isCurrentActiveTask=${idx === currentStepIndex} isPrevStepCompleted=${idx === 0 || stepStatus[activityData.steps[idx - 1]?.id]?.completed} />`)}</div></main>
             <footer className="bg-gray-100 border-t p-2 text-center text-sm text-gray-500 no-print flex justify-between items-center px-6">
                 <span className="text-xs text-gray-400">${APP_VERSION}</span>
                 ${isAllComplete ? html`<span className="font-bold text-green-700">Accounting Cycle Activity Fully Completed! 🎉</span>` : html`<span>Scroll up to continue the exercise.</span>`}
