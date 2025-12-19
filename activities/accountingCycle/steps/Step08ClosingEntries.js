@@ -796,15 +796,22 @@ export const validateStep08 = (data, activityData) => {
         if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
         if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
 
-        // Row Scores (Particulars + PR)
-        exps.forEach(() => { maxScore += 2; });
+        // Row Scores (Date + Particulars + PR + Amount) - Amount is implicitly required for row validity but scored?
+        // Request: "grants a score to the student for each of the year, date, particular, PR, and amount input boxes."
+        // That is 4 points per row (Date, Part, PR, Amt).
+        exps.forEach(() => { maxScore += 4; });
 
-        // Balance Scores
-        maxScore += 2; // Amt + Type
+        // Totals Score (If not zero) - We should check if non-zero is expected.
+        let expDrTotal = 0; let expCrTotal = 0;
+        // ... (calc logic duplicated below, so let's pre-calc max score inside main loop to avoid duplication errors)
     });
 
 
-    // --- VALIDATION LOGIC ---
+    // --- VALIDATION LOGIC & DYNAMIC MAX SCORE CORRECTION ---
+    // Reset Ledger Max Score to calculate it correctly inside the loop with full context
+    // Actually, let's just do it in one pass below.
+    // Re-initialize maxScore for Ledger part
+    // Keep Journal max score as calculated above.
 
     // Validate Ledgers
     sortedAllAccounts.forEach(acc => {
@@ -852,6 +859,9 @@ export const validateStep08 = (data, activityData) => {
             
             // YEAR VALIDATION (If expected due to posting)
             if (!hasHistory && expSideRows.length > 0) {
+                // if (!hasHistory && expSideRows.length > 0) already added +1 to Max Score in pre-calc? 
+                // Let's ensure consistency. We re-add max score components here.
+                
                 // If expected, validate regardless of user input
                 if (!yearInput) {
                     fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = false; // X feedback if empty
@@ -870,6 +880,10 @@ export const validateStep08 = (data, activityData) => {
             const usedExpIndices = new Set();
             
             // Match user rows to expected
+            // Strategy: We need to score based on Expected Rows to ensure missing rows are penalized (or rather, points not gained)
+            // But currently the system iterates User Rows.
+            // Let's iterate User Rows to match against Expected.
+            
             activeUserRows.forEach(uRow => {
                 const key = `${sidePrefix}-${uRow.idx}`;
                 const matchIndex = expSideRows.findIndex((e, i) => !usedExpIndices.has(i) && Math.abs(e.amt - (Number(uRow.amount)||0)) < 1);
@@ -879,23 +893,39 @@ export const validateStep08 = (data, activityData) => {
                     const match = expSideRows[matchIndex];
                     match.isPosted = true; // Mark as posted for Journal PR check
                     
+                    // 1. Amount (1 pt)
                     fieldStatus[`${ledgerKeyBase}-${key}-amt`] = true;
+                    score++;
 
+                    // 2. Date (1 pt)
                     const dStr = (uRow.date || '').toString();
                     const dateOk = dStr.includes(expectedDate.toString());
-                    fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
+                    if (!uRow.date) fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
+                    else {
+                        fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
+                        if (dateOk) score++;
+                    }
 
+                    // 3. Particulars (1 pt)
                     const item = (uRow.item || '').toLowerCase();
                     const itemOk = item === 'clos';
-                    fieldStatus[`${ledgerKeyBase}-${key}-item`] = itemOk;
-                    if (itemOk) score++;
+                    if (!uRow.item) fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
+                    else {
+                        fieldStatus[`${ledgerKeyBase}-${key}-item`] = itemOk;
+                        if (itemOk) score++;
+                    }
 
+                    // 4. PR (1 pt)
                     const pr = (uRow.pr || '').toLowerCase();
                     const prOk = pr.includes('j'); 
-                    fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
-                    if (prOk) score++;
+                    if (!uRow.pr) fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
+                    else {
+                        fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
+                        if (prOk) score++;
+                    }
 
                 } else {
+                    // Extra/Wrong Row
                     fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
                     fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
                     fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
@@ -903,19 +933,30 @@ export const validateStep08 = (data, activityData) => {
                     score -= 1;
                 }
             });
+            
+            // Determine Missing Rows for Feedback? (Not requested, just scoring)
+            // Any expected row not in usedExpIndices represents missed points.
         };
 
         validateSide(userL.leftRows || [], expLeft, 'l', hasHistoryLeft, userL.yearInputLeft);
         validateSide(userL.rightRows || [], expRight, 'r', hasHistoryRight, userL.yearInputRight);
 
         // TOTALS Check
+        // Max Score Logic: If expected > 0, it's a scoreable field (1pt)
         const checkTotal = (userVal, expVal, key) => {
              const val = Number(userVal);
              if (expVal > 0) {
-                 const ok = Math.abs(val - expVal) < 1;
-                 fieldStatus[key] = ok; 
+                 maxScore += 1;
+                 if (!userVal) {
+                     fieldStatus[key] = false; // Expected but empty -> X
+                 } else {
+                     const ok = Math.abs(val - expVal) < 1;
+                     fieldStatus[key] = ok; 
+                     if (ok) score++;
+                 }
              } else {
-                 fieldStatus[key] = userVal ? false : null;
+                 fieldStatus[key] = userVal ? false : null; // Not expected -> if filled, X
+                 if (userVal) score -= 1;
              }
         };
         checkTotal(userL.drTotal, expDrTotal, `${ledgerKeyBase}-drTotal`);
@@ -952,12 +993,24 @@ export const validateStep08 = (data, activityData) => {
         
         // Balance Amt
         if (expectedBal > 0) {
+            // maxScore += 1; (Already handled in pre-calc loop? No, let's rely on dynamic add here or strict calc above. 
+            // Better to stick to strict pre-calc or dynamic accumulation. Mixing leads to bugs.
+            // Let's update MaxScore dynamically here instead of pre-calc loop for Ledger, cleaner.)
+            
+            // Note: The pre-calc loop above added +2 for Balance. We should keep it consistent.
+            // Actually, let's remove the Ledger Pre-calc loop and do it all here.
+            
             const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
-            fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
-            if (matchesAmt) score++;
+            if (!userL.balance) {
+                fieldStatus[`${ledgerKeyBase}-bal`] = false;
+            } else {
+                fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
+                if (matchesAmt) score++;
+            }
         } else {
              if (userBal) {
                  fieldStatus[`${ledgerKeyBase}-bal`] = false; 
+                 score -= 1;
              } else {
                  fieldStatus[`${ledgerKeyBase}-bal`] = null;
              }
@@ -966,10 +1019,15 @@ export const validateStep08 = (data, activityData) => {
         // Balance Type
         if (!isZero) {
             const matchesType = userType === expectedType;
-            fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
-            if (matchesType) score++;
+            if (!userType) {
+                fieldStatus[`${ledgerKeyBase}-balType`] = false;
+            } else {
+                fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
+                if (matchesType) score++;
+            }
         } else {
              fieldStatus[`${ledgerKeyBase}-balType`] = userType ? false : null; 
+             if (userType) score -= 1;
         }
 
         fieldStatus[`${ledgerKeyBase}-overall`] = (fieldStatus[`${ledgerKeyBase}-bal`] !== false) && (fieldStatus[`${ledgerKeyBase}-balType`] !== false);
@@ -990,7 +1048,11 @@ export const validateStep08 = (data, activityData) => {
                  let drOk = null;
                  if (expected.dr > 0) {
                      // Expecting Answer
-                     drOk = Math.abs((Number(uRow.dr)||0) - expected.dr) < 1; 
+                     if (uRow.dr === '' || uRow.dr === undefined) {
+                         drOk = false; // Empty X
+                     } else {
+                         drOk = Math.abs((Number(uRow.dr)||0) - expected.dr) < 1; 
+                     }
                  } else {
                      // Not Expecting Answer
                      if (uRow.dr) {
@@ -1004,7 +1066,11 @@ export const validateStep08 = (data, activityData) => {
                  // Credit Check
                  let crOk = null;
                  if (expected.cr > 0) {
-                     crOk = Math.abs((Number(uRow.cr)||0) - expected.cr) < 1;
+                     if (uRow.cr === '' || uRow.cr === undefined) {
+                         crOk = false; 
+                     } else {
+                         crOk = Math.abs((Number(uRow.cr)||0) - expected.cr) < 1;
+                     }
                  } else {
                      if (uRow.cr) {
                          crOk = false;
@@ -1056,6 +1122,80 @@ export const validateStep08 = (data, activityData) => {
                  score -= 1; 
             }
         });
+    });
+
+    // Re-Calculate Max Score Completely based on Expectations to ensure consistency
+    maxScore = 0;
+    
+    // Journal Max
+    Object.values(expectedJournal).forEach((block, i) => {
+        block.forEach((row, rIdx) => {
+            maxScore += 1; // Account
+            if (row.dr > 0) maxScore += 1; // Dr Amt
+            if (row.cr > 0) maxScore += 1; // Cr Amt
+            maxScore += 1; // PR
+            if (rIdx === 0) maxScore += 1; // Date
+        });
+    });
+
+    // Ledger Max
+    sortedAllAccounts.forEach(acc => {
+        const exps = expectedPostings[acc] || [];
+        const expLeft = exps.filter(e => e.side === 'left');
+        const expRight = exps.filter(e => e.side === 'right');
+
+        // History check logic (Matches Visual mapping logic)
+        const hasHistoryLeft = transactions.some(t => t.debits.some(d => d.account === acc)) || (ledger[acc]?.debit > 0) || adjustments.some(a => a.drAcc === acc);
+        const hasHistoryRight = transactions.some(t => t.credits.some(c => c.account === acc)) || (ledger[acc]?.credit > 0) || adjustments.some(a => a.crAcc === acc);
+
+        // Year Score
+        if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
+        if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
+
+        // Row Scores (Date + Particulars + PR + Amount)
+        exps.forEach(() => { maxScore += 4; });
+
+        // Totals (Conditional)
+        // Recalc Expected Totals
+        let expDrTotal = 0; let expCrTotal = 0;
+        if (config?.isSubsequentYear && beginningBalances?.balances?.[acc]) {
+             const bb = beginningBalances.balances[acc];
+             if (bb.dr) expDrTotal += bb.dr;
+             if (bb.cr) expCrTotal += bb.cr;
+        }
+        transactions.forEach(t => {
+            t.debits.forEach(d => { if(d.account === acc) expDrTotal += d.amount; });
+            t.credits.forEach(c => { if(c.account === acc) expCrTotal += c.amount; });
+        });
+        adjustments.forEach(a => {
+            if(a.drAcc === acc) expDrTotal += a.amount;
+            if(a.crAcc === acc) expCrTotal += a.amount;
+        });
+        expLeft.forEach(e => expDrTotal += e.amt);
+        expRight.forEach(e => expCrTotal += e.amt);
+        
+        if (expDrTotal > 0) maxScore += 1;
+        if (expCrTotal > 0) maxScore += 1;
+
+        // Balance Scores (Amt + Type)
+        // Recalc Expected Balance Logic
+        const type = getAccountType(acc);
+        let rawDr = ledger[acc]?.debit || 0;
+        let rawCr = ledger[acc]?.credit || 0;
+        adjustments.forEach(a => { if (a.drAcc === acc) rawDr += a.amount; if (a.crAcc === acc) rawCr += a.amount; });
+        let net = rawDr - rawCr;
+        if (type === 'Revenue') net -= net; 
+        else if (type === 'Expense') net += Math.abs(net);
+        
+        let expectedBal = 0;
+        if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') expectedBal = 0;
+        else if (acc === capitalAccName) {
+            let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); 
+            capBal += netIncome; capBal -= drawingAmt; expectedBal = capBal;
+        } else expectedBal = Math.abs(net);
+        
+        if (expectedBal > 0) maxScore += 1; // Bal Amt
+        if (expectedBal > 0) maxScore += 1; // Bal Type (Only if non-zero balance expected)
     });
 
     return {
