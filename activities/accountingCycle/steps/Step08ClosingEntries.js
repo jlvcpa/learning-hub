@@ -616,7 +616,7 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
 
 // --- VALIDATION HELPER ---
 export const validateStep08 = (data, activityData) => {
-    const { validAccounts, ledger, adjustments, transactions } = activityData;
+    const { validAccounts, ledger, adjustments, transactions = [], beginningBalances, config } = activityData;
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
 
@@ -763,16 +763,27 @@ export const validateStep08 = (data, activityData) => {
         // Calculate Expected Totals for Validation
         let expDrTotal = 0; 
         let expCrTotal = 0;
-        if(ledger[acc]?.debit) expDrTotal += ledger[acc].debit;
-        if(ledger[acc]?.credit) expCrTotal += ledger[acc].credit;
+        
+        // 1. Beginning Balances
+        if (config?.isSubsequentYear && beginningBalances?.balances?.[acc]) {
+             const bb = beginningBalances.balances[acc];
+             if (bb.dr) expDrTotal += bb.dr;
+             if (bb.cr) expCrTotal += bb.cr;
+        }
+
+        // 2. Transactions
         transactions.forEach(t => {
             t.debits.forEach(d => { if(d.account === acc) expDrTotal += d.amount; });
             t.credits.forEach(c => { if(c.account === acc) expCrTotal += c.amount; });
         });
+
+        // 3. Adjustments
         adjustments.forEach(a => {
             if(a.drAcc === acc) expDrTotal += a.amount;
             if(a.crAcc === acc) expCrTotal += a.amount;
         });
+
+        // 4. Closing Entries
         expLeft.forEach(e => expDrTotal += e.amt);
         expRight.forEach(e => expCrTotal += e.amt);
 
@@ -807,7 +818,7 @@ export const validateStep08 = (data, activityData) => {
                     fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
 
                     const item = (uRow.item || '').toLowerCase();
-                    const itemOk = ['closing', 'clos'].includes(item);
+                    const itemOk = item === 'clos';
                     fieldStatus[`${ledgerKeyBase}-${key}-item`] = itemOk;
                     if (itemOk) score++;
 
@@ -834,8 +845,6 @@ export const validateStep08 = (data, activityData) => {
              const val = Number(userVal);
              if (expVal > 0) {
                  const ok = Math.abs(val - expVal) < 1;
-                 // If empty, userVal is "", val is 0. 0 != expVal -> ok is false -> X. Correct.
-                 // If userVal matches -> True -> Check. Correct.
                  fieldStatus[key] = ok; 
              } else {
                  fieldStatus[key] = userVal ? false : null;
@@ -876,13 +885,11 @@ export const validateStep08 = (data, activityData) => {
         // Balance Amt
         if (expectedBal > 0) {
             const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
-            // If empty -> 0 != exp -> False(X). Correct.
             fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
             if (matchesAmt) score++;
         } else {
              if (userBal) {
                  fieldStatus[`${ledgerKeyBase}-bal`] = false; 
-                 // No deduction logic specified for this specific field, but implies standard logic
              } else {
                  fieldStatus[`${ledgerKeyBase}-bal`] = null;
              }
