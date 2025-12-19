@@ -358,13 +358,24 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
             const isLocked = hasHistory || !isYearExpected; 
             const val = hasHistory ? contextYear : (isYearExpected ? (userYearInput || '') : '');
             
+            // Check for year feedback
+            let fb = null;
+            // Only show feedback if we are in feedback mode AND it's unlocked (user input)
+            if (!isLocked && showFeedback) {
+                // Check if feedback exists for this side's year
+                const sideFeedbackObj = rowFeedback[`${side}Year`];
+                if (sideFeedbackObj !== undefined) {
+                    fb = sideFeedbackObj;
+                }
+            }
+
             return {
                 isYearRow: true,
                 date: val, 
                 item: '', pr: '', amount: '',
                 isUser: !isLocked, 
                 isLocked: isLocked,
-                feedback: !isLocked ? yearFeedback : null
+                feedback: fb
             };
         }
 
@@ -645,13 +656,19 @@ export const validateStep08 = (data, activityData) => {
     const userLedgers = data.ledgers || {};
 
     // Determine correct date (End of Month of last transaction)
+    // Default to '31' but now we calculate precise day/month string for validation
     let expectedDate = '31';
     let contextYear = new Date().getFullYear();
+    let expectedMonth = ''; // e.g. "Dec"
+    let expectedMonthDay = ''; // e.g. "Dec 31"
+
     if (transactions && transactions.length > 0) {
         const d = new Date(transactions[transactions.length - 1].date);
-        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        expectedDate = lastDay.toString();
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        expectedDate = lastDay.getDate().toString(); // "31"
         contextYear = d.getFullYear();
+        expectedMonth = lastDay.toLocaleString('default', { month: 'short' }); // "Dec"
+        expectedMonthDay = `${expectedMonth} ${expectedDate}`; // "Dec 31"
     }
 
     let score = 0;
@@ -696,7 +713,10 @@ export const validateStep08 = (data, activityData) => {
         const rows = side === 'dr' ? (u.leftRows || []) : (u.rightRows || []);
         return rows.some(r => {
             const rAmt = Number(r.amount);
-            return Math.abs(rAmt - amount) <= 1;
+            // Match loosely on date (31) and item (Clos) and exact amount
+            const rDate = (r.date || '').trim();
+            const dateMatch = rDate === expectedDate || rDate === expectedMonthDay || rDate === '';
+            return Math.abs(rAmt - amount) <= 1 && dateMatch && (r.item || '').toLowerCase().includes('clos');
         });
     };
 
@@ -810,6 +830,7 @@ export const validateStep08 = (data, activityData) => {
             if (a.drAcc === acc) hasHistDr = true;
             if (a.crAcc === acc) hasHistCr = true;
         });
+        
         if ((ledger[acc]?.debit || 0) > 0) hasHistDr = true;
         if ((ledger[acc]?.credit || 0) > 0) hasHistCr = true;
 
@@ -852,7 +873,7 @@ export const validateStep08 = (data, activityData) => {
                     const d = (row.date || '').trim();
                     // Date Logic: "Dec 31" if first row and no history, else "31"
                     if (!hasHistory && rIdx === 0) {
-                        if (d.toLowerCase() === `dec ${expectedDate}`) { fb.date = true; score++; }
+                        if (d.toLowerCase() === expectedMonthDay.toLowerCase()) { fb.date = true; score++; }
                     } else {
                         if (d === expectedDate.toString()) { fb.date = true; score++; }
                     }
