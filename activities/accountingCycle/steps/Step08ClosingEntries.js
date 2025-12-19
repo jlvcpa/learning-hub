@@ -550,7 +550,27 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
     };
 
     const { validAccounts, transactions, beginningBalances, config } = activityData;
-    const sortedAccounts = sortAccounts(validAccounts);
+    
+    // Insert Income Summary after Drawings if present, or reasonably in equity section
+    const sortedAccounts = useMemo(() => {
+        const accs = sortAccounts([...validAccounts]);
+        if (!accs.includes('Income Summary')) {
+            // Find drawing account to insert after
+            const drawIndex = accs.findIndex(a => a.includes('Drawing') || a.includes('Drawings'));
+            if (drawIndex >= 0) {
+                accs.splice(drawIndex + 1, 0, 'Income Summary');
+            } else {
+                // Fallback: After Capital or at end of list if no drawings
+                const capIndex = accs.findIndex(a => a.includes('Capital') || a.includes('Equity'));
+                if (capIndex >= 0) {
+                    accs.splice(capIndex + 1, 0, 'Income Summary');
+                } else {
+                    accs.push('Income Summary');
+                }
+            }
+        }
+        return accs;
+    }, [validAccounts]);
 
     const contextYear = useMemo(() => {
         if (transactions && transactions.length > 0) {
@@ -641,7 +661,13 @@ export const validateStep08 = (data, activityData) => {
     let drawingAccName = '';
     let capitalAccName = '';
 
-    validAccounts.forEach(acc => {
+    // Prepare list of accounts including Income Summary for iteration
+    const allAccounts = [...validAccounts];
+    if (!allAccounts.includes('Income Summary')) {
+        allAccounts.push('Income Summary');
+    }
+
+    allAccounts.forEach(acc => {
         const type = getAccountType(acc);
         const rawDr = ledger[acc]?.debit || 0;
         const rawCr = ledger[acc]?.credit || 0;
@@ -690,7 +716,7 @@ export const validateStep08 = (data, activityData) => {
 
     // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
     const expectedPostings = {};
-    validAccounts.forEach(acc => expectedPostings[acc] = []);
+    allAccounts.forEach(acc => expectedPostings[acc] = []);
 
     // Helper to push expectation
     const expPost = (acc, side, amt) => {
@@ -724,7 +750,7 @@ export const validateStep08 = (data, activityData) => {
     });
 
     // 2. Ledger Max Score
-    validAccounts.forEach(acc => {
+    allAccounts.forEach(acc => {
         const exps = expectedPostings[acc] || [];
         const expLeft = exps.filter(e => e.side === 'left');
         const expRight = exps.filter(e => e.side === 'right');
@@ -748,7 +774,7 @@ export const validateStep08 = (data, activityData) => {
     // --- VALIDATION LOGIC ---
 
     // Validate Ledgers
-    validAccounts.forEach(acc => {
+    allAccounts.forEach(acc => {
         const userL = userLedgers[acc] || {};
         const exps = expectedPostings[acc] || [];
         const ledgerKeyBase = `ledger-${acc}`;
