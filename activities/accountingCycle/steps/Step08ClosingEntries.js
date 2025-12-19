@@ -90,29 +90,27 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
         const rows = [...currentEntries[blockIdx].rows];
         if (!rows[rowIdx]) rows[rowIdx] = {};
 
-        // 1. Debit Entry Check: Prevent Debit if a Credit exists in previous rows
+        // 1. Debit Entry Check
         if (field === 'dr' && val > 0) {
             const hasPriorCredit = rows.some((r, idx) => idx < rowIdx && (Number(r.cr) || 0) > 0);
             if (hasPriorCredit) {
                 alert("Please enter all Debit entries first before entering any Credit entries.");
-                return; // Block change
+                return;
             }
-            // If entering Debit, ensure account is NOT indented
             if (rows[rowIdx].acc && rows[rowIdx].acc.startsWith("    ")) {
                 rows[rowIdx].acc = rows[rowIdx].acc.trim();
             }
         }
 
-        // 2. Credit Entry Logic: Auto-indent Account
+        // 2. Credit Entry Logic
         if (field === 'cr' && val > 0) {
-            // Automatically indent account title if not already
             const currentAcc = rows[rowIdx].acc || '';
             if (!currentAcc.startsWith("    ")) {
                 rows[rowIdx].acc = "    " + currentAcc;
             }
         }
 
-        // 3. Date Logic: Only allowed on rowIdx 0 (Enforced in Render, but filtered here just in case)
+        // 3. Date Logic
         if (field === 'date' && rowIdx !== 0) return;
 
         rows[rowIdx][field] = val;
@@ -156,7 +154,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                             </div>
 
                             ${rows.map((row, rIdx) => {
-                                // Validation Keys
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
@@ -254,7 +251,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         t.credits.forEach(c => { if(c.account === accName) rightRows.push({ date: dateStr, item: 'GJ', pr: '1', amount: c.amount, isLocked: true }); });
     });
 
-    // Adjusting Entries (Read-Only here)
+    // Adjusting Entries
     if (adjustments) {
         adjustments.forEach(adj => {
             const d = new Date(closeDate); 
@@ -279,9 +276,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     const displayRows = Array.from({length: displayRowsCount}).map((_, i) => i);
 
     const updateSide = (side, visualIdx, field, val) => {
-        // Visual Index 0 is Year Row
         if (visualIdx === 0) {
-            // Year Input is handled independently for left/right
             const key = side === 'left' ? 'yearInputLeft' : 'yearInputRight';
             onUpdate({ ...userLedger, [key]: val });
             return;
@@ -340,8 +335,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         const histLen = side === 'left' ? leftRows.length : rightRows.length;
         const hasHistory = histLen > 0;
         
-        // Year Input Logic
-        // Check if year input is required for this side by validation result
+        // Year Input Logic - Determine by feedback (validation tells us if Year is required/expected)
         const yearFeedback = rowFeedback[`${side}Year`];
         const isYearRequired = yearFeedback !== undefined;
 
@@ -358,8 +352,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                 isLocked = false; // User must enter
                 val = userYearInput || '';
             } else {
-                // Not required, no history -> blank and locked
-                val = '';
+                val = ''; // Not required/No history -> Empty and Locked
             }
             
             let fb = null;
@@ -390,21 +383,19 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         let datePlaceholder = "dd";
 
         if (hasHistory) {
-            // Standard behavior if history exists
             if (visualIdx === 1) {
-                // First history row
+                // First history row usually has full date
             } else {
                 if (row.isLocked && displayDate.includes(' ')) {
                     displayDate = displayDate.split(' ')[1];
                 }
             }
         } else {
-            // NO History on this side.
+            // NO History.
             // If this is the FIRST entry (visualIdx 1), it needs to be "Mmm dd"
             if (visualIdx === 1) datePlaceholder = "Mmm dd";
         }
 
-        // Get Row Feedback
         let feedback = null;
         if (isUser && showFeedback) {
             const userIdx = dataIdx - histLen;
