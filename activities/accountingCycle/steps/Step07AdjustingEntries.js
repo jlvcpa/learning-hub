@@ -132,16 +132,12 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // Each expected posting is worth 4 points (Date, Item, PR, Amount)
         maxScore += (expectedCount * 4);
 
-        // Calculate 'Historical' Rows count (to skip validation)
-        // Note: LedgerAccountAdj uses this to determine isUser.
-        // We assume validAccounts matches what LedgerAccountAdj sees.
-        
         // Validate Left Rows (Debit)
         const userLeftRows = u.leftRows || [];
         
         userLeftRows.forEach((row, idx) => {
-            // Ignore empty rows if they are extra
-            if (!row.amount && !row.date && !row.item) {
+            // If row is totally empty, ignore it completely (no feedback, no score impact)
+            if (!row.amount && !row.date && !row.item && !row.pr) {
                 ledgerRowFeedback[acc].left[idx] = null; 
                 return;
             }
@@ -155,8 +151,6 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
             if (matchIdx !== -1) {
                 // Amount Matches - Valid Entry Attempt
                 isMatch = true;
-                // Don't splice immediately if we want to allow multiple same-amount entries? 
-                // Standard practice is 1-to-1 matching.
                 expDr.splice(matchIdx, 1); 
 
                 // Check Fields
@@ -168,25 +162,36 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } else { score--; }
                 // Item: Should be Adj
                 if (rItem.includes('adj')) { fb.item = true; score++; } else { score--; }
-                // PR: Should be J2, GJ1, etc. (Allowing any string for now, preferably J2 or Adj)
+                // PR: Should be J2, GJ1, etc.
                 if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
                 // Amount: Already matched
                 fb.amount = true; score++; 
+                
+                // Assign feedback object
+                ledgerRowFeedback[acc].left[idx] = fb;
             } else {
-                // Spurious Entry (Wrong Amount or Extra)
-                // Deduct for every filled field to discourage spamming
+                // Spurious Entry: Does NOT match any expected amount.
+                // We ONLY show feedback (red marks) if this row was intended to be an adjustment.
+                // If it's just an extra row the user added but didn't need, we mark it wrong ONLY if they filled it out partially.
+                // However, user request: "If Supplies only need 1 row adjustment posting, then only one row has check or X feedback."
+                // This implies extraneous rows should NOT show feedback unless they are 'active' attempts.
+                
+                // Current logic: If they typed something but it didn't match an expected amount, it's incorrect.
+                // Score deduction logic remains to discourage spam.
                 if (row.date) score--;
                 if (row.item) score--;
                 if (row.pr) score--;
                 if (row.amount) score--;
+                
+                // Mark all false to show Xs if content exists
+                ledgerRowFeedback[acc].left[idx] = { date: false, item: false, pr: false, amount: false };
             }
-            ledgerRowFeedback[acc].left[idx] = fb;
         });
 
         // Validate Right Rows (Credit) - Same logic
         const userRightRows = u.rightRows || [];
         userRightRows.forEach((row, idx) => {
-            if (!row.amount && !row.date && !row.item) {
+            if (!row.amount && !row.date && !row.item && !row.pr) {
                 ledgerRowFeedback[acc].right[idx] = null;
                 return;
             }
@@ -209,13 +214,16 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 if (rItem.includes('adj')) { fb.item = true; score++; } else { score--; }
                 if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
                 fb.amount = true; score++;
+                
+                ledgerRowFeedback[acc].right[idx] = fb;
             } else {
                 if (row.date) score--;
                 if (row.item) score--;
                 if (row.pr) score--;
                 if (row.amount) score--;
+                
+                ledgerRowFeedback[acc].right[idx] = { date: false, item: false, pr: false, amount: false };
             }
-            ledgerRowFeedback[acc].right[idx] = fb;
         });
 
         // Validate Year Inputs (Independent)
@@ -627,7 +635,8 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         const fb = props.feedback || {};
 
                         // Conditional checkmark/cross: Only show if it's a user row AND feedback exists (ignoring null/empty rows)
-                        const showRowFeedback = showFeedback && props.isUser && fb;
+                        // If ledgerRowFeedback was 'null' for an empty spurious row, fb is {}, so no icons shown.
+                        const showRowFeedback = showFeedback && props.isUser && Object.keys(fb).length > 0;
 
                         return html`
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
@@ -669,7 +678,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
                         const isDeletable = props.isUser && !isReadOnly && !props.isYearRow;
                         const fb = props.feedback || {};
-                        const showRowFeedback = showFeedback && props.isUser && fb;
+                        const showRowFeedback = showFeedback && props.isUser && Object.keys(fb).length > 0;
 
                         return html`
                             <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
