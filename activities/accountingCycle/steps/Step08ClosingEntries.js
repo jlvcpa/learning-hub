@@ -258,7 +258,6 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     if (adjustments) {
         adjustments.forEach(adj => {
             const d = new Date(closeDate); 
-            // Formatted date for historical rows usually "Mmm dd"
             const mm = d.toLocaleString('default', { month: 'short' });
             const dd = d.getDate().toString().padStart(2, '0');
             const adjDateStr = `${mm} ${dd}`;
@@ -350,11 +349,6 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
             // Year Row
             const userYearInput = side === 'left' ? userLedger.yearInputLeft : userLedger.yearInputRight;
             
-            // Logic: 
-            // If hasHistory -> Year is ContextYear (Locked, Display Only)
-            // If !hasHistory AND isYearRequired -> User Input (Unlocked, Required)
-            // If !hasHistory AND !isYearRequired -> Empty (Locked/Disabled) - effectively unused
-            
             let val = '';
             let isLocked = true;
             
@@ -368,7 +362,6 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                 val = '';
             }
             
-            // Only show feedback if we are in feedback mode AND it's a required user input field
             let fb = null;
             if (!isLocked && showFeedback) {
                 fb = yearFeedback;
@@ -452,10 +445,8 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                         const props = getCellProps('left', i);
                         const isRowDisabled = props.isLocked; 
                         const fb = props.feedback || {};
-                        // Only show row feedback if it's a user row AND we have specific feedback object
-                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser)) && (props.feedback !== null && props.feedback !== undefined);
+                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser)) && (props.feedback !== null);
 
-                        // Year Row Logic
                         if (props.isYearRow) {
                             return html`
                                 <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
@@ -528,7 +519,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                         return html`
                             <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative">
-                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${props.isYearRow ? 'font-bold text-center' : ''}`} placeholder=${props.datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
+                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent`} placeholder=${props.datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.date}/></div>`}
                                 </div>
                                 <div className="flex-1 border-r relative">
