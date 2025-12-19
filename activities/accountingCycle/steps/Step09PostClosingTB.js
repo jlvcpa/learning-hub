@@ -417,7 +417,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                             }
 
                                             return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
-                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black' : ''}">${dateText}</div>
+                                                <div className=${`w-14 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black text-center' : (i >= 2 ? 'text-right pr-2 text-gray-500' : 'text-center text-gray-500')}`}>${dateText}</div>
                                                 <div className="flex-1 border-r mr-1">${r.part||''}</div>
                                                 <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
                                                 <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
@@ -452,7 +452,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                             }
 
                                             return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
-                                                <div className="w-14 text-center text-gray-500 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black' : ''}">${dateText}</div>
+                                                <div className=${`w-14 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black text-center' : (i >= 2 ? 'text-right pr-2 text-gray-500' : 'text-center text-gray-500')}`}>${dateText}</div>
                                                 <div className="flex-1 border-r mr-1">${r.part||''}</div>
                                                 <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
                                                 <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
