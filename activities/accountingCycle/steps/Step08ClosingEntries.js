@@ -139,8 +139,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                 Journalize Closing Entries (REID)
             </div>
             
-            
-
             <div className="overflow-y-auto p-2 flex-1">
                 ${currentEntries.map((block, bIdx) => {
                     const rows = block.rows || [{}, {}];
@@ -220,7 +218,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 };
 
 // --- COMPONENT: Enhanced Ledger Account ---
-const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount }) => {
+const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount, closeDate }) => {
     // Validation
     const { fieldStatus, ledgerRowFeedback } = validationResult || {};
     const ledgerKeyBase = `ledger-${accName}`;
@@ -259,8 +257,14 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     // Adjusting Entries (Read-Only here)
     if (adjustments) {
         adjustments.forEach(adj => {
-            if (adj.drAcc === accName) leftRows.push({ date: 'Dec 31', item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
-            if (adj.crAcc === accName) rightRows.push({ date: 'Dec 31', item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
+            const d = new Date(closeDate); 
+            // Formatted date for historical rows usually "Mmm dd"
+            const mm = d.toLocaleString('default', { month: 'short' });
+            const dd = d.getDate().toString().padStart(2, '0');
+            const adjDateStr = `${mm} ${dd}`;
+            
+            if (adj.drAcc === accName) leftRows.push({ date: adjDateStr, item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
+            if (adj.crAcc === accName) rightRows.push({ date: adjDateStr, item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
         });
     }
 
@@ -335,38 +339,39 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     
     const getCellProps = (side, visualIdx) => {
         const histLen = side === 'left' ? leftRows.length : rightRows.length;
-        // Check if history exists on this specific side
         const hasHistory = histLen > 0;
-
-        // Check if expected postings exist on this side to determine if Year is required
-        // This requires knowing if there are expected closing entries for this side.
-        // We can check if `rowFeedback.leftYear` or `rightYear` is defined in validation result.
-        // Or passed down prop `sideHasClosingEntries`.
-        // Better: Rely on validation feedback object if present.
+        
+        // Year Input Logic
+        // Check if year input is required for this side by validation result
         const yearFeedback = rowFeedback[`${side}Year`];
-        const isYearExpected = yearFeedback !== undefined; 
+        const isYearRequired = yearFeedback !== undefined;
 
         if (visualIdx === 0) {
             // Year Row
             const userYearInput = side === 'left' ? userLedger.yearInputLeft : userLedger.yearInputRight;
             
             // Logic: 
-            // If hasHistory -> Year is ContextYear (Locked)
-            // If !hasHistory AND isYearExpected -> User Input (Unlocked)
-            // If !hasHistory AND !isYearExpected -> Empty/ContextYear (Locked/Disabled) - effectively irrelevant
+            // If hasHistory -> Year is ContextYear (Locked, Display Only)
+            // If !hasHistory AND isYearRequired -> User Input (Unlocked, Required)
+            // If !hasHistory AND !isYearRequired -> Empty (Locked/Disabled) - effectively unused
             
-            const isLocked = hasHistory || !isYearExpected; 
-            const val = hasHistory ? contextYear : (isYearExpected ? (userYearInput || '') : '');
+            let val = '';
+            let isLocked = true;
             
-            // Check for year feedback
+            if (hasHistory) {
+                val = contextYear;
+            } else if (isYearRequired) {
+                isLocked = false; // User must enter
+                val = userYearInput || '';
+            } else {
+                // Not required, no history -> blank and locked
+                val = '';
+            }
+            
+            // Only show feedback if we are in feedback mode AND it's a required user input field
             let fb = null;
-            // Only show feedback if we are in feedback mode AND it's unlocked (user input)
             if (!isLocked && showFeedback) {
-                // Check if feedback exists for this side's year
-                const sideFeedbackObj = rowFeedback[`${side}Year`];
-                if (sideFeedbackObj !== undefined) {
-                    fb = sideFeedbackObj;
-                }
+                fb = yearFeedback;
             }
 
             return {
@@ -394,7 +399,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         if (hasHistory) {
             // Standard behavior if history exists
             if (visualIdx === 1) {
-                // First history row, usually "Mmm dd"
+                // First history row
             } else {
                 if (row.isLocked && displayDate.includes(' ')) {
                     displayDate = displayDate.split(' ')[1];
@@ -402,7 +407,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
             }
         } else {
             // NO History on this side.
-            // If this is the FIRST entry (visualIdx 1), it needs to be "Mmm dd" IF the Year row is above it.
+            // If this is the FIRST entry (visualIdx 1), it needs to be "Mmm dd"
             if (visualIdx === 1) datePlaceholder = "Mmm dd";
         }
 
@@ -448,7 +453,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                         const isRowDisabled = props.isLocked; 
                         const fb = props.feedback || {};
                         // Only show row feedback if it's a user row AND we have specific feedback object
-                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser)) && (props.feedback !== null);
+                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser)) && (props.feedback !== null && props.feedback !== undefined);
 
                         // Year Row Logic
                         if (props.isYearRow) {
@@ -456,7 +461,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                                 <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
                                     <div className="w-14 border-r relative">
                                         <input type="text" className=${`w-full h-full text-center px-1 outline-none bg-transparent font-bold`} placeholder="YYYY" value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
-                                        ${showRowFeedback && props.feedback !== undefined && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
+                                        ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
                                     </div>
                                     <div className="flex-1 border-r"></div><div className="w-8 border-r"></div><div className="w-16"></div>
                                 </div>
@@ -506,14 +511,14 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                         const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
                         const isDeletable = props.isUser && !isReadOnly && !props.isYearRow;
                         const fb = props.feedback || {};
-                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser)) && (props.feedback !== null);
+                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser)) && (props.feedback !== null && props.feedback !== undefined);
 
                         if (props.isYearRow) {
                             return html`
                                 <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
                                     <div className="w-14 border-r relative">
                                         <input type="text" className=${`w-full h-full text-center px-1 outline-none bg-transparent font-bold`} placeholder="YYYY" value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
-                                        ${showRowFeedback && props.feedback !== undefined && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
+                                        ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
                                     </div>
                                     <div className="flex-1 border-r"></div><div className="w-8 border-r"></div><div className="w-16"></div><div className="w-6"></div>
                                 </div>
@@ -596,6 +601,16 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
         }
         return new Date().getFullYear();
     }, [transactions]);
+    
+    // Calculate Close Date (End of Month)
+    const closeDate = useMemo(() => {
+        if (transactions && transactions.length > 0) {
+            const d = new Date(transactions[transactions.length - 1].date);
+            const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+            return lastDay;
+        }
+        return new Date();
+    }, [transactions]);
 
     return html`
         <div className="h-full flex flex-col">
@@ -638,6 +653,7 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
                                         validationResult=${validationResult}
                                         contextYear=${contextYear}
                                         isNewAccount=${isNew}
+                                        closeDate=${closeDate}
                                     />
                                 `;
                             })}
@@ -655,20 +671,15 @@ export const validateStep08 = (data, activityData) => {
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
 
-    // Determine correct date (End of Month of last transaction)
-    // Default to '31' but now we calculate precise day/month string for validation
     let expectedDate = '31';
+    let expectedMonthShort = 'Dec';
     let contextYear = new Date().getFullYear();
-    let expectedMonth = ''; // e.g. "Dec"
-    let expectedMonthDay = ''; // e.g. "Dec 31"
-
     if (transactions && transactions.length > 0) {
         const d = new Date(transactions[transactions.length - 1].date);
         const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-        expectedDate = lastDay.getDate().toString(); // "31"
+        expectedDate = lastDay.getDate().toString();
+        expectedMonthShort = lastDay.toLocaleString('default', { month: 'short' });
         contextYear = d.getFullYear();
-        expectedMonth = lastDay.toLocaleString('default', { month: 'short' }); // "Dec"
-        expectedMonthDay = `${expectedMonth} ${expectedDate}`; // "Dec 31"
     }
 
     let score = 0;
@@ -713,10 +724,7 @@ export const validateStep08 = (data, activityData) => {
         const rows = side === 'dr' ? (u.leftRows || []) : (u.rightRows || []);
         return rows.some(r => {
             const rAmt = Number(r.amount);
-            // Match loosely on date (31) and item (Clos) and exact amount
-            const rDate = (r.date || '').trim();
-            const dateMatch = rDate === expectedDate || rDate === expectedMonthDay || rDate === '';
-            return Math.abs(rAmt - amount) <= 1 && dateMatch && (r.item || '').toLowerCase().includes('clos');
+            return Math.abs(rAmt - amount) <= 1;
         });
     };
 
@@ -726,10 +734,9 @@ export const validateStep08 = (data, activityData) => {
         const matchedUserIndices = new Set();
         
         expectedRows.forEach((expected, expIdx) => {
-            maxScore += 4; 
+            maxScore += 4; // Acc, Amount, PR, Date(if first) 
             const dateExpected = (expIdx === 0);
             
-            // Find matching user row
             const uIdx = userRows.findIndex((r, idx) => 
                 !matchedUserIndices.has(idx) && 
                 r.acc && r.acc.trim() === expected.acc
@@ -740,8 +747,7 @@ export const validateStep08 = (data, activityData) => {
                 const row = userRows[uIdx];
                 const keyBase = `journal-${blockIndex}-${uIdx}`;
 
-                // Validate
-                score++; 
+                score++; // Account Name Correct
                 fieldStatus[`${keyBase}-acc`] = true;
 
                 const drVal = Number(row.dr) || 0;
@@ -775,7 +781,6 @@ export const validateStep08 = (data, activityData) => {
             }
         });
 
-        // Penalize extra rows
         userRows.forEach((row, idx) => {
             if (!matchedUserIndices.has(idx)) {
                 if (row.acc || row.dr || row.cr) {
@@ -871,11 +876,20 @@ export const validateStep08 = (data, activityData) => {
                     score++; // Amount
 
                     const d = (row.date || '').trim();
-                    // Date Logic: "Dec 31" if first row and no history, else "31"
+                    
+                    // Date Logic: 
+                    // If NO history, this is the FIRST entry.
                     if (!hasHistory && rIdx === 0) {
-                        if (d.toLowerCase() === expectedMonthDay.toLowerCase()) { fb.date = true; score++; }
+                        // Expected: "Mmm dd" e.g., "Dec 31"
+                        const expectedStr = `${expectedMonthShort} ${expectedDate}`;
+                        if (d.toLowerCase() === expectedStr.toLowerCase()) { 
+                            fb.date = true; score++; 
+                        }
                     } else {
-                        if (d === expectedDate.toString()) { fb.date = true; score++; }
+                        // Just day: "31"
+                        if (d === expectedDate.toString()) { 
+                            fb.date = true; score++; 
+                        }
                     }
 
                     if ((row.item || '').toLowerCase().includes('clos')) { fb.item = true; score++; }
@@ -884,11 +898,12 @@ export const validateStep08 = (data, activityData) => {
                     ledgerRowFeedback[acc][sideName][rIdx] = fb;
 
                 } else {
-                    // SPURIOUS
+                    // SPURIOUS ENTRY - Only penalize if incorrect data entered
                     score--; // Amount wrong
                     if (row.date) score--;
                     if (row.item) score--;
                     if (row.pr) score--;
+                    
                     ledgerRowFeedback[acc][sideName][rIdx] = { date: false, item: false, pr: false, amount: false };
                 }
             });
