@@ -174,7 +174,7 @@ export const TaskSection = ({ step, activityData, answers, stepStatus, onValidat
             const closingJournal = answers[8]?.journal; 
             const step9Data = { ...(answers[stepId] || {}), closingJournal };
 
-            return html`<${Step09PostClosingTB} activityData=${activityData} data=${step9Data} onChange=${handleStep9Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
+            return html`<${Step09PostClosingTB} activityData=${activityData} data=${step9Data} onChange=${handleStep09Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         }
         if (stepId === 10) return html`<${Step10ReversingEntries} activityData=${activityData} data=${answers[stepId] || {}} onChange=${handleStep10Change} showFeedback=${showFeedback} isReadOnly=${status.completed} />`;
         
