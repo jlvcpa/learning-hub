@@ -87,29 +87,24 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
         const rows = [...currentEntries[blockIdx].rows];
         if (!rows[rowIdx]) rows[rowIdx] = {};
 
-        // 1. Debit Entry Check: Prevent Debit if a Credit exists in previous rows
         if (field === 'dr' && val > 0) {
             const hasPriorCredit = rows.some((r, idx) => idx < rowIdx && (Number(r.cr) || 0) > 0);
             if (hasPriorCredit) {
                 alert("Please enter all Debit entries first before entering any Credit entries.");
-                return; // Block change
+                return;
             }
-            // If entering Debit, ensure account is NOT indented
             if (rows[rowIdx].acc && rows[rowIdx].acc.startsWith("    ")) {
                 rows[rowIdx].acc = rows[rowIdx].acc.trim();
             }
         }
 
-        // 2. Credit Entry Logic: Auto-indent Account
         if (field === 'cr' && val > 0) {
-            // Automatically indent account title if not already
             const currentAcc = rows[rowIdx].acc || '';
             if (!currentAcc.startsWith("    ")) {
                 rows[rowIdx].acc = "    " + currentAcc;
             }
         }
 
-        // 3. Date Logic: Only allowed on rowIdx 0 (Enforced in Render, but filtered here just in case)
         if (field === 'date' && rowIdx !== 0) return;
 
         rows[rowIdx][field] = val;
@@ -136,8 +131,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                 Journalize Closing Entries (REID)
             </div>
             
-            
-
             <div className="overflow-y-auto p-2 flex-1">
                 ${currentEntries.map((block, bIdx) => {
                     const rows = block.rows || [{}, {}];
@@ -155,7 +148,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                             </div>
 
                             ${rows.map((row, rIdx) => {
-                                // Validation Keys
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
@@ -217,8 +209,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 };
 
 // --- COMPONENT: Enhanced Ledger Account ---
-const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount }) => {
-    // Validation
+const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear }) => {
     const { fieldStatus, ledgerRowFeedback } = validationResult || {};
     const ledgerKeyBase = `ledger-${accName}`;
     
@@ -275,9 +266,9 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     const updateSide = (side, visualIdx, field, val) => {
         // Visual Index 0 is Year Row
         if (visualIdx === 0) {
-            if (isNewAccount && side === 'left') { 
-                onUpdate({ ...userLedger, yearInput: val });
-            }
+            // Year Input is handled independently for left/right
+            const key = side === 'left' ? 'yearInputLeft' : 'yearInputRight';
+            onUpdate({ ...userLedger, [key]: val });
             return;
         }
 
@@ -331,18 +322,41 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     };
     
     const getCellProps = (side, visualIdx) => {
+        const histLen = side === 'left' ? leftRows.length : rightRows.length;
+        const hasHistory = histLen > 0;
+
         if (visualIdx === 0) {
+            // Year Row
+            const userYearInput = side === 'left' ? userLedger.yearInputLeft : userLedger.yearInputRight;
+            // Inputtable ONLY if no history on this side
+            const isLocked = hasHistory;
+            const val = isLocked ? contextYear : (userYearInput || '');
+            
+            // Check for year feedback
+            let fb = null;
+            if (!isLocked && showFeedback) {
+                // If expected entries exist, this year input is required.
+                const sideFbArr = side === 'left' ? rowFeedback.left : rowFeedback.right;
+                // If there are valid user entries, we expect a year.
+                // Or simply check ledgerRowFeedback for a year flag? 
+                // Let's rely on `rowFeedback.year` which we will set in validation.
+                const sideFeedbackObj = rowFeedback[`${side}Year`];
+                if (sideFeedbackObj !== undefined) {
+                    fb = sideFeedbackObj;
+                }
+            }
+
             return {
                 isYearRow: true,
-                date: isNewAccount ? (userLedger.yearInput || '') : contextYear, 
+                date: val, 
                 item: '', pr: '', amount: '',
-                isUser: isNewAccount, 
-                isLocked: !isNewAccount
+                isUser: !isLocked, 
+                isLocked: isLocked,
+                feedback: fb
             };
         }
 
         const dataIdx = visualIdx - 1;
-        const histLen = side === 'left' ? leftRows.length : rightRows.length;
         const dataArr = side === 'left' ? finalLeft : finalRight;
         const row = dataArr[dataIdx];
         const isUser = side === 'left' ? dataIdx >= leftRows.length : dataIdx >= rightRows.length;
@@ -352,13 +366,21 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         }
 
         let displayDate = row.date || '';
-        if (visualIdx === 1) {
-            // First Data Row: "Mmm dd"
-        } else {
-            // Subsequent: "dd"
-            if (row.isLocked && displayDate.includes(' ')) {
-                displayDate = displayDate.split(' ')[1];
+        let datePlaceholder = "dd";
+
+        if (hasHistory) {
+            // If history exists, row 1 is history, formatted "Mmm dd"
+            // User rows are later, formatted "dd"
+            if (visualIdx === 1) {
+                // Keep existing display date (likely "Jan 01" or similar)
+            } else {
+                if (row.isLocked && displayDate.includes(' ')) {
+                    displayDate = displayDate.split(' ')[1];
+                }
             }
+        } else {
+            // If NO history, the first user row (visualIdx 1) must be "Mmm dd"
+            if (visualIdx === 1) datePlaceholder = "Mmm dd";
         }
 
         // Get Row Feedback
@@ -372,6 +394,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         return {
             isYearRow: false,
             date: displayDate,
+            datePlaceholder,
             item: row.item,
             pr: row.pr,
             amount: row.amount,
@@ -400,26 +423,38 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                     ${displayRows.map(i => {
                         const props = getCellProps('left', i);
                         const isRowDisabled = props.isLocked; 
-                        const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
                         const fb = props.feedback || {};
-                        const showRowFeedback = showFeedback && props.isUser;
+                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser));
+
+                        // Year Row Logic
+                        if (props.isYearRow) {
+                            return html`
+                                <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
+                                    <div className="w-14 border-r relative">
+                                        <input type="text" className=${`w-full h-full text-center px-1 outline-none bg-transparent font-bold`} placeholder="YYYY" value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
+                                        ${showRowFeedback && props.feedback !== null && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
+                                    </div>
+                                    <div className="flex-1 border-r"></div><div className="w-8 border-r"></div><div className="w-16"></div>
+                                </div>
+                            `;
+                        }
 
                         return html`
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative">
-                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${props.isYearRow ? 'font-bold text-center' : ''}`} placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
+                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent`} placeholder=${props.datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.date}/></div>`}
                                 </div>
                                 <div className="flex-1 border-r relative">
-                                    <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
+                                    <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 right-0"><${StatusIcon} show=${true} isCorrect=${fb.item}/></div>`}
                                 </div>
                                 <div className="w-8 border-r relative">
-                                    <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
+                                    <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${true} isCorrect=${fb.pr}/></div>`}
                                 </div>
                                 <div className="w-16 relative">
-                                    <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
+                                    <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.amount}/></div>`}
                                 </div>
                             </div>
@@ -444,27 +479,37 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                     ${displayRows.map(i => {
                         const props = getCellProps('right', i);
                         const isRowDisabled = props.isLocked;
-                        const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
-                        const isDeletable = props.isUser && !isReadOnly && !props.isYearRow;
                         const fb = props.feedback || {};
-                        const showRowFeedback = showFeedback && props.isUser;
+                        const showRowFeedback = showFeedback && (props.isUser || (props.isYearRow && props.isUser));
+
+                        if (props.isYearRow) {
+                            return html`
+                                <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
+                                    <div className="w-14 border-r relative">
+                                        <input type="text" className=${`w-full h-full text-center px-1 outline-none bg-transparent font-bold`} placeholder="YYYY" value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
+                                        ${showRowFeedback && props.feedback !== null && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
+                                    </div>
+                                    <div className="flex-1 border-r"></div><div className="w-8 border-r"></div><div className="w-16"></div><div className="w-6"></div>
+                                </div>
+                            `;
+                        }
 
                         return html`
                             <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative">
-                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${props.isYearRow ? 'font-bold text-center' : ''}`} placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
+                                    <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${props.isYearRow ? 'font-bold text-center' : ''}`} placeholder=${props.datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.date}/></div>`}
                                 </div>
                                 <div className="flex-1 border-r relative">
-                                    <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
+                                    <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 right-0"><${StatusIcon} show=${true} isCorrect=${fb.item}/></div>`}
                                 </div>
                                 <div className="w-8 border-r relative">
-                                    <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
+                                    <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${true} isCorrect=${fb.pr}/></div>`}
                                 </div>
                                 <div className="w-16 relative">
-                                    <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
+                                    <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${isRowDisabled}/>
                                     ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.amount}/></div>`}
                                 </div>
                                 <div className="w-6 flex justify-center items-center">
@@ -502,9 +547,8 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
     
     // Internal Validation Calculation (DRY)
     const validationResult = useMemo(() => {
-        if (!showFeedback && !isReadOnly) return null;
         return validateStep08(data, activityData);
-    }, [data, activityData, showFeedback, isReadOnly]);
+    }, [data, activityData]);
 
     // Ensure data structures exist
     const ledgers = data.ledgers || {}; 
@@ -559,7 +603,7 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
                                         key=${acc} 
                                         accName=${acc} 
                                         transactions=${transactions}
-                                        startingBalance=${config.isSubsequentYear && beginningBalances ? beginningBalances.balances[acc] : null}
+                                        startingBalance={config.isSubsequentYear && beginningBalances ? beginningBalances.balances[acc] : null}
                                         adjustments=${activityData.adjustments}
                                         userLedger=${ledgers[acc] || {}}
                                         onUpdate=${(val) => updateLedgerData(acc, val)}
@@ -585,16 +629,17 @@ export const validateStep08 = (data, activityData) => {
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
 
-    // Determine correct date (End of Month of last transaction)
     let expectedDate = '31';
+    let contextYear = new Date().getFullYear();
     if (transactions && transactions.length > 0) {
         const d = new Date(transactions[transactions.length - 1].date);
         const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
         expectedDate = lastDay.toString();
+        contextYear = d.getFullYear();
     }
 
     let score = 0;
-    let maxScore = 0; // Will be built dynamically based on EXPECTED inputs
+    let maxScore = 0;
     const fieldStatus = {};
     const ledgerRowFeedback = {};
 
@@ -612,13 +657,13 @@ export const validateStep08 = (data, activityData) => {
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
-        const net = (rawDr + adjDr) - (rawCr + adjCr); // +Dr, -Cr
+        const net = (rawDr + adjDr) - (rawCr + adjCr);
 
         if (type === 'Revenue') {
-            totalRev += Math.abs(net); // Normal Balance Cr
+            totalRev += Math.abs(net); 
             revAccounts.push({ acc, amt: Math.abs(net) });
         } else if (type === 'Expense') {
-            totalExp += Math.abs(net); // Normal Balance Dr
+            totalExp += Math.abs(net); 
             expAccounts.push({ acc, amt: Math.abs(net) });
         } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
             drawingAmt = Math.abs(net);
@@ -630,38 +675,29 @@ export const validateStep08 = (data, activityData) => {
 
     const netIncome = totalRev - totalExp;
 
-    // --- Helper to check if a Journal Entry is Posted ---
     const isEntryPosted = (accName, side, amount) => {
         const u = userLedgers[accName] || {};
         const rows = side === 'dr' ? (u.leftRows || []) : (u.rightRows || []);
         return rows.some(r => {
             const rAmt = Number(r.amount);
-            const rDate = (r.date || '').trim();
-            // Match loosely on date (31) and item (Clos) and exact amount
-            return Math.abs(rAmt - amount) <= 1 && (rDate === expectedDate || rDate === '') && (r.item || '').toLowerCase().includes('clos');
+            return Math.abs(rAmt - amount) <= 1;
         });
     };
 
-    // --- 2. VALIDATE JOURNAL ENTRIES (REID) ---
-    
-    // We will validate block by block against expected structure
-    // Missing entries in journal don't subtract score, they just fail to add to score.
-    // Extra entries (spurious) subtract score.
-
+    // --- 2. VALIDATE JOURNAL ENTRIES ---
     const validateBlock = (blockIndex, expectedRows) => {
         const userRows = userJournal[blockIndex]?.rows || [];
-        
-        // Match user rows to expected rows to avoid order issues
         const matchedUserIndices = new Set();
         
         expectedRows.forEach((expected, expIdx) => {
-            // Add to Max Score: 1 pt for Acc, 1 for Dr/Cr amount, 1 for Date (if first), 1 for PR
-            maxScore += 1; // Acc
-            if (expected.dr > 0) maxScore++; // Dr Amount
-            if (expected.cr > 0) maxScore++; // Cr Amount
-            if (expIdx === 0) maxScore++; // Date
-            maxScore++; // PR
-
+            maxScore += 4; // Acc, Amount, PR, Date(if first) -> Roughly 4 pts worth per row? 
+            // Request says: "Input boxes ... shall be counted as part of highest possible score"
+            // Typically: Acc(1), Dr/Cr(1), PR(1). Date(1) only for first row.
+            // Let's stick to 1 point per correct field.
+            
+            // Check if date is expected for this row (index 0)
+            const dateExpected = (expIdx === 0);
+            
             // Find matching user row
             const uIdx = userRows.findIndex((r, idx) => 
                 !matchedUserIndices.has(idx) && 
@@ -673,9 +709,8 @@ export const validateStep08 = (data, activityData) => {
                 const row = userRows[uIdx];
                 const keyBase = `journal-${blockIndex}-${uIdx}`;
 
-                // Validate
-                const accOk = true; 
-                score++; // Account Name Correct
+                // Account Name
+                score++; 
                 fieldStatus[`${keyBase}-acc`] = true;
 
                 const drVal = Number(row.dr) || 0;
@@ -686,7 +721,7 @@ export const validateStep08 = (data, activityData) => {
                     if (Math.abs(drVal - expected.dr) <= 1) { score++; fieldStatus[`${keyBase}-dr`] = true; }
                     else { fieldStatus[`${keyBase}-dr`] = false; }
                 } else if (drVal > 0) {
-                    score--; // Spurious Debit
+                    score--; 
                     fieldStatus[`${keyBase}-dr`] = false;
                 }
 
@@ -695,30 +730,27 @@ export const validateStep08 = (data, activityData) => {
                     if (Math.abs(crVal - expected.cr) <= 1) { score++; fieldStatus[`${keyBase}-cr`] = true; }
                     else { fieldStatus[`${keyBase}-cr`] = false; }
                 } else if (crVal > 0) {
-                    score--; // Spurious Credit
+                    score--; 
                     fieldStatus[`${keyBase}-cr`] = false;
                 }
 
-                // Date (First row only)
-                if (expIdx === 0) {
+                // Date
+                if (dateExpected) {
                     const d = (row.date || '').trim();
                     if (d === expectedDate.toString()) { score++; fieldStatus[`${keyBase}-date`] = true; }
                     else { fieldStatus[`${keyBase}-date`] = false; }
                 }
 
                 // PR Check
-                // Must be ticked AND posted
                 const isPosted = isEntryPosted(expected.acc, expected.dr > 0 ? 'dr' : 'cr', expected.dr > 0 ? expected.dr : expected.cr);
                 if (row.pr === true && isPosted) { score++; fieldStatus[`${keyBase}-pr`] = true; }
-                else if (row.pr === true && !isPosted) { fieldStatus[`${keyBase}-pr`] = false; /* No penalty, just no point */ }
-                else { /* Missed point */ }
+                else if (row.pr === true && !isPosted) { fieldStatus[`${keyBase}-pr`] = false; }
             }
         });
 
-        // Penalize extra user rows in this block
+        // Penalize extra rows
         userRows.forEach((row, idx) => {
             if (!matchedUserIndices.has(idx)) {
-                // If row has content, penalize
                 if (row.acc || row.dr || row.cr) {
                     score--; 
                     const keyBase = `journal-${blockIndex}-${idx}`;
@@ -728,146 +760,184 @@ export const validateStep08 = (data, activityData) => {
         });
     };
 
-    // Block 0: Revenue -> Income Summary
-    const b0Exp = [
-        ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
-        { acc: 'Income Summary', dr: 0, cr: totalRev }
-    ];
+    const b0Exp = [...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })), { acc: 'Income Summary', dr: 0, cr: totalRev }];
     validateBlock(0, b0Exp);
 
-    // Block 1: Income Summary -> Expenses
-    const b1Exp = [
-        { acc: 'Income Summary', dr: totalExp, cr: 0 },
-        ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
-    ];
+    const b1Exp = [{ acc: 'Income Summary', dr: totalExp, cr: 0 }, ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))];
     validateBlock(1, b1Exp);
 
-    // Block 2: Income Summary -> Capital (Net Income/Loss)
-    const b2Exp = netIncome >= 0 
-        ? [ { acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome } ]
-        : [ { acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) } ];
+    const b2Exp = netIncome >= 0 ? [ { acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome } ] : [ { acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) } ];
     validateBlock(2, b2Exp);
 
-    // Block 3: Drawing -> Capital
-    const b3Exp = [
-        { acc: capitalAccName, dr: drawingAmt, cr: 0 },
-        { acc: drawingAccName, dr: 0, cr: drawingAmt }
-    ];
+    const b3Exp = [ { acc: capitalAccName, dr: drawingAmt, cr: 0 }, { acc: drawingAccName, dr: 0, cr: drawingAmt } ];
     validateBlock(3, b3Exp);
 
 
     // --- 3. VALIDATE LEDGER POSTINGS ---
-    
-    // We need to build a map of EXPECTED Ledger Postings based on the 4 journal blocks above.
-    // Structure: { [accName]: { dr: [amounts], cr: [amounts] } }
     const expectedPostings = {};
-    
     const addExpected = (acc, side, amt) => {
         if (!expectedPostings[acc]) expectedPostings[acc] = { dr: [], cr: [] };
         expectedPostings[acc][side].push(amt);
     };
 
-    // Populate expected postings from our calculated journal expectations
-    b0Exp.forEach(e => addExpected(e.acc, e.dr > 0 ? 'dr' : 'cr', e.dr > 0 ? e.dr : e.cr));
-    b1Exp.forEach(e => addExpected(e.acc, e.dr > 0 ? 'dr' : 'cr', e.dr > 0 ? e.dr : e.cr));
-    b2Exp.forEach(e => addExpected(e.acc, e.dr > 0 ? 'dr' : 'cr', e.dr > 0 ? e.dr : e.cr));
-    b3Exp.forEach(e => addExpected(e.acc, e.dr > 0 ? 'dr' : 'cr', e.dr > 0 ? e.dr : e.cr));
+    // Fill Expected Ledger Postings from Journal Expectations
+    [...b0Exp, ...b1Exp, ...b2Exp, ...b3Exp].forEach(e => {
+        addExpected(e.acc, e.dr > 0 ? 'dr' : 'cr', e.dr > 0 ? e.dr : e.cr);
+    });
 
     validAccounts.forEach(acc => {
         ledgerRowFeedback[acc] = { left: [], right: [] };
+        // Year Row Feedback Container
+        ledgerRowFeedback[acc].leftYear = null; 
+        ledgerRowFeedback[acc].rightYear = null;
+
         const u = userLedgers[acc] || {};
         const exp = expectedPostings[acc] || { dr: [], cr: [] };
 
-        // Helper to validate a side
-        const validateSide = (userSideRows, expectedAmts, sideName) => {
+        // Determine if history exists to decide on Year Input Requirement
+        // Note: We need access to history (trans/adj/beg) to know if a side is empty.
+        // We reconstruct history counts here.
+        let histDrCount = 0;
+        let histCrCount = 0;
+        
+        // Beg Bal
+        if (ledger[acc]?.debit > 0) histDrCount++; // Simplification: raw ledger has beg+trans
+        // Actually ledger prop has aggregated data. Let's trust the 'ledger' prop for non-zero check? 
+        // Better: Re-iterate transactions/adjustments if needed, OR just assume if rawDr > 0 there's history.
+        // Wait, rawDr includes Adjustments? No, rawDr is usually Beg+Trans.
+        // Let's refine history check:
+        // Adjustments are passed in.
+        
+        // NOTE: We need exact history counts to determine if the Closing Entry is the FIRST entry.
+        // Let's loop transactions/adjustments again for this account.
+        let hasHistDr = false; 
+        let hasHistCr = false;
+        
+        // Check BegBal/Trans (Proxy via ledger data being > 0 is risky if net is 0 but entries exist)
+        // Let's iterate transactions provided in activityData
+        if (config.isSubsequentYear && ledger[acc]) { // Assuming ledger matches
+             // This is tricky without the exact breakdown. 
+             // Let's assume if transactions array has entries for this account
+        }
+        
+        // Re-scan transactions for this account
+        transactions.forEach(t => {
+            t.debits.forEach(d => { if(d.account === acc) hasHistDr = true; });
+            t.credits.forEach(c => { if(c.account === acc) hasHistCr = true; });
+        });
+        adjustments.forEach(a => {
+            if (a.drAcc === acc) hasHistDr = true;
+            if (a.crAcc === acc) hasHistCr = true;
+        });
+        // Check Beg Bal
+        // We don't have direct access to 'beginningBalances' object structure here easily without passing it down or assuming.
+        // But we know 'ledger' contains the pre-closing balance. 
+        // If ledger[acc].debit > 0, does it mean it has history? Yes.
+        // However, Adjustments are separate.
+        
+        // Let's use the 'ledger' object from args. It usually contains BegBal + Posted Transactions.
+        if ((ledger[acc]?.debit || 0) > 0) hasHistDr = true;
+        if ((ledger[acc]?.credit || 0) > 0) hasHistCr = true;
+
+
+        const validateSide = (userSideRows, expectedAmts, sideName, hasHistory) => {
+            // YEAR INPUT VALIDATION
+            // If !hasHistory AND expectedAmts.length > 0 -> Year Input Required
+            if (!hasHistory && expectedAmts.length > 0) {
+                maxScore++; // Year is expected
+                const userYear = sideName === 'left' ? u.yearInputLeft : u.yearInputRight;
+                if ((userYear || '').toString().trim() === contextYear.toString()) {
+                    score++;
+                    ledgerRowFeedback[acc][`${sideName}Year`] = true;
+                } else {
+                    // If empty or wrong, no point. If entered wrong, maybe just X?
+                    // User says: "must be included in highest possible score... must have X feedback"
+                    ledgerRowFeedback[acc][`${sideName}Year`] = false; 
+                }
+            }
+
             const usedExpIndices = new Set();
 
             userSideRows.forEach((row, rIdx) => {
-                // Ignore empty rows if they are extra
+                // Ignore empty rows
                 if (!row.date && !row.item && !row.pr && !row.amount) {
                     ledgerRowFeedback[acc][sideName][rIdx] = null;
                     return;
                 }
 
-                // Check for match
                 const rAmt = Number(row.amount);
+                // Find Match by Amount
                 const matchIdx = expectedAmts.findIndex((amt, idx) => !usedExpIndices.has(idx) && Math.abs(amt - rAmt) <= 1);
 
                 if (matchIdx !== -1) {
-                    // MATCH FOUND
+                    // MATCH
                     usedExpIndices.add(matchIdx);
-                    // Add to Max Score for this expected entry (4 pts: Date, Item, PR, Amount)
-                    // Wait, we add maxScore based on *expected* items, typically. 
-                    // But here we are iterating user rows. 
-                    // Let's count maxScore based on the Expected Arrays outside this loop.
-                    
                     const fb = { date: false, item: false, pr: false, amount: true };
-                    score++; // Amount is correct by definition of match
+                    
+                    // Amount (Correct by match)
+                    score++;
 
                     // Date
+                    // User Rule: "If the closing entry is the first entry... the second row date must be Mmm dd."
+                    // If !hasHistory, this IS the first entry.
+                    const expectedDateString = (!hasHistory && rIdx === 0) ? `Dec ${expectedDate}` : expectedDate.toString();
+                    
                     const d = (row.date || '').trim();
-                    if (d === expectedDate.toString()) { fb.date = true; score++; }
+                    // Loose match for day
+                    const dayMatch = d === expectedDate.toString() || d === `Dec ${expectedDate}`;
+                    // Strict match if first entry logic applies? 
+                    // Let's accept both "31" and "Dec 31" to be lenient, unless user demands strictness.
+                    // User said: "must be Mmm dd". So if !hasHistory, we enforce "Dec 31".
+                    if (!hasHistory) {
+                        if (d.toLowerCase() === `dec ${expectedDate}`) { fb.date = true; score++; }
+                    } else {
+                        if (d === expectedDate.toString()) { fb.date = true; score++; }
+                    }
 
                     // Item
-                    const i = (row.item || '').toLowerCase();
-                    if (i.includes('clos')) { fb.item = true; score++; }
+                    if ((row.item || '').toLowerCase().includes('clos')) { fb.item = true; score++; }
 
                     // PR
-                    const p = (row.pr || '').trim(); // Accept anything, usually J3 or GJ
-                    if (p.length > 0) { fb.pr = true; score++; }
+                    if ((row.pr || '').trim().length > 0) { fb.pr = true; score++; }
 
                     ledgerRowFeedback[acc][sideName][rIdx] = fb;
 
                 } else {
-                    // SPURIOUS ENTRY
-                    score--; // Deduct for wrong amount/entry
-                    // Also deduct for other filled fields if spurious
+                    // SPURIOUS
+                    score--; // Amount wrong
                     if (row.date) score--;
                     if (row.item) score--;
                     if (row.pr) score--;
-                    
                     ledgerRowFeedback[acc][sideName][rIdx] = { date: false, item: false, pr: false, amount: false };
                 }
             });
 
-            // Add Max Score for ALL expected items on this side
-            maxScore += (expectedAmts.length * 4); 
+            // Add Max Score for Expected Items
+            // 4 pts per expected entry (Date, Item, PR, Amt)
+            maxScore += (expectedAmts.length * 4);
         };
 
-        validateSide(u.leftRows || [], exp.dr, 'left');
-        validateSide(u.rightRows || [], exp.cr, 'right');
+        validateSide(u.leftRows || [], exp.dr, 'left', hasHistDr);
+        validateSide(u.rightRows || [], exp.cr, 'right', hasHistCr);
 
-        // Ledger Totals & Balance (3 pts each: DrTotal, CrTotal, Bal)
-        // Calculate Expected Totals
-        // ... (Same logic as Step 7 but using correct post-closing values)
-        let rawDr = ledger[acc]?.debit || 0;
-        let rawCr = ledger[acc]?.credit || 0;
+        // Totals Validation
+        // Calculate Final Totals
+        const rawDr = ledger[acc]?.debit || 0;
+        const rawCr = ledger[acc]?.credit || 0;
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
-        let bbDr = 0, bbCr = 0; // Already in rawDr/rawCr from ledger prop passed in? 
-        // Wait, 'ledger' prop in validateStep08 is likely the raw ledger. 
-        // Let's reconstruct flow properly.
-        // Actually, we can simply sum up everything: BegBal + Trans + Adj + Closing
-        
-        // Sum of Post-Closing Entries
+        const preDr = rawDr + adjDr;
+        const preCr = rawCr + adjCr;
         const closDr = (exp.dr || []).reduce((a,b)=>a+b,0);
         const closCr = (exp.cr || []).reduce((a,b)=>a+b,0);
 
-        // Pre-Closing Totals (Beg + Trans + Adj)
-        // Note: Ledger prop passed to this function usually contains (Beg + Trans).
-        // Let's recalculate precisely.
-        let preDr = rawDr + adjDr;
-        let preCr = rawCr + adjCr;
-
         const finalExpDrTotal = preDr + closDr;
         const finalExpCrTotal = preCr + closCr;
-        
         const finalNet = finalExpDrTotal - finalExpCrTotal;
         const finalExpBal = Math.abs(finalNet);
         const finalExpType = finalNet >= 0 ? 'Dr' : 'Cr';
 
-        // Validate Totals
         const uDrTotal = Number(u.drTotal || 0);
         const uCrTotal = Number(u.crTotal || 0);
         const uBal = Number(u.balance || 0);
@@ -880,17 +950,16 @@ export const validateStep08 = (data, activityData) => {
         if (Math.abs(uCrTotal - finalExpCrTotal) <= 1) { score++; fieldStatus[`ledger-${acc}-crTotal`] = true; }
         else fieldStatus[`ledger-${acc}-crTotal`] = false;
 
-        // Special case: If balance is 0, type doesn't matter
         if (Math.abs(uBal - finalExpBal) <= 1 && (finalExpBal < 1 || uType === finalExpType)) {
              score++; fieldStatus[`ledger-${acc}-bal`] = true; fieldStatus[`ledger-${acc}-balType`] = true; 
         } else {
              fieldStatus[`ledger-${acc}-bal`] = false; fieldStatus[`ledger-${acc}-balType`] = false; 
         }
-        fieldStatus[`ledger-${acc}-overall`] = fieldStatus[`ledger-${acc}-bal`]; // Summary icon
+        fieldStatus[`ledger-${acc}-overall`] = fieldStatus[`ledger-${acc}-bal`];
     });
 
     return {
-        score: Math.max(0, score), // Prevent negative total score
+        score: Math.max(0, score),
         maxScore,
         letterGrade: getLetterGrade(Math.max(0, score), maxScore),
         fieldStatus,
