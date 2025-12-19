@@ -135,6 +135,10 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // Validate Left Rows (Debit)
         const userLeftRows = u.leftRows || [];
         
+        // We iterate through user rows to validate inputs.
+        // We also need to account for expected rows that are missing.
+        // Strategy: Match user rows to expected rows. Remaining expected rows are missed points.
+        
         userLeftRows.forEach((row, idx) => {
             // Ignore totally empty rows if they are extra (not matched yet)
             const isEmpty = !row.amount && !row.date && !row.item && !row.pr;
@@ -169,13 +173,7 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 // Amount: Already matched
                 fb.amount = true; score++; 
                 
-                // Assign feedback object - show checkmark for correct fields, NO X for incorrect fields on a valid row attempt (just missed points)
-                // Wait, user requested X feedback to not deduct score if it requires posting.
-                // Standard UI behavior: X usually means wrong. 
-                // Revised logic: Show X if wrong, but don't deduct score further than missing the point.
-                // The previous logic was { score--; } which is a deduction. 
-                // Now: Just missed point (no score++).
-                
+                // Assign feedback object
                 ledgerRowFeedback[acc].left[idx] = fb;
             } else {
                 // Spurious Entry: Does NOT match any expected amount.
