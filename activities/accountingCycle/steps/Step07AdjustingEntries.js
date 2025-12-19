@@ -135,9 +135,17 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // Validate Left Rows (Debit)
         const userLeftRows = u.leftRows || [];
         
+        // We iterate through user rows to validate inputs.
+        // We also need to account for expected rows that are missing.
+        // Strategy: Match user rows to expected rows. Remaining expected rows are missed points.
+        
         userLeftRows.forEach((row, idx) => {
-            // If row is totally empty, ignore it completely (no feedback, no score impact)
-            if (!row.amount && !row.date && !row.item && !row.pr) {
+            // Ignore totally empty rows if they are extra (not matched yet)
+            const isEmpty = !row.amount && !row.date && !row.item && !row.pr;
+            
+            // If expected items remain, an empty row is an omission (but we don't mark X on empty unless user tried)
+            // Actually, we usually only mark X if user typed something wrong.
+            if (isEmpty) {
                 ledgerRowFeedback[acc].left[idx] = null; 
                 return;
             }
@@ -159,11 +167,11 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 const rPr = (row.pr || '').trim();
 
                 // Date: Match lastDayOfMonth or "Jan 31"
-                if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } else { score--; }
+                if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } 
                 // Item: Should be Adj
-                if (rItem.includes('adj')) { fb.item = true; score++; } else { score--; }
+                if (rItem.includes('adj')) { fb.item = true; score++; } 
                 // PR: Should be J2, GJ1, etc.
-                if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
+                if (rPr.length > 0) { fb.pr = true; score++; } 
                 // Amount: Already matched
                 fb.amount = true; score++; 
                 
@@ -171,13 +179,7 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 ledgerRowFeedback[acc].left[idx] = fb;
             } else {
                 // Spurious Entry: Does NOT match any expected amount.
-                // We ONLY show feedback (red marks) if this row was intended to be an adjustment.
-                // If it's just an extra row the user added but didn't need, we mark it wrong ONLY if they filled it out partially.
-                // However, user request: "If Supplies only need 1 row adjustment posting, then only one row has check or X feedback."
-                // This implies extraneous rows should NOT show feedback unless they are 'active' attempts.
-                
-                // Current logic: If they typed something but it didn't match an expected amount, it's incorrect.
-                // Score deduction logic remains to discourage spam.
+                // Deduct for every filled field to discourage spamming
                 if (row.date) score--;
                 if (row.item) score--;
                 if (row.pr) score--;
@@ -191,7 +193,8 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // Validate Right Rows (Credit) - Same logic
         const userRightRows = u.rightRows || [];
         userRightRows.forEach((row, idx) => {
-            if (!row.amount && !row.date && !row.item && !row.pr) {
+            const isEmpty = !row.amount && !row.date && !row.item && !row.pr;
+            if (isEmpty) {
                 ledgerRowFeedback[acc].right[idx] = null;
                 return;
             }
@@ -210,9 +213,9 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 const rItem = (row.item || '').toLowerCase();
                 const rPr = (row.pr || '').trim();
 
-                if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } else { score--; }
-                if (rItem.includes('adj')) { fb.item = true; score++; } else { score--; }
-                if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
+                if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } 
+                if (rItem.includes('adj')) { fb.item = true; score++; } 
+                if (rPr.length > 0) { fb.pr = true; score++; } 
                 fb.amount = true; score++;
                 
                 ledgerRowFeedback[acc].right[idx] = fb;
@@ -225,6 +228,33 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 ledgerRowFeedback[acc].right[idx] = { date: false, item: false, pr: false, amount: false };
             }
         });
+
+        // SPECIAL CASE: If expected items remain (omissions), we need to check if user has empty rows available
+        // If user hasn't added rows, they just miss points (maxScore increased, score didn't).
+        // If user has empty rows available but didn't fill them, we don't necessarily show X unless we want to force them to see where they missed.
+        // Current requirement: "If the student did not enter an answer to an answer box, it is just marked X... but no further deduction".
+        // This implies we should mark empty rows as wrong IF they were expected to be filled.
+        
+        // Let's try to map remaining expected postings to the first available empty rows
+        expDr.forEach(exp => {
+            // Find first empty row in userLeftRows that hasn't been assigned feedback (i.e. was null)
+            // or create feedback for it if it exists
+            const emptyIdx = ledgerRowFeedback[acc].left.findIndex(f => f === null);
+            if (emptyIdx !== -1) {
+                // Mark as all wrong (Xs) to indicate missing entry
+                ledgerRowFeedback[acc].left[emptyIdx] = { date: false, item: false, pr: false, amount: false };
+            } else {
+                // No empty row available to show feedback on - score is just low.
+            }
+        });
+        
+        expCr.forEach(exp => {
+            const emptyIdx = ledgerRowFeedback[acc].right.findIndex(f => f === null);
+            if (emptyIdx !== -1) {
+                ledgerRowFeedback[acc].right[emptyIdx] = { date: false, item: false, pr: false, amount: false };
+            }
+        });
+
 
         // Validate Year Inputs (Independent)
         if (u.yearInputLeft !== undefined) {
