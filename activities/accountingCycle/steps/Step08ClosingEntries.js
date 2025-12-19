@@ -87,24 +87,29 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
         const rows = [...currentEntries[blockIdx].rows];
         if (!rows[rowIdx]) rows[rowIdx] = {};
 
+        // 1. Debit Entry Check: Prevent Debit if a Credit exists in previous rows
         if (field === 'dr' && val > 0) {
             const hasPriorCredit = rows.some((r, idx) => idx < rowIdx && (Number(r.cr) || 0) > 0);
             if (hasPriorCredit) {
                 alert("Please enter all Debit entries first before entering any Credit entries.");
-                return;
+                return; // Block change
             }
+            // If entering Debit, ensure account is NOT indented
             if (rows[rowIdx].acc && rows[rowIdx].acc.startsWith("    ")) {
                 rows[rowIdx].acc = rows[rowIdx].acc.trim();
             }
         }
 
+        // 2. Credit Entry Logic: Auto-indent Account
         if (field === 'cr' && val > 0) {
+            // Automatically indent account title if not already
             const currentAcc = rows[rowIdx].acc || '';
             if (!currentAcc.startsWith("    ")) {
                 rows[rowIdx].acc = "    " + currentAcc;
             }
         }
 
+        // 3. Date Logic: Only allowed on rowIdx 0 (Enforced in Render, but filtered here just in case)
         if (field === 'date' && rowIdx !== 0) return;
 
         rows[rowIdx][field] = val;
@@ -131,6 +136,8 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                 Journalize Closing Entries (REID)
             </div>
             
+            
+
             <div className="overflow-y-auto p-2 flex-1">
                 ${currentEntries.map((block, bIdx) => {
                     const rows = block.rows || [{}, {}];
@@ -148,6 +155,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                             </div>
 
                             ${rows.map((row, rIdx) => {
+                                // Validation Keys
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
@@ -625,7 +633,7 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
 
 // --- VALIDATION HELPER ---
 export const validateStep08 = (data, activityData) => {
-    const { validAccounts, ledger, adjustments, transactions } = activityData;
+    const { validAccounts, ledger, adjustments, transactions, config, beginningBalances } = activityData;
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
 
@@ -795,32 +803,9 @@ export const validateStep08 = (data, activityData) => {
         const exp = expectedPostings[acc] || { dr: [], cr: [] };
 
         // Determine if history exists to decide on Year Input Requirement
-        // Note: We need access to history (trans/adj/beg) to know if a side is empty.
-        // We reconstruct history counts here.
-        let histDrCount = 0;
-        let histCrCount = 0;
-        
-        // Beg Bal
-        if (ledger[acc]?.debit > 0) histDrCount++; // Simplification: raw ledger has beg+trans
-        // Actually ledger prop has aggregated data. Let's trust the 'ledger' prop for non-zero check? 
-        // Better: Re-iterate transactions/adjustments if needed, OR just assume if rawDr > 0 there's history.
-        // Wait, rawDr includes Adjustments? No, rawDr is usually Beg+Trans.
-        // Let's refine history check:
-        // Adjustments are passed in.
-        
-        // NOTE: We need exact history counts to determine if the Closing Entry is the FIRST entry.
-        // Let's loop transactions/adjustments again for this account.
         let hasHistDr = false; 
         let hasHistCr = false;
         
-        // Check BegBal/Trans (Proxy via ledger data being > 0 is risky if net is 0 but entries exist)
-        // Let's iterate transactions provided in activityData
-        if (config.isSubsequentYear && ledger[acc]) { // Assuming ledger matches
-             // This is tricky without the exact breakdown. 
-             // Let's assume if transactions array has entries for this account
-        }
-        
-        // Re-scan transactions for this account
         transactions.forEach(t => {
             t.debits.forEach(d => { if(d.account === acc) hasHistDr = true; });
             t.credits.forEach(c => { if(c.account === acc) hasHistCr = true; });
@@ -829,20 +814,13 @@ export const validateStep08 = (data, activityData) => {
             if (a.drAcc === acc) hasHistDr = true;
             if (a.crAcc === acc) hasHistCr = true;
         });
-        // Check Beg Bal
-        // We don't have direct access to 'beginningBalances' object structure here easily without passing it down or assuming.
-        // But we know 'ledger' contains the pre-closing balance. 
-        // If ledger[acc].debit > 0, does it mean it has history? Yes.
-        // However, Adjustments are separate.
         
-        // Let's use the 'ledger' object from args. It usually contains BegBal + Posted Transactions.
         if ((ledger[acc]?.debit || 0) > 0) hasHistDr = true;
         if ((ledger[acc]?.credit || 0) > 0) hasHistCr = true;
 
 
         const validateSide = (userSideRows, expectedAmts, sideName, hasHistory) => {
             // YEAR INPUT VALIDATION
-            // If !hasHistory AND expectedAmts.length > 0 -> Year Input Required
             if (!hasHistory && expectedAmts.length > 0) {
                 maxScore++; // Year is expected
                 const userYear = sideName === 'left' ? u.yearInputLeft : u.yearInputRight;
@@ -850,8 +828,6 @@ export const validateStep08 = (data, activityData) => {
                     score++;
                     ledgerRowFeedback[acc][`${sideName}Year`] = true;
                 } else {
-                    // If empty or wrong, no point. If entered wrong, maybe just X?
-                    // User says: "must be included in highest possible score... must have X feedback"
                     ledgerRowFeedback[acc][`${sideName}Year`] = false; 
                 }
             }
