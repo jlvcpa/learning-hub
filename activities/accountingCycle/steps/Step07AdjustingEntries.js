@@ -132,104 +132,106 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // Each expected posting is worth 4 points (Date, Item, PR, Amount)
         maxScore += (expectedCount * 4);
 
-        // Validate Left Rows (Debit)
-        const userLeftRows = u.leftRows || [];
-        
-        // We iterate through user rows to validate inputs.
-        // We also need to account for expected rows that are missing.
-        // Strategy: Match user rows to expected rows. Remaining expected rows are missed points.
-        
-        userLeftRows.forEach((row, idx) => {
-            // Ignore totally empty rows if they are extra (not matched yet)
-            const isEmpty = !row.amount && !row.date && !row.item && !row.pr;
-            
-            if (isEmpty) {
-                ledgerRowFeedback[acc].left[idx] = null; 
-                return;
-            }
+        // --- CORE VALIDATION LOGIC REFACTOR ---
+        // Instead of strict linear or find-first matching which can penalize incomplete entries,
+        // we use a 2-pass allocation:
+        // 1. Assign "Perfect Matches" (Correct Amount) to Expected Slots.
+        // 2. Assign remaining rows to remaining Expected Slots as "Attempts" (No Penalty for wrong answers, just 0 score).
+        // 3. Mark remaining rows as "Spurious" (Penalty for wrong answers).
 
-            const rAmt = Number(row.amount);
-            // Find match in expected
-            const matchIdx = expDr.findIndex(e => Math.abs(e.amount - rAmt) <= 1);
-            let isMatch = false;
-            const fb = { date: false, item: false, pr: false, amount: false };
+        const processSide = (userRows, expRows, sideName) => {
+            const rowStatus = new Array(userRows.length).fill(null).map(() => ({ type: 'unmatched' }));
+            const expStatus = new Array(expRows.length).fill('available'); // 'consumed'
 
-            if (matchIdx !== -1) {
-                // Amount Matches - Valid Entry Attempt
-                isMatch = true;
-                expDr.splice(matchIdx, 1); 
+            // Pass 1: Perfect Amount Matches
+            userRows.forEach((row, rIdx) => {
+                const rAmt = Number(row.amount);
+                // We match primarily on amount to anchor the correct entry
+                if (!rAmt) return; 
 
-                // Check Fields
-                const rDate = (row.date || '').trim();
-                const rItem = (row.item || '').toLowerCase();
-                const rPr = (row.pr || '').trim();
+                const matchIdx = expRows.findIndex((exp, eIdx) => 
+                    expStatus[eIdx] === 'available' && Math.abs(exp.amount - rAmt) <= 1
+                );
 
-                // Date: Match lastDayOfMonth or "Jan 31"
-                if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } 
-                // Item: Should be Adj
-                if (rItem.includes('adj')) { fb.item = true; score++; } 
-                // PR: Should be J2, GJ1, etc.
-                if (rPr.length > 0) { fb.pr = true; score++; } 
-                // Amount: Already matched
-                fb.amount = true; score++; 
+                if (matchIdx !== -1) {
+                    rowStatus[rIdx] = { type: 'match', expIdx: matchIdx };
+                    expStatus[matchIdx] = 'consumed';
+                }
+            });
+
+            // Pass 2: Assign remaining rows to remaining expected slots (Attempts)
+            userRows.forEach((row, rIdx) => {
+                if (rowStatus[rIdx].type !== 'unmatched') return;
+
+                const availableExpIdx = expStatus.findIndex(s => s === 'available');
+                if (availableExpIdx !== -1) {
+                    // Map this row to the expected adjustment slot
+                    rowStatus[rIdx] = { type: 'attempt', expIdx: availableExpIdx };
+                    expStatus[availableExpIdx] = 'consumed';
+                } else {
+                    // No expected slot available -> Extra row
+                    rowStatus[rIdx] = { type: 'spurious' };
+                }
+            });
+
+            // Pass 3: Scoring & Feedback
+            userRows.forEach((row, rIdx) => {
+                const status = rowStatus[rIdx];
+                const fb = { date: false, item: false, pr: false, amount: false };
                 
-                // Assign feedback object
-                ledgerRowFeedback[acc].left[idx] = fb;
-            } else {
-                // Spurious Entry: Does NOT match any expected amount.
-                // Deduct for every filled field to discourage spamming
-                if (row.date) score--;
-                if (row.item) score--;
-                if (row.pr) score--;
-                if (row.amount) score--;
-                
-                // Mark all false to show Xs if content exists
-                ledgerRowFeedback[acc].left[idx] = { date: false, item: false, pr: false, amount: false };
-            }
-        });
+                if (status.type === 'match' || status.type === 'attempt') {
+                    // This row corresponds to a REQUIRED adjustment.
+                    // DO NOT DEDUCT points for incorrect answers here. Only grant points for correct ones.
+                    
+                    const rDate = (row.date || '').trim();
+                    const rItem = (row.item || '').toLowerCase();
+                    const rPr = (row.pr || '').trim();
+                    const rAmt = Number(row.amount);
+                    const expAmt = expRows[status.expIdx].amount;
 
-        // Validate Right Rows (Credit) - Same logic
-        const userRightRows = u.rightRows || [];
-        userRightRows.forEach((row, idx) => {
-            const isEmpty = !row.amount && !row.date && !row.item && !row.pr;
-            if (isEmpty) {
-                ledgerRowFeedback[acc].right[idx] = null;
-                return;
-            }
+                    // Date: Match lastDayOfMonth or "Jan 31"
+                    if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { 
+                        fb.date = true; score++; 
+                    } 
+                    // Item: Should be Adj
+                    if (rItem.includes('adj')) { 
+                        fb.item = true; score++; 
+                    } 
+                    // PR: Should be J2, GJ1, etc.
+                    if (rPr.length > 0) { 
+                        fb.pr = true; score++; 
+                    } 
+                    // Amount
+                    if (Math.abs(rAmt - expAmt) <= 1) {
+                        fb.amount = true; score++;
+                    }
 
-            const rAmt = Number(row.amount);
-            const matchIdx = expCr.findIndex(e => Math.abs(e.amount - rAmt) <= 1);
-            let isMatch = false;
-            const fb = { date: false, item: false, pr: false, amount: false };
+                    // Assign feedback object (Shows X if false, Check if true)
+                    ledgerRowFeedback[acc][sideName][rIdx] = fb;
 
-            if (matchIdx !== -1) {
-                isMatch = true;
-                const exp = expCr[matchIdx];
-                expCr.splice(matchIdx, 1);
+                } else {
+                    // Spurious (Extra Row)
+                    // Logic: Deduct for filled fields. Ignore totally empty fields.
+                    const isEmpty = !row.date && !row.item && !row.pr && !row.amount;
+                    if (!isEmpty) {
+                        if (row.date) score--;
+                        if (row.item) score--;
+                        if (row.pr) score--;
+                        if (row.amount) score--;
+                        
+                        // Mark all false to show Xs if content exists
+                        ledgerRowFeedback[acc][sideName][rIdx] = { date: false, item: false, pr: false, amount: false };
+                    } else {
+                        // Empty spurious row - ignore
+                        ledgerRowFeedback[acc][sideName][rIdx] = null;
+                    }
+                }
+            });
+        };
 
-                const rDate = (row.date || '').trim();
-                const rItem = (row.item || '').toLowerCase();
-                const rPr = (row.pr || '').trim();
-
-                if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } 
-                if (rItem.includes('adj')) { fb.item = true; score++; } 
-                if (rPr.length > 0) { fb.pr = true; score++; } 
-                fb.amount = true; score++;
-                
-                ledgerRowFeedback[acc].right[idx] = fb;
-            } else {
-                if (row.date) score--;
-                if (row.item) score--;
-                if (row.pr) score--;
-                if (row.amount) score--;
-                
-                ledgerRowFeedback[acc].right[idx] = { date: false, item: false, pr: false, amount: false };
-            }
-        });
-
-        // OMITTED: Marking empty rows as X. Missing entries just don't add to score (which is capped by maxScore).
-        // This avoids penalizing the student visually for rows they haven't touched yet,
-        // while still ensuring the max score reflects the total work needed.
+        // Run Logic for Both Sides
+        processSide(u.leftRows || [], expDr, 'left');
+        processSide(u.rightRows || [], expCr, 'right');
 
         // Validate Year Inputs (Independent)
         if (u.yearInputLeft !== undefined) {
