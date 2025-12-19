@@ -210,7 +210,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 };
 
 // --- COMPONENT: Enhanced Ledger Account ---
-const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount }) => {
+const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount, expectedClosingSides }) => {
     // Validation Statuses
     const { fieldStatus } = validationResult || {};
     const ledgerKeyBase = `ledger-${accName}`;
@@ -263,7 +263,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     const finalLeft = [...leftRows, ...userLeft];
     const finalRight = [...rightRows, ...userRight];
       
-    // Determine if Year inputs are needed (if history is empty but user added rows)
+    // Determine if Year inputs are needed (if history is empty but user added rows OR closing entry is expected)
     const hasHistoryLeft = leftRows.length > 0;
     const hasHistoryRight = rightRows.length > 0;
     
@@ -332,6 +332,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         const isLeft = side === 'left';
         const hasHistory = isLeft ? hasHistoryLeft : hasHistoryRight;
         const userHasRows = isLeft ? userLeft.length > 0 : userRight.length > 0;
+        const expectsClosing = isLeft ? expectedClosingSides?.left : expectedClosingSides?.right;
 
         if (visualIdx === 0) {
             let dateVal = '';
@@ -341,7 +342,8 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
             if (hasHistory) {
                 dateVal = contextYear;
                 showInput = true;
-            } else if (userHasRows) {
+            } else if (userHasRows || expectsClosing) {
+                // Show Year Input if User typed rows OR Closing is Expected
                 dateVal = isLeft ? (userLedger.yearInputLeft || '') : (userLedger.yearInputRight || '');
                 isLocked = false;
                 showInput = true;
@@ -351,7 +353,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                 isYearRow: true,
                 date: dateVal, 
                 item: '', pr: '', amount: '',
-                isUser: !hasHistory && userHasRows, 
+                isUser: !hasHistory && (userHasRows || expectsClosing), 
                 isLocked: isLocked,
                 showInput: showInput
             };
@@ -551,16 +553,23 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
 
     const { validAccounts, transactions, beginningBalances, config } = activityData;
     
-    // Insert Income Summary after Drawings if present, or reasonably in equity section
+    // Build Complete Account List: Transactions + Adjustments + Income Summary
     const sortedAccounts = useMemo(() => {
-        const accs = sortAccounts([...validAccounts]);
+        const allAccounts = new Set(validAccounts);
+        if (activityData.adjustments) {
+            activityData.adjustments.forEach(adj => {
+                allAccounts.add(adj.drAcc);
+                allAccounts.add(adj.crAcc);
+            });
+        }
+        
+        const accs = sortAccounts(Array.from(allAccounts));
+        
         if (!accs.includes('Income Summary')) {
-            // Find drawing account to insert after
             const drawIndex = accs.findIndex(a => a.includes('Drawing') || a.includes('Drawings'));
             if (drawIndex >= 0) {
                 accs.splice(drawIndex + 1, 0, 'Income Summary');
             } else {
-                // Fallback: After Capital or at end of list if no drawings
                 const capIndex = accs.findIndex(a => a.includes('Capital') || a.includes('Equity'));
                 if (capIndex >= 0) {
                     accs.splice(capIndex + 1, 0, 'Income Summary');
@@ -570,7 +579,7 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
             }
         }
         return accs;
-    }, [validAccounts]);
+    }, [validAccounts, activityData.adjustments]);
 
     const contextYear = useMemo(() => {
         if (transactions && transactions.length > 0) {
@@ -578,6 +587,24 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
         }
         return new Date().getFullYear();
     }, [transactions]);
+
+    // Helper to determine Expected Sides for UI Active State
+    const getExpectedSides = (acc) => {
+        const type = getAccountType(acc);
+        const sides = { left: false, right: false };
+        if (acc === 'Income Summary') {
+            sides.left = true; sides.right = true;
+        } else if (acc.includes('Capital') || acc.includes('Retained Earnings')) {
+            sides.left = true; sides.right = true; // Could be net income/loss/drawing
+        } else if (type === 'Revenue') {
+            sides.left = true; // Close Revenue (Dr)
+        } else if (type === 'Expense') {
+            sides.right = true; // Close Expense (Cr)
+        } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
+            sides.right = true; // Close Drawing (Cr)
+        }
+        return sides;
+    };
 
     return html`
         <div className="h-full flex flex-col">
@@ -623,6 +650,7 @@ export default function Step08ClosingEntries({ activityData, data, onChange, sho
                                         validationResult=${validationResult}
                                         contextYear=${contextYear}
                                         isNewAccount=${isNew}
+                                        expectedClosingSides=${getExpectedSides(acc)}
                                     />
                                 `;
                             })}
@@ -661,13 +689,18 @@ export const validateStep08 = (data, activityData) => {
     let drawingAccName = '';
     let capitalAccName = '';
 
-    // Prepare list of accounts including Income Summary for iteration
-    const allAccounts = [...validAccounts];
-    if (!allAccounts.includes('Income Summary')) {
-        allAccounts.push('Income Summary');
+    // Build complete account list for validation iteration
+    const allAccounts = new Set(validAccounts);
+    if (adjustments) {
+        adjustments.forEach(adj => {
+            allAccounts.add(adj.drAcc);
+            allAccounts.add(adj.crAcc);
+        });
     }
+    if (!allAccounts.has('Income Summary')) allAccounts.add('Income Summary');
+    const sortedAllAccounts = Array.from(allAccounts);
 
-    allAccounts.forEach(acc => {
+    sortedAllAccounts.forEach(acc => {
         const type = getAccountType(acc);
         const rawDr = ledger[acc]?.debit || 0;
         const rawCr = ledger[acc]?.credit || 0;
@@ -716,7 +749,7 @@ export const validateStep08 = (data, activityData) => {
 
     // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
     const expectedPostings = {};
-    allAccounts.forEach(acc => expectedPostings[acc] = []);
+    sortedAllAccounts.forEach(acc => expectedPostings[acc] = []);
 
     // Helper to push expectation
     const expPost = (acc, side, amt) => {
@@ -750,7 +783,7 @@ export const validateStep08 = (data, activityData) => {
     });
 
     // 2. Ledger Max Score
-    allAccounts.forEach(acc => {
+    sortedAllAccounts.forEach(acc => {
         const exps = expectedPostings[acc] || [];
         const expLeft = exps.filter(e => e.side === 'left');
         const expRight = exps.filter(e => e.side === 'right');
@@ -774,7 +807,7 @@ export const validateStep08 = (data, activityData) => {
     // --- VALIDATION LOGIC ---
 
     // Validate Ledgers
-    allAccounts.forEach(acc => {
+    sortedAllAccounts.forEach(acc => {
         const userL = userLedgers[acc] || {};
         const exps = expectedPostings[acc] || [];
         const ledgerKeyBase = `ledger-${acc}`;
@@ -816,18 +849,27 @@ export const validateStep08 = (data, activityData) => {
 
         const validateSide = (userSideRows, expSideRows, sidePrefix, hasHistory, yearInput) => {
             const activeUserRows = userSideRows.map((r, i) => ({...r, idx: i})).filter(r => r.amount || r.item || r.pr || r.date);
-            const userHasRows = activeUserRows.length > 0;
-
+            
             // YEAR VALIDATION (If expected due to posting)
             if (!hasHistory && expSideRows.length > 0) {
-                const yearOk = yearInput && yearInput.toString().trim() === expectedYearStr;
-                fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = yearOk;
-                if (yearOk) score++;
+                // If expected, validate regardless of user input
+                if (!yearInput) {
+                    fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = false; // X feedback if empty
+                } else {
+                    const yearOk = yearInput.toString().trim() === expectedYearStr;
+                    fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = yearOk;
+                    if (yearOk) score++;
+                }
+            } else if (!hasHistory && !expSideRows.length && yearInput) {
+                // Unexpected Year Input
+                fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = false;
+                score -= 1; 
             }
 
             // ROW VALIDATION
             const usedExpIndices = new Set();
             
+            // Match user rows to expected
             activeUserRows.forEach(uRow => {
                 const key = `${sidePrefix}-${uRow.idx}`;
                 const matchIndex = expSideRows.findIndex((e, i) => !usedExpIndices.has(i) && Math.abs(e.amt - (Number(uRow.amount)||0)) < 1);
