@@ -227,26 +227,9 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
             }
         });
 
-        // SPECIAL CASE: If expected items remain (omissions), we need to check if user has empty rows available
-        // If user hasn't added rows, they just miss points (maxScore increased, score didn't).
-        // If user has empty rows available but didn't fill them, we don't necessarily show X unless we want to force them to see where they missed.
-        
-        // Map remaining expected postings to the first available empty rows
-        expDr.forEach(exp => {
-            const emptyIdx = ledgerRowFeedback[acc].left.findIndex(f => f === null);
-            if (emptyIdx !== -1) {
-                // Mark as all wrong (Xs) to indicate missing entry
-                ledgerRowFeedback[acc].left[emptyIdx] = { date: false, item: false, pr: false, amount: false };
-            }
-        });
-        
-        expCr.forEach(exp => {
-            const emptyIdx = ledgerRowFeedback[acc].right.findIndex(f => f === null);
-            if (emptyIdx !== -1) {
-                ledgerRowFeedback[acc].right[emptyIdx] = { date: false, item: false, pr: false, amount: false };
-            }
-        });
-
+        // OMITTED: Marking empty rows as X. Missing entries just don't add to score (which is capped by maxScore).
+        // This avoids penalizing the student visually for rows they haven't touched yet,
+        // while still ensuring the max score reflects the total work needed.
 
         // Validate Year Inputs (Independent)
         if (u.yearInputLeft !== undefined) {
