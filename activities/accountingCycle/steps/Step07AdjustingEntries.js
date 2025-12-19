@@ -135,16 +135,10 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // Validate Left Rows (Debit)
         const userLeftRows = u.leftRows || [];
         
-        // We iterate through user rows to validate inputs.
-        // We also need to account for expected rows that are missing.
-        // Strategy: Match user rows to expected rows. Remaining expected rows are missed points.
-        
         userLeftRows.forEach((row, idx) => {
             // Ignore totally empty rows if they are extra (not matched yet)
             const isEmpty = !row.amount && !row.date && !row.item && !row.pr;
             
-            // If expected items remain, an empty row is an omission (but we don't mark X on empty unless user tried)
-            // Actually, we usually only mark X if user typed something wrong.
             if (isEmpty) {
                 ledgerRowFeedback[acc].left[idx] = null; 
                 return;
@@ -175,7 +169,13 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 // Amount: Already matched
                 fb.amount = true; score++; 
                 
-                // Assign feedback object
+                // Assign feedback object - show checkmark for correct fields, NO X for incorrect fields on a valid row attempt (just missed points)
+                // Wait, user requested X feedback to not deduct score if it requires posting.
+                // Standard UI behavior: X usually means wrong. 
+                // Revised logic: Show X if wrong, but don't deduct score further than missing the point.
+                // The previous logic was { score--; } which is a deduction. 
+                // Now: Just missed point (no score++).
+                
                 ledgerRowFeedback[acc].left[idx] = fb;
             } else {
                 // Spurious Entry: Does NOT match any expected amount.
@@ -232,19 +232,13 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         // SPECIAL CASE: If expected items remain (omissions), we need to check if user has empty rows available
         // If user hasn't added rows, they just miss points (maxScore increased, score didn't).
         // If user has empty rows available but didn't fill them, we don't necessarily show X unless we want to force them to see where they missed.
-        // Current requirement: "If the student did not enter an answer to an answer box, it is just marked X... but no further deduction".
-        // This implies we should mark empty rows as wrong IF they were expected to be filled.
         
-        // Let's try to map remaining expected postings to the first available empty rows
+        // Map remaining expected postings to the first available empty rows
         expDr.forEach(exp => {
-            // Find first empty row in userLeftRows that hasn't been assigned feedback (i.e. was null)
-            // or create feedback for it if it exists
             const emptyIdx = ledgerRowFeedback[acc].left.findIndex(f => f === null);
             if (emptyIdx !== -1) {
                 // Mark as all wrong (Xs) to indicate missing entry
                 ledgerRowFeedback[acc].left[emptyIdx] = { date: false, item: false, pr: false, amount: false };
-            } else {
-                // No empty row available to show feedback on - score is just low.
             }
         });
         
