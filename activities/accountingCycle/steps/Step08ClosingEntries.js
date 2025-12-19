@@ -228,6 +228,18 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         return "";
     };
 
+    // Calculate correct adjustment date based on last transaction
+    const adjDateStr = useMemo(() => {
+        if (transactions && transactions.length > 0) {
+            const lastTx = transactions[transactions.length - 1];
+            const d = new Date(lastTx.date);
+            const m = d.toLocaleString('default', { month: 'short' });
+            const day = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+            return `${m} ${day}`;
+        }
+        return 'Dec 31';
+    }, [transactions]);
+
     // 1. Prepare Data Rows
     const leftRows = [];
     const rightRows = [];
@@ -252,8 +264,8 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     // Adjusting Entries
     if (adjustments) {
         adjustments.forEach(adj => {
-            if (adj.drAcc === accName) leftRows.push({ date: 'Dec 31', item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
-            if (adj.crAcc === accName) rightRows.push({ date: 'Dec 31', item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
+            if (adj.drAcc === accName) leftRows.push({ date: adjDateStr, item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
+            if (adj.crAcc === accName) rightRows.push({ date: adjDateStr, item: 'Adj', pr: 'J2', amount: adj.amount, isLocked: true });
         });
     }
 
@@ -796,9 +808,7 @@ export const validateStep08 = (data, activityData) => {
         if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
         if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
 
-        // Row Scores (Date + Particulars + PR + Amount) - Amount is implicitly required for row validity but scored?
-        // Request: "grants a score to the student for each of the year, date, particular, PR, and amount input boxes."
-        // That is 4 points per row (Date, Part, PR, Amt).
+        // Row Scores (Date + Particulars + PR + Amount)
         exps.forEach(() => { maxScore += 4; });
 
         // Totals Score (If not zero) - We should check if non-zero is expected.
@@ -859,9 +869,6 @@ export const validateStep08 = (data, activityData) => {
             
             // YEAR VALIDATION (If expected due to posting)
             if (!hasHistory && expSideRows.length > 0) {
-                // if (!hasHistory && expSideRows.length > 0) already added +1 to Max Score in pre-calc? 
-                // Let's ensure consistency. We re-add max score components here.
-                
                 // If expected, validate regardless of user input
                 if (!yearInput) {
                     fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = false; // X feedback if empty
@@ -880,69 +887,78 @@ export const validateStep08 = (data, activityData) => {
             const usedExpIndices = new Set();
             
             // Match user rows to expected
-            // Strategy: We need to score based on Expected Rows to ensure missing rows are penalized (or rather, points not gained)
-            // But currently the system iterates User Rows.
-            // Let's iterate User Rows to match against Expected.
-            
             activeUserRows.forEach(uRow => {
                 const key = `${sidePrefix}-${uRow.idx}`;
-                const matchIndex = expSideRows.findIndex((e, i) => !usedExpIndices.has(i) && Math.abs(e.amt - (Number(uRow.amount)||0)) < 1);
                 
+                // 1. Try Match by Amount
+                let matchIndex = expSideRows.findIndex((e, i) => !usedExpIndices.has(i) && Math.abs(e.amt - (Number(uRow.amount)||0)) < 1);
+                
+                // 2. If not found, Match by Slot (First available expectation)
+                // This ensures empty/wrong rows still map to an expectation slot to get feedback without deduction
+                if (matchIndex === -1) {
+                    matchIndex = expSideRows.findIndex((e, i) => !usedExpIndices.has(i));
+                }
+
                 if (matchIndex !== -1) {
                     usedExpIndices.add(matchIndex);
                     const match = expSideRows[matchIndex];
-                    match.isPosted = true; // Mark as posted for Journal PR check
                     
-                    // 1. Amount (1 pt)
-                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = true;
-                    score++;
+                    // Mark as posted only if Amount matches strict check
+                    if (Math.abs(match.amt - (Number(uRow.amount)||0)) < 1) {
+                        match.isPosted = true;
+                    }
+                    
+                    // Amount (1 pt)
+                    const amtOk = Math.abs(match.amt - (Number(uRow.amount)||0)) < 1;
+                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = amtOk;
+                    if (amtOk) score++;
 
-                    // 2. Date (1 pt)
+                    // Date (1 pt)
                     const dStr = (uRow.date || '').toString();
                     const dateOk = dStr.includes(expectedDate.toString());
-                    if (!uRow.date) fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
+                    if (!uRow.date) fieldStatus[`${ledgerKeyBase}-${key}-date`] = false; // X if empty
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
                         if (dateOk) score++;
                     }
 
-                    // 3. Particulars (1 pt)
+                    // Particulars (1 pt)
                     const item = (uRow.item || '').toLowerCase();
-                    const itemOk = item === 'clos';
-                    if (!uRow.item) fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
+                    const itemOk = ['closing', 'clos'].includes(item);
+                    if (!uRow.item) fieldStatus[`${ledgerKeyBase}-${key}-item`] = false; // X if empty
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-item`] = itemOk;
                         if (itemOk) score++;
                     }
 
-                    // 4. PR (1 pt)
+                    // PR (1 pt)
                     const pr = (uRow.pr || '').toLowerCase();
                     const prOk = pr.includes('j'); 
-                    if (!uRow.pr) fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
+                    if (!uRow.pr) fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false; // X if empty
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
                         if (prOk) score++;
                     }
 
                 } else {
-                    // Extra/Wrong Row
-                    fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
-                    fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
-                    fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
-                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = false;
-                    score -= 1;
+                    // UNMATCHED ROW (Extra/Unexpected)
+                    // If row is not empty, mark X and deduct
+                    const isEmpty = !uRow.date && !uRow.item && !uRow.pr && !uRow.amount;
+                    if (!isEmpty) {
+                        fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
+                        fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
+                        fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
+                        fieldStatus[`${ledgerKeyBase}-${key}-amt`] = false;
+                        score -= 1;
+                    }
                 }
             });
-            
-            // Determine Missing Rows for Feedback? (Not requested, just scoring)
-            // Any expected row not in usedExpIndices represents missed points.
         };
 
         validateSide(userL.leftRows || [], expLeft, 'l', hasHistoryLeft, userL.yearInputLeft);
         validateSide(userL.rightRows || [], expRight, 'r', hasHistoryRight, userL.yearInputRight);
 
         // TOTALS Check
-        // Max Score Logic: If expected > 0, it's a scoreable field (1pt)
         const checkTotal = (userVal, expVal, key) => {
              const val = Number(userVal);
              if (expVal > 0) {
