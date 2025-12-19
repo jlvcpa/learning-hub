@@ -461,7 +461,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                                 <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
                                     <div className="w-14 border-r relative">
                                         <input type="text" className=${`w-full h-full text-center px-1 outline-none bg-transparent font-bold`} placeholder="YYYY" value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
-                                        ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
+                                        ${showRowFeedback && props.feedback !== undefined && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
                                     </div>
                                     <div className="flex-1 border-r"></div><div className="w-8 border-r"></div><div className="w-16"></div>
                                 </div>
@@ -518,7 +518,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                                 <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative bg-gray-50">
                                     <div className="w-14 border-r relative">
                                         <input type="text" className=${`w-full h-full text-center px-1 outline-none bg-transparent font-bold`} placeholder="YYYY" value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
-                                        ${showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
+                                        ${showRowFeedback && props.feedback !== undefined && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${props.feedback}/></div>`}
                                     </div>
                                     <div className="flex-1 border-r"></div><div className="w-8 border-r"></div><div className="w-16"></div><div className="w-6"></div>
                                 </div>
@@ -671,6 +671,7 @@ export const validateStep08 = (data, activityData) => {
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
 
+    // Determine correct date (End of Month of last transaction)
     let expectedDate = '31';
     let expectedMonthShort = 'Dec';
     let contextYear = new Date().getFullYear();
