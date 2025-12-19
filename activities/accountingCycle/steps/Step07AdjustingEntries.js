@@ -125,8 +125,44 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         const expDr = expectedPostings[acc]?.dr || [];
         const expCr = expectedPostings[acc]?.cr || [];
 
+        // Determine if account is part of adjustments to calculate potential max score
+        const isAdjAccount = expectedPostings[acc] !== undefined;
+        // Count how many expected postings for this account to add to maxScore
+        const expectedCount = (isAdjAccount ? (expectedPostings[acc].dr.length + expectedPostings[acc].cr.length) : 0);
+        // Each expected posting is worth 4 points (Date, Item, PR, Amount)
+        maxScore += (expectedCount * 4);
+
+        // Calculate 'Historical' Rows count (to skip validation)
+        let histLeftCount = 0;
+        let histRightCount = 0;
+        if (config.isSubsequentYear && beginningBalances?.balances[acc]) {
+            if (beginningBalances.balances[acc].dr > 0) histLeftCount++;
+            if (beginningBalances.balances[acc].cr > 0) histRightCount++;
+        }
+        transactions.forEach(t => {
+            t.debits.forEach(d => { if(d.account === acc) histLeftCount++; });
+            t.credits.forEach(c => { if(c.account === acc) histRightCount++; });
+        });
+
         // Validate Left Rows (Debit)
-        (u.leftRows || []).forEach((row, idx) => {
+        // Only validate rows AFTER historical rows
+        const userLeftRows = u.leftRows || [];
+        // Pad array to match historical length so we align indices correctly if user hasn't added rows yet but they exist in view logic
+        // Actually, 'u.leftRows' ONLY contains user added rows in this component's logic?
+        // Wait, LedgerAccountAdj merges historical + user rows for display.
+        // But 'ledgerData' passed here only contains the user-entered rows if we look at `onUpdate` in LedgerAccountAdj.
+        // Let's verify LedgerAccountAdj logic...
+        // Yes: `const userLeft = userLedger?.leftRows || [];` and `updateSide` updates `userLedger.leftRows`.
+        // So `u.leftRows` contains ONLY the rows the user has added/edited, NOT the historical ones.
+        // Therefore, we validate ALL rows in `u.leftRows` as they are all user entries.
+        
+        // Wait, `onUpdate` index logic in `LedgerAccountAdj` handles the offset.
+        // `const userIdx = dataIdx - histLen;`
+        // So `u.leftRows` is indeed just the user's added rows.
+        
+        // So we iterate through u.leftRows and match against expected adjusting entries.
+        
+        userLeftRows.forEach((row, idx) => {
             if (!row.amount && !row.date && !row.item) {
                 ledgerRowFeedback[acc].left[idx] = null; // Empty row
                 return;
@@ -157,8 +193,6 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
                 // Amount: Already matched
                 fb.amount = true; score++; 
-
-                maxScore += 4;
             } else {
                 // Spurious Entry (Wrong Amount or Extra)
                 // Deduct for every filled field
@@ -166,13 +200,13 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 if (row.item) score--;
                 if (row.pr) score--;
                 if (row.amount) score--;
-                // Don't increase maxScore for spurious entries, just penalize
             }
             ledgerRowFeedback[acc].left[idx] = fb;
         });
 
         // Validate Right Rows (Credit) - Same logic
-        (u.rightRows || []).forEach((row, idx) => {
+        const userRightRows = u.rightRows || [];
+        userRightRows.forEach((row, idx) => {
             if (!row.amount && !row.date && !row.item) {
                 ledgerRowFeedback[acc].right[idx] = null;
                 return;
@@ -196,8 +230,6 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 if (rItem.includes('adj')) { fb.item = true; score++; } else { score--; }
                 if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
                 fb.amount = true; score++;
-
-                maxScore += 4;
             } else {
                 if (row.date) score--;
                 if (row.item) score--;
@@ -564,6 +596,7 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
         }
 
         // FEEDBACK LOGIC
+        // Feedback is only applied to USER rows (isUser = true)
         let feedback = null;
         if (isUser && showFeedback && rowFeedback) {
             const userIdx = dataIdx - histLen;
@@ -614,23 +647,26 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
                         const fb = props.feedback || {};
 
+                        // Conditional checkmark/cross: Only show if it's a user row AND feedback exists (ignoring null/empty rows)
+                        const showRowFeedback = showFeedback && props.isUser && fb;
+
                         return html`
                             <div key=${`l-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative">
                                     <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${props.isYearRow ? 'font-bold text-center' : ''}`} placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('left', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${showFeedback} isCorrect=${fb.date}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.date}/></div>`}
                                 </div>
                                 <div className="flex-1 border-r relative">
                                     <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('left', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${fb.item}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 right-0"><${StatusIcon} show=${true} isCorrect=${fb.item}/></div>`}
                                 </div>
                                 <div className="w-8 border-r relative">
                                     <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('left', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${fb.pr}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${true} isCorrect=${fb.pr}/></div>`}
                                 </div>
                                 <div className="w-16 relative">
                                     <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('left', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${showFeedback} isCorrect=${fb.amount}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.amount}/></div>`}
                                 </div>
                             </div>
                         `;
@@ -654,24 +690,25 @@ const LedgerAccountAdj = ({ accName, transactions, startingBalance, userLedger, 
                         const datePlaceholder = i === 0 ? "YYYY" : (i === 1 ? "Mmm dd" : "dd");
                         const isDeletable = props.isUser && !isReadOnly && !props.isYearRow;
                         const fb = props.feedback || {};
+                        const showRowFeedback = showFeedback && props.isUser && fb;
 
                         return html`
                             <div key=${`r-${i}`} className="flex text-xs border-b border-gray-200 h-6 relative ${!props.isUser && !props.isYearRow && props.date ? 'bg-gray-50/50 text-gray-600' : ''}">
                                 <div className="w-14 border-r relative">
                                     <input type="text" className=${`w-full h-full text-right px-1 outline-none bg-transparent ${props.isYearRow ? 'font-bold text-center' : ''}`} placeholder=${datePlaceholder} value=${props.date} onChange=${(e)=>updateSide('right', i, 'date', e.target.value)} disabled=${isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${showFeedback} isCorrect=${fb.date}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.date}/></div>`}
                                 </div>
                                 <div className="flex-1 border-r relative">
                                     <input type="text" className="w-full h-full text-left px-1 outline-none bg-transparent" value=${props.item||''} onChange=${(e)=>updateSide('right', i, 'item', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${fb.item}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 right-0"><${StatusIcon} show=${true} isCorrect=${fb.item}/></div>`}
                                 </div>
                                 <div className="w-8 border-r relative">
                                     <input type="text" className="w-full h-full text-center outline-none bg-transparent" value=${props.pr||''} onChange=${(e)=>updateSide('right', i, 'pr', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${fb.pr}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${true} isCorrect=${fb.pr}/></div>`}
                                 </div>
                                 <div className="w-16 relative">
                                     <input type="number" className="w-full h-full text-right px-1 outline-none bg-transparent" value=${props.amount||''} onChange=${(e)=>updateSide('right', i, 'amount', e.target.value)} disabled=${props.isYearRow || isRowDisabled}/>
-                                    ${!props.isYearRow && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${showFeedback} isCorrect=${fb.amount}/></div>`}
+                                    ${!props.isYearRow && showRowFeedback && html`<div className="absolute top-0 left-0"><${StatusIcon} show=${true} isCorrect=${fb.amount}/></div>`}
                                 </div>
                                 <div className="w-6 flex justify-center items-center">
                                     ${isDeletable && html`<button onClick=${()=>deleteCombinedRow(i)} class="text-red-400 hover:text-red-600"><${Trash2} size=${10}/></button>`}
