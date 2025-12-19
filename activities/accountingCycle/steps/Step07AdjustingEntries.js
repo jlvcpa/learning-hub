@@ -133,38 +133,16 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
         maxScore += (expectedCount * 4);
 
         // Calculate 'Historical' Rows count (to skip validation)
-        let histLeftCount = 0;
-        let histRightCount = 0;
-        if (config.isSubsequentYear && beginningBalances?.balances[acc]) {
-            if (beginningBalances.balances[acc].dr > 0) histLeftCount++;
-            if (beginningBalances.balances[acc].cr > 0) histRightCount++;
-        }
-        transactions.forEach(t => {
-            t.debits.forEach(d => { if(d.account === acc) histLeftCount++; });
-            t.credits.forEach(c => { if(c.account === acc) histRightCount++; });
-        });
-
+        // Note: LedgerAccountAdj uses this to determine isUser.
+        // We assume validAccounts matches what LedgerAccountAdj sees.
+        
         // Validate Left Rows (Debit)
-        // Only validate rows AFTER historical rows
         const userLeftRows = u.leftRows || [];
-        // Pad array to match historical length so we align indices correctly if user hasn't added rows yet but they exist in view logic
-        // Actually, 'u.leftRows' ONLY contains user added rows in this component's logic?
-        // Wait, LedgerAccountAdj merges historical + user rows for display.
-        // But 'ledgerData' passed here only contains the user-entered rows if we look at `onUpdate` in LedgerAccountAdj.
-        // Let's verify LedgerAccountAdj logic...
-        // Yes: `const userLeft = userLedger?.leftRows || [];` and `updateSide` updates `userLedger.leftRows`.
-        // So `u.leftRows` contains ONLY the rows the user has added/edited, NOT the historical ones.
-        // Therefore, we validate ALL rows in `u.leftRows` as they are all user entries.
-        
-        // Wait, `onUpdate` index logic in `LedgerAccountAdj` handles the offset.
-        // `const userIdx = dataIdx - histLen;`
-        // So `u.leftRows` is indeed just the user's added rows.
-        
-        // So we iterate through u.leftRows and match against expected adjusting entries.
         
         userLeftRows.forEach((row, idx) => {
+            // Ignore empty rows if they are extra
             if (!row.amount && !row.date && !row.item) {
-                ledgerRowFeedback[acc].left[idx] = null; // Empty row
+                ledgerRowFeedback[acc].left[idx] = null; 
                 return;
             }
 
@@ -177,8 +155,9 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
             if (matchIdx !== -1) {
                 // Amount Matches - Valid Entry Attempt
                 isMatch = true;
-                const exp = expDr[matchIdx];
-                expDr.splice(matchIdx, 1); // Consume expectation
+                // Don't splice immediately if we want to allow multiple same-amount entries? 
+                // Standard practice is 1-to-1 matching.
+                expDr.splice(matchIdx, 1); 
 
                 // Check Fields
                 const rDate = (row.date || '').trim();
@@ -189,13 +168,13 @@ export const validateStep07 = (arg1, arg2, arg3, arg4) => {
                 if (rDate === lastDayOfMonth || rDate.endsWith(lastDayOfMonth)) { fb.date = true; score++; } else { score--; }
                 // Item: Should be Adj
                 if (rItem.includes('adj')) { fb.item = true; score++; } else { score--; }
-                // PR: Should be J2, GJ1, etc.
+                // PR: Should be J2, GJ1, etc. (Allowing any string for now, preferably J2 or Adj)
                 if (rPr.length > 0) { fb.pr = true; score++; } else { score--; }
                 // Amount: Already matched
                 fb.amount = true; score++; 
             } else {
                 // Spurious Entry (Wrong Amount or Extra)
-                // Deduct for every filled field
+                // Deduct for every filled field to discourage spamming
                 if (row.date) score--;
                 if (row.item) score--;
                 if (row.pr) score--;
