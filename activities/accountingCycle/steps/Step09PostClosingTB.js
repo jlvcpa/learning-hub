@@ -320,6 +320,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         let contextYear = new Date().getFullYear();
                         let endOfMonthDate = `${contextYear}-12-31`;
 
+                        // DYNAMIC DATE FIX: Use transactions to determine the correct month/end date
                         if (transactions && transactions.length > 0) {
                              const tDate = new Date(transactions[0].date);
                              contextYear = tDate.getFullYear();
@@ -350,15 +351,17 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                         }
 
                         // 3. Adjusting Entries (Step 7)
+                        // FIX: Use endOfMonthDate instead of hardcoded 12-31
                         if (adjustments) {
                             adjustments.forEach(adj => {
-                                const adjDate = endOfMonthDate; // Use calculated End of Month
+                                const adjDate = endOfMonthDate; 
                                 if (adj.drAcc === acc) rowsL.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
                                 if (adj.crAcc === acc) rowsR.push({ rawDate: adjDate, part: 'Adj', pr: 'J2', amount: adj.amount });
                             });
                         }
 
                         // 4. Closing Entries (Step 8 / Computed)
+                        // FIX: Use endOfMonthDate instead of hardcoded 12-31
                         if (computedClosingEntries) {
                             computedClosingEntries.forEach(block => {
                                 if (block.rows) {
@@ -366,7 +369,7 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                         if (row.acc && row.acc.trim() === acc) {
                                             const dr = Number(row.dr) || 0;
                                             const cr = Number(row.cr) || 0;
-                                            const closDate = endOfMonthDate; // Use calculated End of Month
+                                            const closDate = endOfMonthDate;
                                             if (dr > 0) rowsL.push({ rawDate: closDate, part: 'Clos', pr: 'J3', amount: dr });
                                             if (cr > 0) rowsR.push({ rawDate: closDate, part: 'Clos', pr: 'J3', amount: cr });
                                         }
@@ -416,8 +419,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                                 dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
                                             }
 
+                                            // ALIGNMENT FIX: Only Year row is center; all date rows are right-aligned
                                             return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
-                                                <div className=${`w-14 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black text-center' : (i >= 2 ? 'text-right pr-2 text-gray-500' : 'text-center text-gray-500')}`}>${dateText}</div>
+                                                <div className=${`w-14 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black text-center' : 'text-right pr-2 text-gray-500'}`}>${dateText}</div>
                                                 <div className="flex-1 border-r mr-1">${r.part||''}</div>
                                                 <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
                                                 <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
@@ -451,8 +455,9 @@ const LedgerSourceView = ({ transactions, validAccounts, beginningBalances, isSu
                                                 dateText = formatDate(r.rawDate, isFirstDataRow || isMonthChange);
                                             }
 
+                                            // ALIGNMENT FIX: Only Year row is center; all date rows are right-aligned
                                             return html`<div key=${i} className="flex text-xs border-b border-gray-200 h-6 items-center px-1">
-                                                <div className=${`w-14 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black text-center' : (i >= 2 ? 'text-right pr-2 text-gray-500' : 'text-center text-gray-500')}`}>${dateText}</div>
+                                                <div className=${`w-14 border-r mr-1 font-medium ${r.isYear ? 'font-bold text-black text-center' : 'text-right pr-2 text-gray-500'}`}>${dateText}</div>
                                                 <div className="flex-1 border-r mr-1">${r.part||''}</div>
                                                 <div className="w-8 border-r text-center mr-1">${r.pr||''}</div>
                                                 <div className="w-16 text-right">${r.amount ? r.amount.toLocaleString() : ''}</div>
