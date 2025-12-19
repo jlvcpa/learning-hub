@@ -8,7 +8,7 @@ const html = htm.bind(React.createElement);
 
 // --- HELPER: Status Icon ---
 const StatusIcon = ({ isCorrect, show }) => {
-    if (!show || isCorrect === undefined) return null;
+    if (!show || isCorrect === undefined || isCorrect === null) return null;
     return isCorrect 
         ? html`<${Check} size=${14} className="text-green-600 inline ml-1" />` 
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
@@ -334,11 +334,6 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         const userHasRows = isLeft ? userLeft.length > 0 : userRight.length > 0;
 
         if (visualIdx === 0) {
-            // YEAR ROW LOGIC
-            // If History exists, show context year (Locked)
-            // If No History but User Rows exist, show User Input (Unlocked)
-            // Else, Show nothing
-            
             let dateVal = '';
             let isLocked = true;
             let showInput = false;
@@ -374,14 +369,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         }
 
         let displayDate = row.date || '';
-        // If this is the FIRST entry on this side (no history, and it is the first user row), Placeholder is "Mmm dd"
-        // Otherwise "dd"
-        // But here we just return the value, the placeholder logic is in the render
-        
         if (visualIdx > 1 && row.isLocked && displayDate.includes(' ')) {
-             // For historical rows, if not first, strip month. 
-             // Logic simplifies to: if it's the very first row of the list, show full date.
-             // If visualIdx 1 is "Jan 01", visualIdx 2 is "Jan 05" -> "05".
              displayDate = displayDate.split(' ')[1];
         }
 
@@ -416,19 +404,11 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
                     ${displayRows.map(i => {
                         const props = getCellProps('left', i);
                         const isRowDisabled = props.isLocked; 
-                        
-                        // Placeholder Logic
                         let datePlaceholder = "dd";
                         if (i === 0) datePlaceholder = "YYYY";
-                        else if (i === 1) {
-                             // If history exists, it's Mmm dd. If no history, it's Mmm dd. Always Mmm dd for first row.
-                             datePlaceholder = "Mmm dd";
-                        } else {
-                             // Subsequent rows: "dd"
-                             datePlaceholder = "dd";
-                        }
+                        else if (i === 1) datePlaceholder = "Mmm dd";
+                        else datePlaceholder = "dd";
                         
-                        // Validation keys
                         const uIdx = props.userIdx;
                         const rowStatusKey = uIdx >= 0 ? `l-${uIdx}` : null;
                         
@@ -686,7 +666,7 @@ export const validateStep08 = (data, activityData) => {
 
     const netIncome = totalRev - totalExp;
 
-    // --- Prepare Expected Journal Data (Same as before) ---
+    // --- Prepare Expected Journal Data ---
     const expectedJournal = {
         0: [ 
             ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
@@ -707,6 +687,191 @@ export const validateStep08 = (data, activityData) => {
         ]
     };
 
+
+    // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
+    const expectedPostings = {};
+    validAccounts.forEach(acc => expectedPostings[acc] = []);
+
+    // Helper to push expectation
+    const expPost = (acc, side, amt) => {
+        if (!expectedPostings[acc]) expectedPostings[acc] = [];
+        expectedPostings[acc].push({ side, amt, isPosted: false });
+    };
+
+    // Generate Expectations from Journal Logic
+    revAccounts.forEach(r => expPost(r.acc, 'left', r.amt));
+    expPost('Income Summary', 'right', totalRev);
+    expPost('Income Summary', 'left', totalExp);
+    expAccounts.forEach(e => expPost(e.acc, 'right', e.amt));
+
+    if (netIncome >= 0) {
+        expPost('Income Summary', 'left', netIncome);
+        expPost(capitalAccName, 'right', netIncome);
+    } else {
+        expPost(capitalAccName, 'left', Math.abs(netIncome));
+        expPost('Income Summary', 'right', Math.abs(netIncome));
+    }
+    expPost(capitalAccName, 'left', drawingAmt);
+    expPost(drawingAccName, 'right', drawingAmt);
+
+    // Validate Ledgers
+    validAccounts.forEach(acc => {
+        const userL = userLedgers[acc] || {};
+        const exps = expectedPostings[acc] || [];
+        const ledgerKeyBase = `ledger-${acc}`;
+
+        const expLeft = exps.filter(e => e.side === 'left');
+        const expRight = exps.filter(e => e.side === 'right');
+
+        // History check
+        const hasHistoryLeft = transactions.some(t => t.debits.some(d => d.account === acc)) || (ledger[acc]?.debit > 0) || adjustments.some(a => a.drAcc === acc);
+        const hasHistoryRight = transactions.some(t => t.credits.some(c => c.account === acc)) || (ledger[acc]?.credit > 0) || adjustments.some(a => a.crAcc === acc);
+        
+        // Calculate Expected Totals for Validation
+        let expDrTotal = 0; 
+        let expCrTotal = 0;
+        // Add History
+        if(ledger[acc]?.debit) expDrTotal += ledger[acc].debit;
+        if(ledger[acc]?.credit) expCrTotal += ledger[acc].credit;
+        transactions.forEach(t => {
+            t.debits.forEach(d => { if(d.account === acc) expDrTotal += d.amount; });
+            t.credits.forEach(c => { if(c.account === acc) expCrTotal += c.amount; });
+        });
+        adjustments.forEach(a => {
+            if(a.drAcc === acc) expDrTotal += a.amount;
+            if(a.crAcc === acc) expCrTotal += a.amount;
+        });
+        // Add Expected Closing
+        expLeft.forEach(e => expDrTotal += e.amt);
+        expRight.forEach(e => expCrTotal += e.amt);
+
+
+        const validateSide = (userSideRows, expSideRows, sidePrefix, hasHistory, yearInput) => {
+            const activeUserRows = userSideRows.map((r, i) => ({...r, idx: i})).filter(r => r.amount || r.item || r.pr || r.date);
+            const userHasRows = activeUserRows.length > 0;
+
+            // YEAR VALIDATION
+            if (!hasHistory && userHasRows) {
+                maxScore += 1;
+                const yearOk = yearInput && yearInput.toString().trim() === expectedYearStr;
+                fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = yearOk;
+                if (yearOk) score++;
+            }
+
+            // ROW VALIDATION
+            const usedExpIndices = new Set();
+            expSideRows.forEach(() => { maxScore += 2; }); // Part(1) + PR(1)
+
+            activeUserRows.forEach(uRow => {
+                const key = `${sidePrefix}-${uRow.idx}`;
+                
+                const matchIndex = expSideRows.findIndex((e, i) => !usedExpIndices.has(i) && Math.abs(e.amt - (Number(uRow.amount)||0)) < 1);
+                
+                if (matchIndex !== -1) {
+                    usedExpIndices.add(matchIndex);
+                    const match = expSideRows[matchIndex];
+                    match.isPosted = true; // Mark as posted for Journal PR check
+                    
+                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = true;
+
+                    const dStr = (uRow.date || '').toString();
+                    const dateOk = dStr.includes(expectedDate.toString());
+                    fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
+
+                    const item = (uRow.item || '').toLowerCase();
+                    const itemOk = item === 'closing' || item === 'clos';
+                    fieldStatus[`${ledgerKeyBase}-${key}-item`] = itemOk;
+                    if (itemOk) score++;
+
+                    const pr = (uRow.pr || '').toLowerCase();
+                    const prOk = pr.includes('j'); 
+                    fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
+                    if (prOk) score++;
+
+                } else {
+                    fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
+                    fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
+                    fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
+                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = false;
+                    score -= 1;
+                }
+            });
+        };
+
+        validateSide(userL.leftRows || [], expLeft, 'l', hasHistoryLeft, userL.yearInputLeft);
+        validateSide(userL.rightRows || [], expRight, 'r', hasHistoryRight, userL.yearInputRight);
+
+        // TOTALS Check
+        const checkTotal = (userVal, expVal, key) => {
+             const val = Number(userVal);
+             if (expVal > 0) {
+                 const ok = Math.abs(val - expVal) < 1;
+                 fieldStatus[key] = ok; // If empty -> 0 != exp -> False(X).
+             } else {
+                 // Expect 0. If user has input -> False. If empty -> Null.
+                 fieldStatus[key] = userVal ? false : null;
+             }
+        };
+        checkTotal(userL.drTotal, expDrTotal, `${ledgerKeyBase}-drTotal`);
+        checkTotal(userL.crTotal, expCrTotal, `${ledgerKeyBase}-crTotal`);
+
+
+        // BALANCE Check
+        const type = getAccountType(acc);
+        let rawDr = ledger[acc]?.debit || 0;
+        let rawCr = ledger[acc]?.credit || 0;
+        adjustments.forEach(a => { if (a.drAcc === acc) rawDr += a.amount; if (a.crAcc === acc) rawCr += a.amount; });
+        let net = rawDr - rawCr;
+        if (type === 'Revenue') net -= net; 
+        else if (type === 'Expense') net += Math.abs(net);
+        
+        let expectedBal = 0;
+        if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') expectedBal = 0;
+        else if (acc === capitalAccName) {
+            let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); 
+            capBal += netIncome; capBal -= drawingAmt; expectedBal = capBal;
+        } else expectedBal = Math.abs(net);
+
+        const userBal = Number(userL.balance);
+        const userType = userL.balanceType;
+        const isZero = Math.abs(expectedBal) < 1;
+        
+        let expectedType = '';
+        if (!isZero) {
+            const aType = getAccountType(acc);
+            if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
+            else if (aType === 'Asset') expectedType = 'Dr';
+            else if (aType === 'Liability') expectedType = 'Cr';
+        }
+        
+        maxScore += 2;
+        // Balance Amt
+        if (expectedBal > 0) {
+            const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
+            fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
+            if (matchesAmt) score++;
+        } else {
+             // Expect 0. If user has input -> False. If empty -> Null (Wait, usually balanced accounts show 0? No, usually empty or lines).
+             // Prompt says "if expecting a nonzero amount must be X... if no entry".
+             // If expecting zero, usually we put 0 or leave empty?
+             // Prompt implies X only if nonzero expectation and empty.
+             // Let's stick to: if exp > 0, strict check. If exp == 0, check if user put nonzero.
+             if (userBal) fieldStatus[`${ledgerKeyBase}-bal`] = false; else fieldStatus[`${ledgerKeyBase}-bal`] = null;
+        }
+        
+        // Balance Type
+        if (!isZero) {
+            const matchesType = userType === expectedType;
+            fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
+            if (matchesType) score++;
+        } else {
+             fieldStatus[`${ledgerKeyBase}-balType`] = userType ? false : null; 
+        }
+
+        fieldStatus[`${ledgerKeyBase}-overall`] = (fieldStatus[`${ledgerKeyBase}-bal`] !== false) && (fieldStatus[`${ledgerKeyBase}-balType`] !== false);
+    });
+
+
     // --- Validate Journal ---
     Object.keys(expectedJournal).forEach(bIdx => {
         const expectedRows = expectedJournal[bIdx];
@@ -718,12 +883,38 @@ export const validateStep08 = (data, activityData) => {
              const uRow = userRows.find(r => r.acc && r.acc.trim() === expected.acc);
              if (uRow) {
                  const accOk = true; 
-                 const drOk = Math.abs((Number(uRow.dr)||0) - expected.dr) < 1 && (expected.dr > 0 ? (Number(uRow.dr)||0) > 0 : true);
-                 const crOk = Math.abs((Number(uRow.cr)||0) - expected.cr) < 1 && (expected.cr > 0 ? (Number(uRow.cr)||0) > 0 : true);
+                 // Debit Check
+                 let drOk = null;
+                 if (expected.dr > 0) {
+                     drOk = Math.abs((Number(uRow.dr)||0) - expected.dr) < 1; // Empty -> 0 -> False(X)
+                 } else {
+                     drOk = uRow.dr ? false : null; // Expect 0. Val -> False. Empty -> Null.
+                     if (uRow.dr) score -= 1; // Deduction for unexpected input
+                 }
+
+                 // Credit Check
+                 let crOk = null;
+                 if (expected.cr > 0) {
+                     crOk = Math.abs((Number(uRow.cr)||0) - expected.cr) < 1;
+                 } else {
+                     crOk = uRow.cr ? false : null;
+                     if (uRow.cr) score -= 1;
+                 }
+
                  const dateOk = i === 0 ? (Number(userRows[0].date) === expectedDate) : true;
                  
-                 const rowIsCorrect = accOk && drOk && crOk && dateOk;
-                 const prOk = rowIsCorrect && uRow.pr === true;
+                 // PR Check: Only granted if Journal Row is correct AND Ledger is Posted
+                 const rowIsCorrect = accOk && (drOk === true || drOk === null) && (crOk === true || crOk === null) && dateOk;
+                 let prOk = false;
+                 if (rowIsCorrect && uRow.pr === true) {
+                      // Check Ledger Posting
+                      const accPostings = expectedPostings[expected.acc] || [];
+                      // Find if any posting for this side/amt is marked posted
+                      const side = expected.dr > 0 ? 'left' : 'right';
+                      const amt = expected.dr > 0 ? expected.dr : expected.cr;
+                      const matchingPosting = accPostings.find(p => p.side === side && Math.abs(p.amt - amt) < 1 && p.isPosted);
+                      if (matchingPosting) prOk = true;
+                 }
 
                  const uIdx = userRows.indexOf(uRow);
                  const keyBase = `journal-${bIdx}-${uIdx}`;
@@ -735,7 +926,9 @@ export const validateStep08 = (data, activityData) => {
                  fieldStatus[`${keyBase}-pr`] = prOk; 
 
                  if (accOk) score++;
-                 if (drOk && crOk) score++; 
+                 if ((drOk === true) && (crOk === true || crOk === null)) score++; // Point for Amounts (Dr must be right, Cr must be right/empty)
+                 else if ((crOk === true) && (drOk === true || drOk === null)) score++;
+
                  if (prOk) score++;
                  if (i === 0 && dateOk) score++;
              }
@@ -752,179 +945,6 @@ export const validateStep08 = (data, activityData) => {
                  score -= 1; 
             }
         });
-    });
-
-
-    // --- Validate Ledger Postings ---
-    
-    // 1. Define Expected Postings
-    const expectedPostings = {};
-    validAccounts.forEach(acc => expectedPostings[acc] = []);
-
-    const expPost = (acc, side, amt) => {
-        if (!expectedPostings[acc]) expectedPostings[acc] = [];
-        expectedPostings[acc].push({ side, amt });
-    };
-
-    revAccounts.forEach(r => expPost(r.acc, 'left', r.amt));
-    expPost('Income Summary', 'right', totalRev);
-    expPost('Income Summary', 'left', totalExp);
-    expAccounts.forEach(e => expPost(e.acc, 'right', e.amt));
-
-    if (netIncome >= 0) {
-        expPost('Income Summary', 'left', netIncome);
-        expPost(capitalAccName, 'right', netIncome);
-    } else {
-        expPost(capitalAccName, 'left', Math.abs(netIncome));
-        expPost('Income Summary', 'right', Math.abs(netIncome));
-    }
-    expPost(capitalAccName, 'left', drawingAmt);
-    expPost(drawingAccName, 'right', drawingAmt);
-
-
-    // 2. Iterate Accounts and Validate
-    validAccounts.forEach(acc => {
-        const userL = userLedgers[acc] || {};
-        const exps = expectedPostings[acc] || [];
-        const ledgerKeyBase = `ledger-${acc}`;
-
-        const expLeft = exps.filter(e => e.side === 'left');
-        const expRight = exps.filter(e => e.side === 'right');
-
-        // Check if history exists to validate Year input
-        const rawDrHist = (ledger[acc]?.debit || 0) + adjustments.filter(a => a.drAcc === acc).reduce((s,a)=>s+a.amount,0);
-        const rawCrHist = (ledger[acc]?.credit || 0) + adjustments.filter(a => a.crAcc === acc).reduce((s,a)=>s+a.amount,0);
-        
-        // This history check needs to align with the visual check.
-        // In visual, we looked at transactions array + adjustments passed.
-        // Here we can simplify: if transactions list has entries for this account or beginning bal exists.
-        
-        // Simpler check logic:
-        const hasHistoryLeft = transactions.some(t => t.debits.some(d => d.account === acc)) || (ledger[acc]?.debit > 0) || adjustments.some(a => a.drAcc === acc);
-        const hasHistoryRight = transactions.some(t => t.credits.some(c => c.account === acc)) || (ledger[acc]?.credit > 0) || adjustments.some(a => a.crAcc === acc);
-
-        const validateSide = (userSideRows, expSideRows, sidePrefix, hasHistory, yearInput) => {
-            const activeUserRows = userSideRows.map((r, i) => ({...r, idx: i})).filter(r => r.amount || r.item || r.pr || r.date);
-            const userHasRows = activeUserRows.length > 0;
-
-            // YEAR VALIDATION
-            // If No History but User Rows Exist -> Year Input is required and Scored.
-            if (!hasHistory && userHasRows) {
-                maxScore += 1;
-                const yearOk = yearInput && yearInput.toString().trim() === expectedYearStr;
-                fieldStatus[`${ledgerKeyBase}-year-${sidePrefix === 'l' ? 'left' : 'right'}`] = yearOk;
-                if (yearOk) score++;
-                // If incorrect, no deduction, just 0 score and X (handled by StatusIcon)
-            }
-
-            // ROW VALIDATION
-            const usedExpIndices = new Set();
-            
-            // 1. Max Score Calculation
-            expSideRows.forEach(() => {
-                maxScore += 2; // Particulars(1) + PR(1).
-            });
-
-            activeUserRows.forEach(uRow => {
-                const key = `${sidePrefix}-${uRow.idx}`;
-                
-                // Try to find a matching expectation by Amount
-                const matchIndex = expSideRows.findIndex((e, i) => 
-                    !usedExpIndices.has(i) && Math.abs(e.amt - (Number(uRow.amount)||0)) < 1
-                );
-                
-                if (matchIndex !== -1) {
-                    // --- MATCHED ROW ---
-                    usedExpIndices.add(matchIndex);
-                    
-                    // Mark Valid Match (Implicitly validates Amount)
-                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = true;
-
-                    // Validate Date
-                    // If !hasHistory, date should be "Mmm dd". If hasHistory, "dd".
-                    // But usually, lenient validation on date is better, or check against expectedDate.
-                    // Let's assume user must type '31' or 'Dec 31'.
-                    // Simplest: Check if it contains the day.
-                    const dStr = (uRow.date || '').toString();
-                    const dateOk = dStr.includes(expectedDate.toString());
-                    fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
-                    // No score for date explicitly requested, but visual feedback is good.
-
-                    // Validate Particulars (1 pt)
-                    const item = (uRow.item || '').toLowerCase();
-                    const itemOk = item.includes('close') || item.includes('closing');
-                    fieldStatus[`${ledgerKeyBase}-${key}-item`] = itemOk;
-                    if (itemOk) score++;
-
-                    // Validate PR (1 pt)
-                    const pr = (uRow.pr || '').toLowerCase();
-                    const prOk = pr.includes('j'); 
-                    fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
-                    if (prOk) score++;
-
-                } else {
-                    // --- UNMATCHED / EXTRA ROW ---
-                    // This is where deduction happens
-                    fieldStatus[`${ledgerKeyBase}-${key}-date`] = false;
-                    fieldStatus[`${ledgerKeyBase}-${key}-item`] = false;
-                    fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false;
-                    fieldStatus[`${ledgerKeyBase}-${key}-amt`] = false;
-                    score -= 1;
-                }
-            });
-            
-            // Check for Missing Entries? (Optional, visual feedback only works on input boxes)
-            // If expected rows > used indices, user missed an entry.
-        };
-
-        validateSide(userL.leftRows || [], expLeft, 'l', hasHistoryLeft, userL.yearInputLeft);
-        validateSide(userL.rightRows || [], expRight, 'r', hasHistoryRight, userL.yearInputRight);
-
-        // 3. Balance Validation (Same as before)
-        const type = getAccountType(acc);
-        let rawDr = ledger[acc]?.debit || 0;
-        let rawCr = ledger[acc]?.credit || 0;
-        adjustments.forEach(a => { if (a.drAcc === acc) rawDr += a.amount; if (a.crAcc === acc) rawCr += a.amount; });
-        let net = rawDr - rawCr;
-
-        if (type === 'Revenue') net -= net; 
-        else if (type === 'Expense') net += Math.abs(net);
-        
-        let expectedBal = 0;
-        if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') {
-            expectedBal = 0;
-        } else if (acc === capitalAccName) {
-            let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); 
-            capBal += netIncome;
-            capBal -= drawingAmt;
-            expectedBal = capBal;
-        } else {
-            expectedBal = Math.abs(net);
-        }
-
-        const userBal = Number(userL.balance) || 0;
-        const userType = userL.balanceType;
-
-        const isZero = Math.abs(expectedBal) < 1;
-        const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
-        
-        let expectedType = '';
-        if (!isZero) {
-            const aType = getAccountType(acc);
-            if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
-            else if (aType === 'Asset') expectedType = 'Dr';
-            else if (aType === 'Liability') expectedType = 'Cr';
-        }
-
-        const matchesType = isZero ? true : (userType === expectedType);
-
-        maxScore += 2;
-        if (matchesAmt) { score++; fieldStatus[`${ledgerKeyBase}-bal`] = true; } else fieldStatus[`${ledgerKeyBase}-bal`] = false;
-        if (matchesType) { score++; fieldStatus[`${ledgerKeyBase}-balType`] = true; } else fieldStatus[`${ledgerKeyBase}-balType`] = false;
-        
-        fieldStatus[`${ledgerKeyBase}-overall`] = matchesAmt && matchesType;
-        fieldStatus[`${ledgerKeyBase}-drTotal`] = true; 
-        fieldStatus[`${ledgerKeyBase}-crTotal`] = true;
     });
 
     return {
