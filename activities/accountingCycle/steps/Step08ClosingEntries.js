@@ -90,19 +90,17 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
         const rows = [...currentEntries[blockIdx].rows];
         if (!rows[rowIdx]) rows[rowIdx] = {};
 
-        // 1. Debit Entry Check
         if (field === 'dr' && val > 0) {
             const hasPriorCredit = rows.some((r, idx) => idx < rowIdx && (Number(r.cr) || 0) > 0);
             if (hasPriorCredit) {
                 alert("Please enter all Debit entries first before entering any Credit entries.");
-                return;
+                return; 
             }
             if (rows[rowIdx].acc && rows[rowIdx].acc.startsWith("    ")) {
                 rows[rowIdx].acc = rows[rowIdx].acc.trim();
             }
         }
 
-        // 2. Credit Entry Logic
         if (field === 'cr' && val > 0) {
             const currentAcc = rows[rowIdx].acc || '';
             if (!currentAcc.startsWith("    ")) {
@@ -110,7 +108,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
             }
         }
 
-        // 3. Date Logic
         if (field === 'date' && rowIdx !== 0) return;
 
         rows[rowIdx][field] = val;
@@ -216,7 +213,6 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 
 // --- COMPONENT: Enhanced Ledger Account ---
 const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, userLedger, onUpdate, isReadOnly, showFeedback, validationResult, contextYear, isNewAccount, closeDate }) => {
-    // Validation
     const { fieldStatus, ledgerRowFeedback } = validationResult || {};
     const ledgerKeyBase = `ledger-${accName}`;
     
@@ -251,7 +247,7 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         t.credits.forEach(c => { if(c.account === accName) rightRows.push({ date: dateStr, item: 'GJ', pr: '1', amount: c.amount, isLocked: true }); });
     });
 
-    // Adjusting Entries
+    // Adjusting Entries (Read-Only here)
     if (adjustments) {
         adjustments.forEach(adj => {
             const d = new Date(closeDate); 
@@ -276,7 +272,9 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     const displayRows = Array.from({length: displayRowsCount}).map((_, i) => i);
 
     const updateSide = (side, visualIdx, field, val) => {
+        // Visual Index 0 is Year Row
         if (visualIdx === 0) {
+            // Year Input is handled independently for left/right
             const key = side === 'left' ? 'yearInputLeft' : 'yearInputRight';
             onUpdate({ ...userLedger, [key]: val });
             return;
@@ -336,8 +334,10 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
         const hasHistory = histLen > 0;
         
         // Year Input Logic - Determine by feedback (validation tells us if Year is required/expected)
+        // Or determine by expected entry: we passed rowFeedback which contains year flag.
+        // Actually, validationResult.ledgerRowFeedback has year flag.
         const yearFeedback = rowFeedback[`${side}Year`];
-        const isYearRequired = yearFeedback !== undefined;
+        const isYearRequired = yearFeedback !== undefined; // If undefined, not expected. If true/false, it is expected.
 
         if (visualIdx === 0) {
             // Year Row
@@ -384,14 +384,14 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
 
         if (hasHistory) {
             if (visualIdx === 1) {
-                // First history row usually has full date
+                // First history row
             } else {
                 if (row.isLocked && displayDate.includes(' ')) {
                     displayDate = displayDate.split(' ')[1];
                 }
             }
         } else {
-            // NO History.
+            // NO History on this side.
             // If this is the FIRST entry (visualIdx 1), it needs to be "Mmm dd"
             if (visualIdx === 1) datePlaceholder = "Mmm dd";
         }
@@ -653,7 +653,6 @@ export const validateStep08 = (data, activityData) => {
     const userJournal = data.journal || [];
     const userLedgers = data.ledgers || {};
 
-    // Determine correct date (End of Month of last transaction)
     let expectedDate = '31';
     let expectedMonthShort = 'Dec';
     let contextYear = new Date().getFullYear();
@@ -852,24 +851,21 @@ export const validateStep08 = (data, activityData) => {
                 const matchIdx = expAmtsClone.findIndex((amt, idx) => !usedExpIndices.has(idx) && Math.abs(amt - rAmt) <= 1);
 
                 if (matchIdx !== -1) {
-                    // MATCH
+                    // MATCH - NO DEDUCTIONS for correct slot
                     usedExpIndices.add(matchIdx);
                     const fb = { date: false, item: false, pr: false, amount: true };
                     
-                    score++; // Amount
+                    score++; // Amount is Correct
 
                     const d = (row.date || '').trim();
                     
                     // Date Logic: 
-                    // If NO history, this is the FIRST entry.
                     if (!hasHistory && rIdx === 0) {
-                        // Expected: "Mmm dd" e.g., "Dec 31"
                         const expectedStr = `${expectedMonthShort} ${expectedDate}`;
                         if (d.toLowerCase() === expectedStr.toLowerCase()) { 
                             fb.date = true; score++; 
                         }
                     } else {
-                        // Just day: "31"
                         if (d === expectedDate.toString()) { 
                             fb.date = true; score++; 
                         }
@@ -881,7 +877,7 @@ export const validateStep08 = (data, activityData) => {
                     ledgerRowFeedback[acc][sideName][rIdx] = fb;
 
                 } else {
-                    // SPURIOUS ENTRY - Only penalize if incorrect data entered
+                    // SPURIOUS ENTRY - Deduct points
                     score--; // Amount wrong
                     if (row.date) score--;
                     if (row.item) score--;
@@ -891,8 +887,7 @@ export const validateStep08 = (data, activityData) => {
                 }
             });
 
-            // Add Max Score for Expected Items
-            // 4 pts per expected entry
+            // Add Max Score for Expected Items (4 pts per entry)
             maxScore += (expectedAmts.length * 4); 
         };
 
