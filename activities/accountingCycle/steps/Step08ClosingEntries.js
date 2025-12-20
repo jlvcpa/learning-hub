@@ -994,26 +994,28 @@ export const validateStep08 = (data, activityData) => {
                     fieldStatus[`${ledgerKeyBase}-${key}-amt`] = amtOk;
                     if (amtOk) score++;
 
-                    // Date (1 pt) -> STRICT VALIDATION ADDED HERE
+                    // Date (1 pt) -> STRICT VALIDATION
                     const dStr = (uRow.date || '').toString().trim();
                     let dateOk = false;
                     
-                    // If this is the FIRST item on this side (matchIndex === 0) -> Expect "Mmm dd"
-                    if (matchIndex === 0) {
+                    // Logic Check: Do we need Mmm dd?
+                    // Yes if: It's the first row (matchIndex=0) AND there is NO history on this account/side
+                    const requiresMonth = matchIndex === 0 && !hasHistory;
+
+                    if (requiresMonth) {
                          const dateObj = new Date(transactions[transactions.length - 1].date);
                          const monthStr = dateObj.toLocaleString('default', { month: 'short' });
                          const dayStr = expectedDate.toString();
-                         const expectedFullDate = `${monthStr} ${dayStr}`; // e.g. "Jan 31"
+                         const expectedFullDate = `${monthStr} ${dayStr}`; 
                          
-                         // Strict Check: Must match exact string OR Regex for Mmm dd
-                         dateOk = dStr === expectedFullDate || mmmDdRegex.test(dStr) && dStr.includes(dayStr);
+                         dateOk = dStr === expectedFullDate || (mmmDdRegex.test(dStr) && dStr.includes(dayStr));
                     } else {
-                         // Subsequent rows -> Expect "dd" only
+                         // Otherwise, just dd is expected
                          const dayStr = expectedDate.toString();
-                         dateOk = dStr === dayStr; // Strict exact match
+                         dateOk = dStr === dayStr; 
                     }
 
-                    if (!uRow.date) fieldStatus[`${ledgerKeyBase}-${key}-date`] = false; // X if empty
+                    if (!uRow.date) fieldStatus[`${ledgerKeyBase}-${key}-date`] = false; 
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
                         if (dateOk) score++;
@@ -1028,11 +1030,10 @@ export const validateStep08 = (data, activityData) => {
                         if (itemOk) score++;
                     }
 
-                    // PR (1 pt) -> STRICT VALIDATION ADDED HERE
+                    // PR (1 pt) -> STRICT VALIDATION
                     const pr = (uRow.pr || '').toLowerCase().trim();
-                    // Strictly check for J3
                     const prOk = pr === 'j3'; 
-                    if (!uRow.pr) fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false; // X if empty
+                    if (!uRow.pr) fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false; 
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
                         if (prOk) score++;
@@ -1103,7 +1104,7 @@ export const validateStep08 = (data, activityData) => {
         if (!isZero) {
             const aType = getAccountType(acc);
             if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
-            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // FIX for Issue #2
+            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // Correct credit normal balance for contra
             else if (aType === 'Liability') expectedType = 'Cr';
             else expectedType = (aType === 'Revenue' || aType === 'Equity') ? 'Cr' : 'Dr';
         }
@@ -1121,7 +1122,7 @@ export const validateStep08 = (data, activityData) => {
             if (!userType) fieldStatus[`${ledgerKeyBase}-balType`] = false;
             else fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
 
-            // FIX for Issue #3: Combined Score
+            // Strict scoring: Must have correct amount AND correct type for the point
             if (matchesAmt && matchesType) score++;
         } else {
              if (userBal) {
