@@ -14,6 +14,19 @@ const StatusIcon = ({ isCorrect, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
+// --- HELPER: Correct Answer Overlay ---
+// Displays the correct answer in a small bubble when the user is wrong
+const CorrectAnswerBubble = ({ value, show }) => {
+    if (!show || value === undefined || value === null || value === '') return null;
+    return html`
+        <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 pointer-events-none opacity-90">
+            <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded border border-green-300 shadow-sm font-mono whitespace-nowrap">
+                ${value}
+            </span>
+        </div>
+    `;
+};
+
 // --- COMPONENT: Worksheet Source View (Read-Only) ---
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
     const mergedAccounts = useMemo(() => { 
@@ -67,7 +80,7 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
 
 // --- COMPONENT: Closing Entry Form (REID) ---
 const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validationResult }) => {
-    const { fieldStatus } = validationResult || {};
+    const { fieldStatus, correctValues } = validationResult || {};
 
     const defaultStructure = [
         { id: 'closeRev', title: '1. Close Revenue', desc: 'To close the revenue accounts.' },
@@ -150,11 +163,19 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 
                             ${rows.map((row, rIdx) => {
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
+                                
+                                // Validation Status
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
                                 const crOk = fieldStatus?.[`${baseKey}-cr`];
                                 const prOk = fieldStatus?.[`${baseKey}-pr`];
-                                const dateOk = fieldStatus?.[`${baseKey}-date`]; 
+                                const dateOk = fieldStatus?.[`${baseKey}-date`];
+                                
+                                // Correct Values (Expected)
+                                const expAcc = correctValues?.[`${baseKey}-acc`];
+                                const expDr = correctValues?.[`${baseKey}-dr`];
+                                const expCr = correctValues?.[`${baseKey}-cr`];
+                                const expDate = correctValues?.[`${baseKey}-date`];
 
                                 return html`
                                 <div key=${rIdx} className="flex border-b border-gray-100 h-8">
@@ -162,6 +183,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                         ${rIdx === 0 
                                             ? html`
                                                 <input type="text" className=${getInputClass(dateOk) + " text-right"} placeholder="dd" value=${row.date || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'date', e.target.value)} disabled=${isReadOnly}/>
+                                                <${CorrectAnswerBubble} show=${showFeedback && dateOk === false} value=${expDate} />
                                                 <div className="absolute top-0 left-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${dateOk}/></div>
                                               `
                                             : html`<div className="w-full h-full bg-gray-50"></div>`
@@ -169,6 +191,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                     </div>
                                     <div className="flex-1 border-r relative">
                                         <input type="text" className=${getInputClass(accOk)} placeholder="Account Title" value=${row.acc || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'acc', e.target.value)} disabled=${isReadOnly}/>
+                                        <${CorrectAnswerBubble} show=${showFeedback && accOk === false} value=${expAcc} />
                                         <div className="absolute top-1 right-1"><${StatusIcon} show=${showFeedback} isCorrect=${accOk}/></div>
                                     </div>
                                     <div className="w-8 border-r relative flex items-center justify-center">
@@ -177,10 +200,12 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                     </div>
                                     <div className="w-24 border-r relative">
                                         <input type="number" className=${getInputClass(drOk) + " text-right"} placeholder="Debit" value=${row.dr || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'dr', e.target.value)} disabled=${isReadOnly}/>
+                                        <${CorrectAnswerBubble} show=${showFeedback && drOk === false} value=${expDr} />
                                         <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${drOk}/></div>
                                     </div>
                                     <div className="w-24 border-r relative">
                                         <input type="number" className=${getInputClass(crOk) + " text-right"} placeholder="Credit" value=${row.cr || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'cr', e.target.value)} disabled=${isReadOnly}/>
+                                        <${CorrectAnswerBubble} show=${showFeedback && crOk === false} value=${expCr} />
                                         <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${crOk}/></div>
                                     </div>
                                     <div className="w-8 flex justify-center items-center bg-gray-50">
@@ -692,6 +717,7 @@ export const validateStep08 = (data, activityData) => {
     let score = 0;
     let maxScore = 0;
     const fieldStatus = {};
+    const correctValues = {}; // Added to store correct values
 
     // 1. Calculate Correct Closing Amounts
     let totalRev = 0, totalExp = 0, drawingAmt = 0;
@@ -759,6 +785,17 @@ export const validateStep08 = (data, activityData) => {
              { acc: drawingAccName, dr: 0, cr: drawingAmt }
         ]
     };
+
+    // --- Populate Correct Values for UI Feedback ---
+    Object.keys(expectedJournal).forEach(bIdx => {
+        expectedJournal[bIdx].forEach((row, rIdx) => {
+            const prefix = `journal-${bIdx}-${rIdx}`;
+            correctValues[`${prefix}-acc`] = row.acc;
+            if (row.dr > 0) correctValues[`${prefix}-dr`] = row.dr;
+            if (row.cr > 0) correctValues[`${prefix}-cr`] = row.cr;
+            if (rIdx === 0) correctValues[`${prefix}-date`] = expectedDate;
+        });
+    });
 
 
     // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
@@ -983,7 +1020,6 @@ export const validateStep08 = (data, activityData) => {
         const userType = userL.balanceType;
         const isZero = Math.abs(expectedBal) < 1;
         
-        // FIX: Determine Expected Type correctly, handling Contra-Assets
         let expectedType = '';
         const isContra = acc.includes('Accumulated Depreciation') || acc.includes('Allowance');
 
@@ -1124,6 +1160,7 @@ export const validateStep08 = (data, activityData) => {
         maxScore,
         letterGrade: getLetterGrade(Math.max(0, score), maxScore),
         fieldStatus,
+        correctValues, // Return the new map for UI use
         year: '20XX' 
     };
 };
