@@ -234,7 +234,6 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
             const lastTx = transactions[transactions.length - 1];
             const d = new Date(lastTx.date);
             const m = d.toLocaleString('default', { month: 'short' });
-            // Correct logic for end of current month of transaction
             const day = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
             return `${m} ${day}`;
         }
@@ -736,6 +735,11 @@ export const validateStep08 = (data, activityData) => {
         }
     });
 
+    // Fallback: If Capital account wasn't found in loop (no transactions yet), find it in validAccounts
+    if (!capitalAccName) {
+        capitalAccName = validAccounts.find(a => a.includes('Capital') || a.includes('Equity')) || 'Owner, Capital';
+    }
+
     const netIncome = totalRev - totalExp;
 
     // --- Prepare Expected Journal Data ---
@@ -795,35 +799,6 @@ export const validateStep08 = (data, activityData) => {
         });
     });
 
-    // 2. Ledger Max Score
-    sortedAllAccounts.forEach(acc => {
-        const exps = expectedPostings[acc] || [];
-        const expLeft = exps.filter(e => e.side === 'left');
-        const expRight = exps.filter(e => e.side === 'right');
-
-        // History check logic (Matches Visual mapping logic)
-        const hasHistoryLeft = transactions.some(t => t.debits.some(d => d.account === acc)) || (ledger[acc]?.debit > 0) || adjustments.some(a => a.drAcc === acc);
-        const hasHistoryRight = transactions.some(t => t.credits.some(c => c.account === acc)) || (ledger[acc]?.credit > 0) || adjustments.some(a => a.crAcc === acc);
-
-        // Year Score (If no history but expected posting exists)
-        if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
-        if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
-
-        // Row Scores (Date + Particulars + PR + Amount)
-        exps.forEach(() => { maxScore += 4; });
-
-        // Totals Score (If not zero) - We should check if non-zero is expected.
-        let expDrTotal = 0; let expCrTotal = 0;
-        // ... (calc logic duplicated below, so let's pre-calc max score inside main loop to avoid duplication errors)
-    });
-
-
-    // --- VALIDATION LOGIC & DYNAMIC MAX SCORE CORRECTION ---
-    // Reset Ledger Max Score to calculate it correctly inside the loop with full context
-    // Actually, let's just do it in one pass below.
-    // Re-initialize maxScore for Ledger part
-    // Keep Journal max score as calculated above.
-
     // Validate Ledgers
     sortedAllAccounts.forEach(acc => {
         const userL = userLedgers[acc] || {};
@@ -863,6 +838,16 @@ export const validateStep08 = (data, activityData) => {
         // 4. Closing Entries
         expLeft.forEach(e => expDrTotal += e.amt);
         expRight.forEach(e => expCrTotal += e.amt);
+
+        // Max Score Accumulation for Ledger
+        // Year Score (If no history but expected posting exists)
+        if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
+        if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
+        // Row Scores (Date + Particulars + PR + Amount)
+        exps.forEach(() => { maxScore += 4; });
+        // Totals Score
+        if (expDrTotal > 0) maxScore += 1;
+        if (expCrTotal > 0) maxScore += 1;
 
 
         const validateSide = (userSideRows, expSideRows, sidePrefix, hasHistory, yearInput) => {
@@ -963,7 +948,6 @@ export const validateStep08 = (data, activityData) => {
         const checkTotal = (userVal, expVal, key) => {
              const val = Number(userVal);
              if (expVal > 0) {
-                 maxScore += 1;
                  if (!userVal) {
                      fieldStatus[key] = false; // Expected but empty -> X
                  } else {
@@ -1004,43 +988,46 @@ export const validateStep08 = (data, activityData) => {
         if (!isZero) {
             const aType = getAccountType(acc);
             if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
-            else if (acc.includes('Accumulated') || acc.includes('Allowance')) expectedType = 'Cr'; // Contra-Asset Fix
-            else if (aType === 'Asset') expectedType = 'Dr';
+            else if (aType === 'Asset') {
+                 // FIX: Handle Contra-Assets for Accumulated Depreciation
+                 if (acc.includes('Accumulated') || acc.includes('Allowance')) expectedType = 'Cr';
+                 else expectedType = 'Dr';
+            }
             else if (aType === 'Liability') expectedType = 'Cr';
+            else expectedType = 'Cr';
         }
         
-        // Combined Balance Score (1 point for correct Pair)
+        // Combined Balance Scoring
         if (expectedBal > 0) {
-            maxScore += 1; 
+            maxScore += 1; // Only 1 point for the combined answer (Amt + Type)
 
             const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
             const matchesType = userType === expectedType;
-            
-            // Set Feedback individually
+
+            // Individual visual feedback
             if (!userL.balance) fieldStatus[`${ledgerKeyBase}-bal`] = false;
             else fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
 
             if (!userType) fieldStatus[`${ledgerKeyBase}-balType`] = false;
             else fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
 
-            // Grant Score only if BOTH match
+            // Combined Score: Only award if BOTH are correct
             if (matchesAmt && matchesType) score++;
 
         } else {
-             // Deduction Logic if unexpected input
+             // Not expecting a balance (Zero)
              if (userBal) {
                  fieldStatus[`${ledgerKeyBase}-bal`] = false; 
                  score -= 1;
              } else {
                  fieldStatus[`${ledgerKeyBase}-bal`] = null;
              }
-             
              if (userType) {
-                 fieldStatus[`${ledgerKeyBase}-balType`] = false;
-                 score -= 1;
-             } else {
-                 fieldStatus[`${ledgerKeyBase}-balType`] = null;
-             }
+                fieldStatus[`${ledgerKeyBase}-balType`] = false; 
+                score -= 1;
+            } else {
+                fieldStatus[`${ledgerKeyBase}-balType`] = null;
+            }
         }
 
         fieldStatus[`${ledgerKeyBase}-overall`] = (fieldStatus[`${ledgerKeyBase}-bal`] !== false) && (fieldStatus[`${ledgerKeyBase}-balType`] !== false);
