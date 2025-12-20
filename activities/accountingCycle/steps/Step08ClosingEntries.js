@@ -14,15 +14,17 @@ const StatusIcon = ({ isCorrect, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
-// --- HELPER: Correct Answer Overlay ---
-// Displays the correct answer in a small bubble when the user is wrong
+// --- HELPER: Correct Answer Bubble (NEW FEATURE) ---
 const CorrectAnswerBubble = ({ value, show }) => {
+    // Only render if show is true and we actually have a value to show
     if (!show || value === undefined || value === null || value === '') return null;
+    
     return html`
-        <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 pointer-events-none opacity-90">
-            <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded border border-green-300 shadow-sm font-mono whitespace-nowrap">
-                ${value}
-            </span>
+        <div className="absolute left-0 -top-5 z-50 pointer-events-none">
+            <div className="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded shadow-lg font-mono whitespace-nowrap opacity-90">
+                Expect: ${value}
+                <div className="absolute left-2 top-full w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-green-600"></div>
+            </div>
         </div>
     `;
 };
@@ -80,6 +82,7 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
 
 // --- COMPONENT: Closing Entry Form (REID) ---
 const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validationResult }) => {
+    // Extract both status AND correct values from validation
     const { fieldStatus, correctValues } = validationResult || {};
 
     const defaultStructure = [
@@ -164,14 +167,14 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                             ${rows.map((row, rIdx) => {
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
                                 
-                                // Validation Status
+                                // Validation Statuses
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
                                 const crOk = fieldStatus?.[`${baseKey}-cr`];
                                 const prOk = fieldStatus?.[`${baseKey}-pr`];
                                 const dateOk = fieldStatus?.[`${baseKey}-date`];
-                                
-                                // Correct Values (Expected)
+
+                                // Correct Values for Feedback
                                 const expAcc = correctValues?.[`${baseKey}-acc`];
                                 const expDr = correctValues?.[`${baseKey}-dr`];
                                 const expCr = correctValues?.[`${baseKey}-cr`];
@@ -179,7 +182,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 
                                 return html`
                                 <div key=${rIdx} className="flex border-b border-gray-100 h-8">
-                                    <div className="w-14 border-r relative">
+                                    <div className="w-14 border-r relative group">
                                         ${rIdx === 0 
                                             ? html`
                                                 <input type="text" className=${getInputClass(dateOk) + " text-right"} placeholder="dd" value=${row.date || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'date', e.target.value)} disabled=${isReadOnly}/>
@@ -189,7 +192,7 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                             : html`<div className="w-full h-full bg-gray-50"></div>`
                                         }
                                     </div>
-                                    <div className="flex-1 border-r relative">
+                                    <div className="flex-1 border-r relative group">
                                         <input type="text" className=${getInputClass(accOk)} placeholder="Account Title" value=${row.acc || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'acc', e.target.value)} disabled=${isReadOnly}/>
                                         <${CorrectAnswerBubble} show=${showFeedback && accOk === false} value=${expAcc} />
                                         <div className="absolute top-1 right-1"><${StatusIcon} show=${showFeedback} isCorrect=${accOk}/></div>
@@ -198,12 +201,12 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                                         <input type="checkbox" className="w-4 h-4 cursor-pointer" checked=${row.pr || false} onChange=${(e) => handleRowChange(bIdx, rIdx, 'pr', e.target.checked)} disabled=${isReadOnly}/>
                                         <div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${prOk}/></div>
                                     </div>
-                                    <div className="w-24 border-r relative">
+                                    <div className="w-24 border-r relative group">
                                         <input type="number" className=${getInputClass(drOk) + " text-right"} placeholder="Debit" value=${row.dr || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'dr', e.target.value)} disabled=${isReadOnly}/>
                                         <${CorrectAnswerBubble} show=${showFeedback && drOk === false} value=${expDr} />
                                         <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${drOk}/></div>
                                     </div>
-                                    <div className="w-24 border-r relative">
+                                    <div className="w-24 border-r relative group">
                                         <input type="number" className=${getInputClass(crOk) + " text-right"} placeholder="Credit" value=${row.cr || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'cr', e.target.value)} disabled=${isReadOnly}/>
                                         <${CorrectAnswerBubble} show=${showFeedback && crOk === false} value=${expCr} />
                                         <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${crOk}/></div>
@@ -242,7 +245,8 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
     const overallOk = fieldStatus?.[`${ledgerKeyBase}-overall`];
     const drTotalOk = fieldStatus?.[`${ledgerKeyBase}-drTotal`];
     const crTotalOk = fieldStatus?.[`${ledgerKeyBase}-crTotal`];
-    const balOk = fieldStatus?.[`${ledgerKeyBase}-bal`];
+    const balAmtOk = fieldStatus?.[`${ledgerKeyBase}-bal`];
+    const balTypeOk = fieldStatus?.[`${ledgerKeyBase}-balType`];
 
     // Helper for input class
     const getFieldClass = (keySuffix) => {
@@ -556,11 +560,11 @@ const LedgerAccount = ({ accName, transactions, startingBalance, adjustments, us
             <div className="border-t border-gray-300 p-2 bg-gray-100 flex justify-center items-center gap-2 relative">
                 <span className="text-xs font-bold uppercase text-gray-600">Balance:</span>
                 <div className="relative">
-                    <select className=${`border border-gray-300 rounded text-xs p-1 outline-none bg-white ${showFeedback && balOk === false ? 'bg-red-50' : ''}`} value=${userLedger?.balanceType || ''} onChange=${(e)=>onUpdate({...userLedger, balanceType: e.target.value})} disabled=${isReadOnly}><option value="" disabled>Type</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
+                    <select className=${`border border-gray-300 rounded text-xs p-1 outline-none bg-white ${showFeedback && balTypeOk === false ? 'bg-red-50' : ''}`} value=${userLedger?.balanceType || ''} onChange=${(e)=>onUpdate({...userLedger, balanceType: e.target.value})} disabled=${isReadOnly}><option value="" disabled>Type</option><option value="Dr">Debit</option><option value="Cr">Credit</option></select>
                 </div>
                 <div className="relative">
-                    <input type="number" className=${`w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none ${showFeedback && balOk === false ? 'bg-red-50' : ''}`} placeholder="0" value=${userLedger?.balance||''} onChange=${(e)=>onUpdate({...userLedger, balance: e.target.value})} disabled=${isReadOnly} />
-                    <div className="absolute -right-5 top-1"><${StatusIcon} show=${showFeedback} isCorrect=${balOk}/></div>
+                    <input type="number" className=${`w-32 text-center border-b-2 border-double border-black bg-white font-bold text-sm outline-none ${showFeedback && balAmtOk === false ? 'bg-red-50' : ''}`} placeholder="0" value=${userLedger?.balance||''} onChange=${(e)=>onUpdate({...userLedger, balance: e.target.value})} disabled=${isReadOnly} />
+                    <div className="absolute -right-5 top-1"><${StatusIcon} show=${showFeedback} isCorrect=${balAmtOk}/></div>
                 </div>
             </div>
         </div>
@@ -717,14 +721,19 @@ export const validateStep08 = (data, activityData) => {
     let score = 0;
     let maxScore = 0;
     const fieldStatus = {};
-    const correctValues = {}; // Added to store correct values
+    const correctValues = {}; // Store expected values for UI overlay
 
     // 1. Calculate Correct Closing Amounts
     let totalRev = 0, totalExp = 0, drawingAmt = 0;
     const revAccounts = [];
     const expAccounts = [];
     let drawingAccName = '';
-    let capitalAccName = '';
+    
+    // Explicitly find the Capital Account (excluding drawings/dividends)
+    const capitalAccName = validAccounts.find(acc => {
+        const type = getAccountType(acc);
+        return type === 'Equity' && !acc.includes('Drawing') && !acc.includes('Dividend');
+    }) || 'Owner, Capital';
 
     // Build complete account list for validation iteration
     const allAccounts = new Set(validAccounts);
@@ -756,11 +765,6 @@ export const validateStep08 = (data, activityData) => {
             drawingAmt = Math.abs(net);
             drawingAccName = acc;
         } 
-        
-        // Find capital account robustly
-        if (acc.includes('Capital') || acc.includes('Retained Earnings')) {
-            capitalAccName = acc;
-        }
     });
 
     const netIncome = totalRev - totalExp;
@@ -776,6 +780,7 @@ export const validateStep08 = (data, activityData) => {
             ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
         ],
         2: [ 
+             // Income Summary Closing: Always to Capital
              netIncome >= 0 
                 ? [{ acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome }]
                 : [{ acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) }]
@@ -786,7 +791,7 @@ export const validateStep08 = (data, activityData) => {
         ]
     };
 
-    // --- Populate Correct Values for UI Feedback ---
+    // --- Populate Correct Values for UI Bubbles ---
     Object.keys(expectedJournal).forEach(bIdx => {
         expectedJournal[bIdx].forEach((row, rIdx) => {
             const prefix = `journal-${bIdx}-${rIdx}`;
@@ -796,7 +801,6 @@ export const validateStep08 = (data, activityData) => {
             if (rIdx === 0) correctValues[`${prefix}-date`] = expectedDate;
         });
     });
-
 
     // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
     const expectedPostings = {};
@@ -1020,13 +1024,14 @@ export const validateStep08 = (data, activityData) => {
         const userType = userL.balanceType;
         const isZero = Math.abs(expectedBal) < 1;
         
+        // CORRECTED CONTRA-ASSET LOGIC
         let expectedType = '';
         const isContra = acc.includes('Accumulated Depreciation') || acc.includes('Allowance');
 
         if (!isZero) {
             const aType = getAccountType(acc);
             if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
-            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // FIX for Issue #2
+            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // Correct credit normal balance for contra
             else if (aType === 'Liability') expectedType = 'Cr';
             else expectedType = (aType === 'Revenue' || aType === 'Equity') ? 'Cr' : 'Dr';
         }
@@ -1044,7 +1049,7 @@ export const validateStep08 = (data, activityData) => {
             if (!userType) fieldStatus[`${ledgerKeyBase}-balType`] = false;
             else fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
 
-            // FIX for Issue #3: Combined Score
+            // Strict scoring: Must have correct amount AND correct type for the point
             if (matchesAmt && matchesType) score++;
         } else {
              if (userBal) {
@@ -1160,7 +1165,7 @@ export const validateStep08 = (data, activityData) => {
         maxScore,
         letterGrade: getLetterGrade(Math.max(0, score), maxScore),
         fieldStatus,
-        correctValues, // Return the new map for UI use
+        correctValues, // Return the corrected values map for the UI
         year: '20XX' 
     };
 };
