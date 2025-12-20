@@ -335,6 +335,16 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
         // 3. Closing Entries (Compound Logic for Expense)
         let totalRev = 0, totalExp = 0;
         
+        // --- FIX: Build correct list of ALL Accounts (Transactions + Adjustments) ---
+        const allAccountNames = new Set(validAccounts);
+        if (adjustments) {
+            adjustments.forEach(adj => {
+                allAccountNames.add(adj.drAcc);
+                allAccountNames.add(adj.crAcc);
+            });
+        }
+        const sortedAllAccounts = sortAccounts(Array.from(allAccountNames));
+
         const tempLedger = {};
         const getBal = (acc) => {
              if (tempLedger[acc] !== undefined) return tempLedger[acc];
@@ -349,13 +359,8 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
 
         const closingEntries = [];
         
-        // Revenue (Compound Entry)
-        // Usually done account by account or compound. Standard is account by account closure to Income Summary or Compound. 
-        // Based on request, we are standardizing Expense to Compound. Let's do the same for Revenue if multiple exist to be consistent,
-        // but typically revenue is just 1 or 2 accounts. Let's keep revenue standard loop for now unless asked, 
-        // but specific request was for EXPENSE compound.
-
-        validAccounts.forEach(acc => {
+        // Revenue
+        sortedAllAccounts.forEach(acc => {
             const net = getBal(acc);
             const type = getAccountType(acc);
             
@@ -370,9 +375,9 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
             }
         });
 
-        // Expense (Compound Entry Logic - New Request)
+        // Expense (Compound Entry Logic)
         const expenseRows = [];
-        validAccounts.forEach(acc => {
+        sortedAllAccounts.forEach(acc => {
             const net = getBal(acc);
             const type = getAccountType(acc);
             if (type === 'Expense' && net > 0) {
@@ -397,7 +402,7 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
         }
 
         const ni = totalRev - totalExp;
-        const capAcc = validAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing') && !a.includes('Dividends'));
+        const capAcc = sortedAllAccounts.find(a => getAccountType(a) === 'Equity' && !a.includes('Drawing') && !a.includes('Dividends'));
         
         if (ni !== 0) {
              const rows = ni >= 0 
@@ -411,7 +416,7 @@ export default function Step10ReversingEntries({ activityData, data, onChange, s
             });
         }
 
-        validAccounts.forEach(acc => {
+        sortedAllAccounts.forEach(acc => {
             const net = getBal(acc);
             if ((acc.includes('Drawing') || acc.includes('Dividends')) && net > 0) {
                 closingEntries.push({ 
