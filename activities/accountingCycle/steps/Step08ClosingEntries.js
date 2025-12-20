@@ -1103,7 +1103,7 @@ export const validateStep08 = (data, activityData) => {
         if (!isZero) {
             const aType = getAccountType(acc);
             if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
-            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // Correct credit normal balance for contra
+            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // FIX for Issue #2
             else if (aType === 'Liability') expectedType = 'Cr';
             else expectedType = (aType === 'Revenue' || aType === 'Equity') ? 'Cr' : 'Dr';
         }
@@ -1121,7 +1121,7 @@ export const validateStep08 = (data, activityData) => {
             if (!userType) fieldStatus[`${ledgerKeyBase}-balType`] = false;
             else fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
 
-            // Strict scoring: Must have correct amount AND correct type for the point
+            // FIX for Issue #3: Combined Score
             if (matchesAmt && matchesType) score++;
         } else {
              if (userBal) {
