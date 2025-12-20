@@ -714,6 +714,10 @@ export const validateStep08 = (data, activityData) => {
         expectedYearStr = d.getFullYear().toString();
     }
 
+    // Date Format Regex
+    const mmmDdRegex = /^[A-Z][a-z]{2}\s\d{1,2}$/; // e.g. "Jan 31"
+    const ddRegex = /^\d{1,2}$/; // e.g. "31"
+
     let score = 0;
     let maxScore = 0;
     const fieldStatus = {};
@@ -990,9 +994,25 @@ export const validateStep08 = (data, activityData) => {
                     fieldStatus[`${ledgerKeyBase}-${key}-amt`] = amtOk;
                     if (amtOk) score++;
 
-                    // Date (1 pt)
-                    const dStr = (uRow.date || '').toString();
-                    const dateOk = dStr.includes(expectedDate.toString());
+                    // Date (1 pt) -> STRICT VALIDATION ADDED HERE
+                    const dStr = (uRow.date || '').toString().trim();
+                    let dateOk = false;
+                    
+                    // If this is the FIRST item on this side (matchIndex === 0) -> Expect "Mmm dd"
+                    if (matchIndex === 0) {
+                         const dateObj = new Date(transactions[transactions.length - 1].date);
+                         const monthStr = dateObj.toLocaleString('default', { month: 'short' });
+                         const dayStr = expectedDate.toString();
+                         const expectedFullDate = `${monthStr} ${dayStr}`; // e.g. "Jan 31"
+                         
+                         // Strict Check: Must match exact string OR Regex for Mmm dd
+                         dateOk = dStr === expectedFullDate || mmmDdRegex.test(dStr) && dStr.includes(dayStr);
+                    } else {
+                         // Subsequent rows -> Expect "dd" only
+                         const dayStr = expectedDate.toString();
+                         dateOk = dStr === dayStr; // Strict exact match
+                    }
+
                     if (!uRow.date) fieldStatus[`${ledgerKeyBase}-${key}-date`] = false; // X if empty
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-date`] = dateOk;
@@ -1008,9 +1028,10 @@ export const validateStep08 = (data, activityData) => {
                         if (itemOk) score++;
                     }
 
-                    // PR (1 pt)
-                    const pr = (uRow.pr || '').toLowerCase();
-                    const prOk = pr.includes('j'); 
+                    // PR (1 pt) -> STRICT VALIDATION ADDED HERE
+                    const pr = (uRow.pr || '').toLowerCase().trim();
+                    // Strictly check for J3
+                    const prOk = pr === 'j3'; 
                     if (!uRow.pr) fieldStatus[`${ledgerKeyBase}-${key}-pr`] = false; // X if empty
                     else {
                         fieldStatus[`${ledgerKeyBase}-${key}-pr`] = prOk;
