@@ -1,4 +1,3 @@
-
 // --- Step08ClosingEntries.js ---
 import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
 import htm from 'https://esm.sh/htm';
@@ -13,6 +12,19 @@ const StatusIcon = ({ isCorrect, show }) => {
     return isCorrect 
         ? html`<${Check} size=${14} className="text-green-600 inline ml-1" />` 
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
+};
+
+// --- HELPER: Correct Answer Bubble ---
+const CorrectAnswerBubble = ({ value, show }) => {
+    if (!show || value === undefined || value === null || value === '') return null;
+    return html`
+        <div className="absolute left-0 -top-6 z-50 pointer-events-none">
+            <div className="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded shadow-lg font-mono whitespace-nowrap opacity-90 relative">
+                Expect: ${value}
+                <div className="absolute left-2 top-full w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-green-600"></div>
+            </div>
+        </div>
+    `;
 };
 
 // --- COMPONENT: Worksheet Source View (Read-Only) ---
@@ -68,7 +80,7 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
 
 // --- COMPONENT: Closing Entry Form (REID) ---
 const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validationResult }) => {
-    const { fieldStatus } = validationResult || {};
+    const { fieldStatus, correctValues } = validationResult || {};
 
     const defaultStructure = [
         { id: 'closeRev', title: '1. Close Revenue', desc: 'To close the revenue accounts.' },
@@ -151,37 +163,48 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
 
                             ${rows.map((row, rIdx) => {
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
+                                
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
                                 const crOk = fieldStatus?.[`${baseKey}-cr`];
                                 const prOk = fieldStatus?.[`${baseKey}-pr`];
-                                const dateOk = fieldStatus?.[`${baseKey}-date`]; 
+                                const dateOk = fieldStatus?.[`${baseKey}-date`];
+
+                                // Get correct values for bubble
+                                const expAcc = correctValues?.[`${baseKey}-acc`];
+                                const expDr = correctValues?.[`${baseKey}-dr`];
+                                const expCr = correctValues?.[`${baseKey}-cr`];
+                                const expDate = correctValues?.[`${baseKey}-date`];
 
                                 return html`
                                 <div key=${rIdx} className="flex border-b border-gray-100 h-8">
-                                    <div className="w-14 border-r relative">
+                                    <div className="w-14 border-r relative group">
                                         ${rIdx === 0 
                                             ? html`
                                                 <input type="text" className=${getInputClass(dateOk) + " text-right"} placeholder="dd" value=${row.date || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'date', e.target.value)} disabled=${isReadOnly}/>
+                                                <${CorrectAnswerBubble} show=${showFeedback && dateOk === false} value=${expDate} />
                                                 <div className="absolute top-0 left-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${dateOk}/></div>
                                               `
                                             : html`<div className="w-full h-full bg-gray-50"></div>`
                                         }
                                     </div>
-                                    <div className="flex-1 border-r relative">
+                                    <div className="flex-1 border-r relative group">
                                         <input type="text" className=${getInputClass(accOk)} placeholder="Account Title" value=${row.acc || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'acc', e.target.value)} disabled=${isReadOnly}/>
+                                        <${CorrectAnswerBubble} show=${showFeedback && accOk === false} value=${expAcc} />
                                         <div className="absolute top-1 right-1"><${StatusIcon} show=${showFeedback} isCorrect=${accOk}/></div>
                                     </div>
                                     <div className="w-8 border-r relative flex items-center justify-center">
                                         <input type="checkbox" className="w-4 h-4 cursor-pointer" checked=${row.pr || false} onChange=${(e) => handleRowChange(bIdx, rIdx, 'pr', e.target.checked)} disabled=${isReadOnly}/>
                                         <div className="absolute top-0 right-0 pointer-events-none"><${StatusIcon} show=${showFeedback} isCorrect=${prOk}/></div>
                                     </div>
-                                    <div className="w-24 border-r relative">
+                                    <div className="w-24 border-r relative group">
                                         <input type="number" className=${getInputClass(drOk) + " text-right"} placeholder="Debit" value=${row.dr || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'dr', e.target.value)} disabled=${isReadOnly}/>
+                                        <${CorrectAnswerBubble} show=${showFeedback && drOk === false} value=${expDr} />
                                         <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${drOk}/></div>
                                     </div>
-                                    <div className="w-24 border-r relative">
+                                    <div className="w-24 border-r relative group">
                                         <input type="number" className=${getInputClass(crOk) + " text-right"} placeholder="Credit" value=${row.cr || ''} onChange=${(e) => handleRowChange(bIdx, rIdx, 'cr', e.target.value)} disabled=${isReadOnly}/>
+                                        <${CorrectAnswerBubble} show=${showFeedback && crOk === false} value=${expCr} />
                                         <div className="absolute top-0 right-0"><${StatusIcon} show=${showFeedback} isCorrect=${crOk}/></div>
                                     </div>
                                     <div className="w-8 flex justify-center items-center bg-gray-50">
@@ -694,13 +717,26 @@ export const validateStep08 = (data, activityData) => {
     let score = 0;
     let maxScore = 0;
     const fieldStatus = {};
+    const correctValues = {}; // Store expected values for UI overlay
 
     // 1. Calculate Correct Closing Amounts
     let totalRev = 0, totalExp = 0, drawingAmt = 0;
-    const revAccounts = [];
-    const expAccounts = [];
+    
+    // Group 1: Revenues + Contra-Revenues (Debit Balance accounts that close to Revenue)
+    const revAccounts = []; // Accounts to Debit in step 1
+    const contraRevAccounts = []; // Accounts to Credit in step 1 (if any, though rare in closing context)
+    
+    // Group 2: Expenses + Contra-Expenses (Credit Balance accounts that close to Expense)
+    const expAccounts = []; // Accounts to Credit in step 2
+    const contraExpAccounts = []; // Accounts to Debit in step 2
+
     let drawingAccName = '';
-    let capitalAccName = '';
+    
+    // Explicitly find the Capital Account (excluding drawings/dividends)
+    const capitalAccName = validAccounts.find(acc => {
+        const type = getAccountType(acc);
+        return type === 'Equity' && !acc.includes('Drawing') && !acc.includes('Dividend');
+    }) || 'Owner, Capital';
 
     // Build complete account list for validation iteration
     const allAccounts = new Set(validAccounts);
@@ -720,47 +756,96 @@ export const validateStep08 = (data, activityData) => {
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
-        const net = (rawDr + adjDr) - (rawCr + adjCr); // +Dr, -Cr
+        // Net Balance: (+Dr, -Cr)
+        const net = (rawDr + adjDr) - (rawCr + adjCr); 
+        const absNet = Math.abs(net);
 
+        // Classify for Closing
         if (type === 'Revenue') {
-            totalRev += Math.abs(net); // Normal Balance Cr
-            revAccounts.push({ acc, amt: Math.abs(net) });
+            // Revenue (Normal Cr, net < 0) OR Contra-Revenue (Normal Dr, net > 0)
+            if (net < 0) {
+                // Credit Balance -> Must Debit to Close (Standard Revenue)
+                totalRev += absNet; 
+                revAccounts.push({ acc, amt: absNet });
+            } else if (net > 0) {
+                // Debit Balance -> Must Credit to Close (Sales Returns)
+                // Treated as a deduction from Revenue in Step 1
+                totalRev -= absNet;
+                contraRevAccounts.push({ acc, amt: absNet });
+            }
         } else if (type === 'Expense') {
-            totalExp += Math.abs(net); // Normal Balance Dr
-            expAccounts.push({ acc, amt: Math.abs(net) });
+            // Expense (Normal Dr, net > 0) OR Contra-Expense (Normal Cr, net < 0)
+            if (net > 0) {
+                // Debit Balance -> Must Credit to Close (Standard Expense)
+                totalExp += absNet;
+                expAccounts.push({ acc, amt: absNet });
+            } else if (net < 0) {
+                // Credit Balance -> Must Debit to Close (Purchase Discounts)
+                // Treated as deduction from Expense in Step 2
+                totalExp -= absNet;
+                contraExpAccounts.push({ acc, amt: absNet });
+            }
         } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
-            drawingAmt = Math.abs(net);
+            drawingAmt = absNet;
             drawingAccName = acc;
-        } else if (acc.includes('Capital') || acc.includes('Retained Earnings')) {
-            capitalAccName = acc;
-        }
+        } 
     });
 
     const netIncome = totalRev - totalExp;
 
     // --- Prepare Expected Journal Data ---
+    // STEP 1: Close Revenues
+    // Dr Revenue Accounts (Normal Cr)
+    // Cr Contra-Revenue Accounts (Normal Dr)
+    // Cr Income Summary (Net Revenue)
+    const step1Rows = [
+        ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
+        ...contraRevAccounts.map(cr => ({ acc: cr.acc, dr: 0, cr: cr.amt })),
+        { acc: 'Income Summary', dr: 0, cr: totalRev } // Net Revenue
+    ];
+
+    // STEP 2: Close Expenses
+    // Dr Income Summary (Net Expense)
+    // Dr Contra-Expense Accounts (Normal Cr)
+    // Cr Expense Accounts (Normal Dr)
+    const step2Rows = [
+        { acc: 'Income Summary', dr: totalExp, cr: 0 }, // Net Expense
+        ...contraExpAccounts.map(ce => ({ acc: ce.acc, dr: ce.amt, cr: 0 })),
+        ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
+    ];
+
+    // STEP 3: Close Income Summary
+    // If Net Income > 0: Income Summary has Credit Balance -> Dr IS, Cr Capital
+    // If Net Income < 0 (Loss): Income Summary has Debit Balance -> Dr Capital, Cr IS
+    const step3Rows = netIncome >= 0 
+        ? [{ acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome }]
+        : [{ acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) }];
+
+    // STEP 4: Close Drawings
+    const step4Rows = [
+        { acc: capitalAccName, dr: drawingAmt, cr: 0 },
+        { acc: drawingAccName, dr: 0, cr: drawingAmt }
+    ];
+
     const expectedJournal = {
-        0: [ 
-            ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
-            { acc: 'Income Summary', dr: 0, cr: totalRev }
-        ],
-        1: [ 
-            { acc: 'Income Summary', dr: totalExp, cr: 0 },
-            ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
-        ],
-        2: [ 
-             netIncome >= 0 
-                ? [{ acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome }]
-                : [{ acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) }]
-        ],
-        3: [ 
-             { acc: capitalAccName, dr: drawingAmt, cr: 0 },
-             { acc: drawingAccName, dr: 0, cr: drawingAmt }
-        ]
+        0: step1Rows,
+        1: step2Rows,
+        2: step3Rows,
+        3: step4Rows
     };
 
+    // --- Populate Correct Values for UI Bubbles ---
+    Object.keys(expectedJournal).forEach(bIdx => {
+        expectedJournal[bIdx].forEach((row, rIdx) => {
+            const prefix = `journal-${bIdx}-${rIdx}`;
+            correctValues[`${prefix}-acc`] = row.acc;
+            if (row.dr > 0) correctValues[`${prefix}-dr`] = row.dr;
+            if (row.cr > 0) correctValues[`${prefix}-cr`] = row.cr;
+            if (rIdx === 0) correctValues[`${prefix}-date`] = expectedDate;
+        });
+    });
 
-    // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
+    // --- Validate Ledger Postings First ---
     const expectedPostings = {};
     sortedAllAccounts.forEach(acc => expectedPostings[acc] = []);
 
@@ -771,11 +856,17 @@ export const validateStep08 = (data, activityData) => {
     };
 
     // Generate Expectations from Journal Logic
+    // Step 1
     revAccounts.forEach(r => expPost(r.acc, 'left', r.amt));
+    contraRevAccounts.forEach(cr => expPost(cr.acc, 'right', cr.amt));
     expPost('Income Summary', 'right', totalRev);
+
+    // Step 2
     expPost('Income Summary', 'left', totalExp);
+    contraExpAccounts.forEach(ce => expPost(ce.acc, 'left', ce.amt));
     expAccounts.forEach(e => expPost(e.acc, 'right', e.amt));
 
+    // Step 3
     if (netIncome >= 0) {
         expPost('Income Summary', 'left', netIncome);
         expPost(capitalAccName, 'right', netIncome);
@@ -783,46 +874,20 @@ export const validateStep08 = (data, activityData) => {
         expPost(capitalAccName, 'left', Math.abs(netIncome));
         expPost('Income Summary', 'right', Math.abs(netIncome));
     }
+
+    // Step 4
     expPost(capitalAccName, 'left', drawingAmt);
     expPost(drawingAccName, 'right', drawingAmt);
 
-    // --- STATIC MAX SCORE CALCULATION (Pre-calc) ---
-    // 1. Journal Max Score
+
+    // --- VALIDATION LOGIC & DYNAMIC MAX SCORE CALCULATION ---
+    // Journal Max Score
     Object.values(expectedJournal).forEach((block, i) => {
         block.forEach((row, rIdx) => {
             maxScore += 3; // Account + Amount + PR
             if (rIdx === 0) maxScore += 1; // Date
         });
     });
-
-    // 2. Ledger Max Score
-    sortedAllAccounts.forEach(acc => {
-        const exps = expectedPostings[acc] || [];
-        const expLeft = exps.filter(e => e.side === 'left');
-        const expRight = exps.filter(e => e.side === 'right');
-
-        // History check logic (Matches Visual mapping logic)
-        const hasHistoryLeft = transactions.some(t => t.debits.some(d => d.account === acc)) || (ledger[acc]?.debit > 0) || adjustments.some(a => a.drAcc === acc);
-        const hasHistoryRight = transactions.some(t => t.credits.some(c => c.account === acc)) || (ledger[acc]?.credit > 0) || adjustments.some(a => a.crAcc === acc);
-
-        // Year Score (If no history but expected posting exists)
-        if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
-        if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
-
-        // Row Scores (Date + Particulars + PR + Amount)
-        exps.forEach(() => { maxScore += 4; });
-
-        // Totals Score (If not zero) - We should check if non-zero is expected.
-        let expDrTotal = 0; let expCrTotal = 0;
-        // ... (calc logic duplicated below, so let's pre-calc max score inside main loop to avoid duplication errors)
-    });
-
-
-    // --- VALIDATION LOGIC & DYNAMIC MAX SCORE CORRECTION ---
-    // Reset Ledger Max Score to calculate it correctly inside the loop with full context
-    // Actually, let's just do it in one pass below.
-    // Re-initialize maxScore for Ledger part
-    // Keep Journal max score as calculated above.
 
     // Validate Ledgers
     sortedAllAccounts.forEach(acc => {
@@ -863,6 +928,17 @@ export const validateStep08 = (data, activityData) => {
         // 4. Closing Entries
         expLeft.forEach(e => expDrTotal += e.amt);
         expRight.forEach(e => expCrTotal += e.amt);
+
+
+        // Ledger MAX SCORE calculation
+        // Year Score
+        if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
+        if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
+        // Row Scores (Date + Particulars + PR + Amount)
+        exps.forEach(() => { maxScore += 4; });
+        // Totals
+        if (expDrTotal > 0) maxScore += 1;
+        if (expCrTotal > 0) maxScore += 1;
 
 
         const validateSide = (userSideRows, expSideRows, sidePrefix, hasHistory, yearInput) => {
@@ -963,7 +1039,6 @@ export const validateStep08 = (data, activityData) => {
         const checkTotal = (userVal, expVal, key) => {
              const val = Number(userVal);
              if (expVal > 0) {
-                 maxScore += 1;
                  if (!userVal) {
                      fieldStatus[key] = false; // Expected but empty -> X
                  } else {
@@ -1000,30 +1075,33 @@ export const validateStep08 = (data, activityData) => {
         const userType = userL.balanceType;
         const isZero = Math.abs(expectedBal) < 1;
         
+        // CORRECTED CONTRA-ASSET LOGIC
         let expectedType = '';
+        const isContra = acc.includes('Accumulated Depreciation') || acc.includes('Allowance');
+
         if (!isZero) {
             const aType = getAccountType(acc);
             if (acc === capitalAccName) expectedType = expectedBal >= 0 ? 'Cr' : 'Dr'; 
-            else if (aType === 'Asset') expectedType = 'Dr';
+            else if (aType === 'Asset') expectedType = isContra ? 'Cr' : 'Dr'; // Correct credit normal balance for contra
             else if (aType === 'Liability') expectedType = 'Cr';
+            else expectedType = (aType === 'Revenue' || aType === 'Equity') ? 'Cr' : 'Dr';
         }
         
-        // Balance Amt
         if (expectedBal > 0) {
-            // maxScore += 1; (Already handled in pre-calc loop? No, let's rely on dynamic add here or strict calc above. 
-            // Better to stick to strict pre-calc or dynamic accumulation. Mixing leads to bugs.
-            // Let's update MaxScore dynamically here instead of pre-calc loop for Ledger, cleaner.)
-            
-            // Note: The pre-calc loop above added +2 for Balance. We should keep it consistent.
-            // Actually, let's remove the Ledger Pre-calc loop and do it all here.
+            maxScore += 1; // 1 Point for Combined Balance
             
             const matchesAmt = Math.abs(userBal - Math.abs(expectedBal)) < 1;
-            if (!userL.balance) {
-                fieldStatus[`${ledgerKeyBase}-bal`] = false;
-            } else {
-                fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
-                if (matchesAmt) score++;
-            }
+            const matchesType = userType === expectedType;
+
+            // Mark fields individually for feedback
+            if (!userL.balance) fieldStatus[`${ledgerKeyBase}-bal`] = false;
+            else fieldStatus[`${ledgerKeyBase}-bal`] = matchesAmt;
+            
+            if (!userType) fieldStatus[`${ledgerKeyBase}-balType`] = false;
+            else fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
+
+            // Strict scoring: Must have correct amount AND correct type for the point
+            if (matchesAmt && matchesType) score++;
         } else {
              if (userBal) {
                  fieldStatus[`${ledgerKeyBase}-bal`] = false; 
@@ -1031,20 +1109,12 @@ export const validateStep08 = (data, activityData) => {
              } else {
                  fieldStatus[`${ledgerKeyBase}-bal`] = null;
              }
-        }
-        
-        // Balance Type
-        if (!isZero) {
-            const matchesType = userType === expectedType;
-            if (!userType) {
-                fieldStatus[`${ledgerKeyBase}-balType`] = false;
-            } else {
-                fieldStatus[`${ledgerKeyBase}-balType`] = matchesType;
-                if (matchesType) score++;
-            }
-        } else {
-             fieldStatus[`${ledgerKeyBase}-balType`] = userType ? false : null; 
-             if (userType) score -= 1;
+             if (userType) {
+                 fieldStatus[`${ledgerKeyBase}-balType`] = false;
+                 score -= 1;
+             } else {
+                 fieldStatus[`${ledgerKeyBase}-balType`] = null;
+             }
         }
 
         fieldStatus[`${ledgerKeyBase}-overall`] = (fieldStatus[`${ledgerKeyBase}-bal`] !== false) && (fieldStatus[`${ledgerKeyBase}-balType`] !== false);
@@ -1141,85 +1211,12 @@ export const validateStep08 = (data, activityData) => {
         });
     });
 
-    // Re-Calculate Max Score Completely based on Expectations to ensure consistency
-    maxScore = 0;
-    
-    // Journal Max
-    Object.values(expectedJournal).forEach((block, i) => {
-        block.forEach((row, rIdx) => {
-            maxScore += 1; // Account
-            if (row.dr > 0) maxScore += 1; // Dr Amt
-            if (row.cr > 0) maxScore += 1; // Cr Amt
-            maxScore += 1; // PR
-            if (rIdx === 0) maxScore += 1; // Date
-        });
-    });
-
-    // Ledger Max
-    sortedAllAccounts.forEach(acc => {
-        const exps = expectedPostings[acc] || [];
-        const expLeft = exps.filter(e => e.side === 'left');
-        const expRight = exps.filter(e => e.side === 'right');
-
-        // History check logic (Matches Visual mapping logic)
-        const hasHistoryLeft = transactions.some(t => t.debits.some(d => d.account === acc)) || (ledger[acc]?.debit > 0) || adjustments.some(a => a.drAcc === acc);
-        const hasHistoryRight = transactions.some(t => t.credits.some(c => c.account === acc)) || (ledger[acc]?.credit > 0) || adjustments.some(a => a.crAcc === acc);
-
-        // Year Score
-        if (!hasHistoryLeft && expLeft.length > 0) maxScore += 1;
-        if (!hasHistoryRight && expRight.length > 0) maxScore += 1;
-
-        // Row Scores (Date + Particulars + PR + Amount)
-        exps.forEach(() => { maxScore += 4; });
-
-        // Totals (Conditional)
-        // Recalc Expected Totals
-        let expDrTotal = 0; let expCrTotal = 0;
-        if (config?.isSubsequentYear && beginningBalances?.balances?.[acc]) {
-             const bb = beginningBalances.balances[acc];
-             if (bb.dr) expDrTotal += bb.dr;
-             if (bb.cr) expCrTotal += bb.cr;
-        }
-        transactions.forEach(t => {
-            t.debits.forEach(d => { if(d.account === acc) expDrTotal += d.amount; });
-            t.credits.forEach(c => { if(c.account === acc) expCrTotal += c.amount; });
-        });
-        adjustments.forEach(a => {
-            if(a.drAcc === acc) expDrTotal += a.amount;
-            if(a.crAcc === acc) expCrTotal += a.amount;
-        });
-        expLeft.forEach(e => expDrTotal += e.amt);
-        expRight.forEach(e => expCrTotal += e.amt);
-        
-        if (expDrTotal > 0) maxScore += 1;
-        if (expCrTotal > 0) maxScore += 1;
-
-        // Balance Scores (Amt + Type)
-        // Recalc Expected Balance Logic
-        const type = getAccountType(acc);
-        let rawDr = ledger[acc]?.debit || 0;
-        let rawCr = ledger[acc]?.credit || 0;
-        adjustments.forEach(a => { if (a.drAcc === acc) rawDr += a.amount; if (a.crAcc === acc) rawCr += a.amount; });
-        let net = rawDr - rawCr;
-        if (type === 'Revenue') net -= net; 
-        else if (type === 'Expense') net += Math.abs(net);
-        
-        let expectedBal = 0;
-        if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') expectedBal = 0;
-        else if (acc === capitalAccName) {
-            let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); 
-            capBal += netIncome; capBal -= drawingAmt; expectedBal = capBal;
-        } else expectedBal = Math.abs(net);
-        
-        if (expectedBal > 0) maxScore += 1; // Bal Amt
-        if (expectedBal > 0) maxScore += 1; // Bal Type (Only if non-zero balance expected)
-    });
-
     return {
         score: Math.max(0, score), 
         maxScore,
         letterGrade: getLetterGrade(Math.max(0, score), maxScore),
         fieldStatus,
+        correctValues, // Return the corrected values map for the UI
         year: '20XX' 
     };
 };
