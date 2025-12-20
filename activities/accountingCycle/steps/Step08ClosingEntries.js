@@ -14,14 +14,12 @@ const StatusIcon = ({ isCorrect, show }) => {
         : html`<${X} size=${14} className="text-red-600 inline ml-1" />`;
 };
 
-// --- HELPER: Correct Answer Bubble (NEW FEATURE) ---
+// --- HELPER: Correct Answer Bubble ---
 const CorrectAnswerBubble = ({ value, show }) => {
-    // Only render if show is true and we actually have a value to show
     if (!show || value === undefined || value === null || value === '') return null;
-    
     return html`
-        <div className="absolute left-0 -top-5 z-50 pointer-events-none">
-            <div className="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded shadow-lg font-mono whitespace-nowrap opacity-90">
+        <div className="absolute left-0 -top-6 z-50 pointer-events-none">
+            <div className="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded shadow-lg font-mono whitespace-nowrap opacity-90 relative">
                 Expect: ${value}
                 <div className="absolute left-2 top-full w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-green-600"></div>
             </div>
@@ -82,7 +80,6 @@ const WorksheetSourceView = ({ ledgerData, adjustments }) => {
 
 // --- COMPONENT: Closing Entry Form (REID) ---
 const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validationResult }) => {
-    // Extract both status AND correct values from validation
     const { fieldStatus, correctValues } = validationResult || {};
 
     const defaultStructure = [
@@ -167,14 +164,13 @@ const ClosingEntryForm = ({ entries, onChange, isReadOnly, showFeedback, validat
                             ${rows.map((row, rIdx) => {
                                 const baseKey = `journal-${bIdx}-${rIdx}`;
                                 
-                                // Validation Statuses
                                 const accOk = fieldStatus?.[`${baseKey}-acc`];
                                 const drOk = fieldStatus?.[`${baseKey}-dr`];
                                 const crOk = fieldStatus?.[`${baseKey}-cr`];
                                 const prOk = fieldStatus?.[`${baseKey}-pr`];
                                 const dateOk = fieldStatus?.[`${baseKey}-date`];
 
-                                // Correct Values for Feedback
+                                // Get correct values for bubble
                                 const expAcc = correctValues?.[`${baseKey}-acc`];
                                 const expDr = correctValues?.[`${baseKey}-dr`];
                                 const expCr = correctValues?.[`${baseKey}-cr`];
@@ -725,8 +721,15 @@ export const validateStep08 = (data, activityData) => {
 
     // 1. Calculate Correct Closing Amounts
     let totalRev = 0, totalExp = 0, drawingAmt = 0;
-    const revAccounts = [];
-    const expAccounts = [];
+    
+    // Group 1: Revenues + Contra-Revenues (Debit Balance accounts that close to Revenue)
+    const revAccounts = []; // Accounts to Debit in step 1
+    const contraRevAccounts = []; // Accounts to Credit in step 1 (if any, though rare in closing context)
+    
+    // Group 2: Expenses + Contra-Expenses (Credit Balance accounts that close to Expense)
+    const expAccounts = []; // Accounts to Credit in step 2
+    const contraExpAccounts = []; // Accounts to Debit in step 2
+
     let drawingAccName = '';
     
     // Explicitly find the Capital Account (excluding drawings/dividends)
@@ -753,16 +756,37 @@ export const validateStep08 = (data, activityData) => {
         let adjDr = 0, adjCr = 0;
         adjustments.forEach(a => { if (a.drAcc === acc) adjDr += a.amount; if (a.crAcc === acc) adjCr += a.amount; });
         
-        const net = (rawDr + adjDr) - (rawCr + adjCr); // +Dr, -Cr
+        // Net Balance: (+Dr, -Cr)
+        const net = (rawDr + adjDr) - (rawCr + adjCr); 
+        const absNet = Math.abs(net);
 
+        // Classify for Closing
         if (type === 'Revenue') {
-            totalRev += Math.abs(net); // Normal Balance Cr
-            revAccounts.push({ acc, amt: Math.abs(net) });
+            // Revenue (Normal Cr, net < 0) OR Contra-Revenue (Normal Dr, net > 0)
+            if (net < 0) {
+                // Credit Balance -> Must Debit to Close (Standard Revenue)
+                totalRev += absNet; 
+                revAccounts.push({ acc, amt: absNet });
+            } else if (net > 0) {
+                // Debit Balance -> Must Credit to Close (Sales Returns)
+                // Treated as a deduction from Revenue in Step 1
+                totalRev -= absNet;
+                contraRevAccounts.push({ acc, amt: absNet });
+            }
         } else if (type === 'Expense') {
-            totalExp += Math.abs(net); // Normal Balance Dr
-            expAccounts.push({ acc, amt: Math.abs(net) });
+            // Expense (Normal Dr, net > 0) OR Contra-Expense (Normal Cr, net < 0)
+            if (net > 0) {
+                // Debit Balance -> Must Credit to Close (Standard Expense)
+                totalExp += absNet;
+                expAccounts.push({ acc, amt: absNet });
+            } else if (net < 0) {
+                // Credit Balance -> Must Debit to Close (Purchase Discounts)
+                // Treated as deduction from Expense in Step 2
+                totalExp -= absNet;
+                contraExpAccounts.push({ acc, amt: absNet });
+            }
         } else if (acc.includes('Drawing') || acc.includes('Dividends')) {
-            drawingAmt = Math.abs(net);
+            drawingAmt = absNet;
             drawingAccName = acc;
         } 
     });
@@ -770,25 +794,44 @@ export const validateStep08 = (data, activityData) => {
     const netIncome = totalRev - totalExp;
 
     // --- Prepare Expected Journal Data ---
+    // STEP 1: Close Revenues
+    // Dr Revenue Accounts (Normal Cr)
+    // Cr Contra-Revenue Accounts (Normal Dr)
+    // Cr Income Summary (Net Revenue)
+    const step1Rows = [
+        ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
+        ...contraRevAccounts.map(cr => ({ acc: cr.acc, dr: 0, cr: cr.amt })),
+        { acc: 'Income Summary', dr: 0, cr: totalRev } // Net Revenue
+    ];
+
+    // STEP 2: Close Expenses
+    // Dr Income Summary (Net Expense)
+    // Dr Contra-Expense Accounts (Normal Cr)
+    // Cr Expense Accounts (Normal Dr)
+    const step2Rows = [
+        { acc: 'Income Summary', dr: totalExp, cr: 0 }, // Net Expense
+        ...contraExpAccounts.map(ce => ({ acc: ce.acc, dr: ce.amt, cr: 0 })),
+        ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
+    ];
+
+    // STEP 3: Close Income Summary
+    // If Net Income > 0: Income Summary has Credit Balance -> Dr IS, Cr Capital
+    // If Net Income < 0 (Loss): Income Summary has Debit Balance -> Dr Capital, Cr IS
+    const step3Rows = netIncome >= 0 
+        ? [{ acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome }]
+        : [{ acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) }];
+
+    // STEP 4: Close Drawings
+    const step4Rows = [
+        { acc: capitalAccName, dr: drawingAmt, cr: 0 },
+        { acc: drawingAccName, dr: 0, cr: drawingAmt }
+    ];
+
     const expectedJournal = {
-        0: [ 
-            ...revAccounts.map(r => ({ acc: r.acc, dr: r.amt, cr: 0 })),
-            { acc: 'Income Summary', dr: 0, cr: totalRev }
-        ],
-        1: [ 
-            { acc: 'Income Summary', dr: totalExp, cr: 0 },
-            ...expAccounts.map(e => ({ acc: e.acc, dr: 0, cr: e.amt }))
-        ],
-        2: [ 
-             // Income Summary Closing: Always to Capital
-             netIncome >= 0 
-                ? [{ acc: 'Income Summary', dr: netIncome, cr: 0 }, { acc: capitalAccName, dr: 0, cr: netIncome }]
-                : [{ acc: capitalAccName, dr: Math.abs(netIncome), cr: 0 }, { acc: 'Income Summary', dr: 0, cr: Math.abs(netIncome) }]
-        ],
-        3: [ 
-             { acc: capitalAccName, dr: drawingAmt, cr: 0 },
-             { acc: drawingAccName, dr: 0, cr: drawingAmt }
-        ]
+        0: step1Rows,
+        1: step2Rows,
+        2: step3Rows,
+        3: step4Rows
     };
 
     // --- Populate Correct Values for UI Bubbles ---
@@ -802,7 +845,7 @@ export const validateStep08 = (data, activityData) => {
         });
     });
 
-    // --- Validate Ledger Postings First (to check if Journal PR is valid) ---
+    // --- Validate Ledger Postings First ---
     const expectedPostings = {};
     sortedAllAccounts.forEach(acc => expectedPostings[acc] = []);
 
@@ -813,11 +856,17 @@ export const validateStep08 = (data, activityData) => {
     };
 
     // Generate Expectations from Journal Logic
+    // Step 1
     revAccounts.forEach(r => expPost(r.acc, 'left', r.amt));
+    contraRevAccounts.forEach(cr => expPost(cr.acc, 'right', cr.amt));
     expPost('Income Summary', 'right', totalRev);
+
+    // Step 2
     expPost('Income Summary', 'left', totalExp);
+    contraExpAccounts.forEach(ce => expPost(ce.acc, 'left', ce.amt));
     expAccounts.forEach(e => expPost(e.acc, 'right', e.amt));
 
+    // Step 3
     if (netIncome >= 0) {
         expPost('Income Summary', 'left', netIncome);
         expPost(capitalAccName, 'right', netIncome);
@@ -825,6 +874,8 @@ export const validateStep08 = (data, activityData) => {
         expPost(capitalAccName, 'left', Math.abs(netIncome));
         expPost('Income Summary', 'right', Math.abs(netIncome));
     }
+
+    // Step 4
     expPost(capitalAccName, 'left', drawingAmt);
     expPost(drawingAccName, 'right', drawingAmt);
 
