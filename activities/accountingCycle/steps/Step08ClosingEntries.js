@@ -16,16 +16,17 @@ const StatusIcon = ({ isCorrect, show }) => {
 
 // --- HELPER: Correct Answer Bubble ---
 const CorrectAnswerBubble = ({ value, show }) => {
-    if (!show || value === undefined || value === null || value === '') return null;
-    return html`
-        <div className="absolute left-0 -top-6 z-50 pointer-events-none">
-            <div className="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded shadow-lg font-mono whitespace-nowrap opacity-90 relative">
-                Expect: ${value}
-                <div className="absolute left-2 top-full w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-green-600"></div>
-            </div>
-        </div>
-    `;
-};
+    
+    // if (!show || value === undefined || value === null || value === '') return null;
+    // return html`
+    //     <div className="absolute left-0 -top-6 z-50 pointer-events-none">
+    //         <div className="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded shadow-lg font-mono whitespace-nowrap opacity-90 relative">
+    //             Expect: ${value}
+    //             <div className="absolute left-2 top-full w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-green-600"></div>
+    //         </div>
+    //     </div>
+    // `;
+    };
 
 // --- COMPONENT: Worksheet Source View (Read-Only) ---
 const WorksheetSourceView = ({ ledgerData, adjustments }) => {
