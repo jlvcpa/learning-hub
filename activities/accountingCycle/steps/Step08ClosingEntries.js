@@ -812,46 +812,9 @@ export const validateStep08 = (data, activityData) => {
         // Row Scores (Date + Particulars + PR + Amount)
         exps.forEach(() => { maxScore += 4; });
 
-        // Totals (Conditional)
-        // Recalc Expected Totals
+        // Totals Score (If not zero) - We should check if non-zero is expected.
         let expDrTotal = 0; let expCrTotal = 0;
-        if (config?.isSubsequentYear && beginningBalances?.balances?.[acc]) {
-             const bb = beginningBalances.balances[acc];
-             if (bb.dr) expDrTotal += bb.dr;
-             if (bb.cr) expCrTotal += bb.cr;
-        }
-        transactions.forEach(t => {
-            t.debits.forEach(d => { if(d.account === acc) expDrTotal += d.amount; });
-            t.credits.forEach(c => { if(c.account === acc) expCrTotal += c.amount; });
-        });
-        adjustments.forEach(a => {
-            if(a.drAcc === acc) expDrTotal += a.amount;
-            if(a.crAcc === acc) expCrTotal += a.amount;
-        });
-        expLeft.forEach(e => expDrTotal += e.amt);
-        expRight.forEach(e => expCrTotal += e.amt);
-        
-        if (expDrTotal > 0) maxScore += 1;
-        if (expCrTotal > 0) maxScore += 1;
-
-        // Balance Scores (Amt + Type)
-        // Recalc Expected Balance Logic
-        const type = getAccountType(acc);
-        let rawDr = ledger[acc]?.debit || 0;
-        let rawCr = ledger[acc]?.credit || 0;
-        adjustments.forEach(a => { if (a.drAcc === acc) rawDr += a.amount; if (a.crAcc === acc) rawCr += a.amount; });
-        let net = rawDr - rawCr;
-        if (type === 'Revenue') net -= net; 
-        else if (type === 'Expense') net += Math.abs(net);
-        
-        let expectedBal = 0;
-        if (['Revenue', 'Expense'].includes(type) || acc === drawingAccName || acc === 'Income Summary') expectedBal = 0;
-        else if (acc === capitalAccName) {
-            let capBal = (ledger[acc]?.credit || 0) - (ledger[acc]?.debit || 0); 
-            capBal += netIncome; capBal -= drawingAmt; expectedBal = capBal;
-        } else expectedBal = Math.abs(net);
-        
-        if (expectedBal > 0) maxScore += 1; // 1 point for Combined Balance Answer
+        // ... (calc logic duplicated below, so let's pre-calc max score inside main loop to avoid duplication errors)
     });
 
 
